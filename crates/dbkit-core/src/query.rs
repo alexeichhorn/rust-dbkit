@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
 use crate::expr::Expr;
+use crate::load::{ApplyLoad, LoadSpec};
+use crate::rel::RelationInfo;
 use crate::schema::{ColumnRef, Table};
 
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +41,7 @@ pub struct Select<Out> {
     limit: Option<u64>,
     offset: Option<u64>,
     distinct: bool,
+    loads: Vec<LoadSpec>,
     _marker: PhantomData<Out>,
 }
 
@@ -53,6 +56,7 @@ impl<Out> Select<Out> {
             limit: None,
             offset: None,
             distinct: false,
+            loads: Vec::new(),
             _marker: PhantomData,
         }
     }
@@ -62,7 +66,33 @@ impl<Out> Select<Out> {
         self
     }
 
-    pub fn join(mut self, table: Table, on: Expr<bool>) -> Self {
+    pub fn join<R>(mut self, rel: R) -> Self
+    where
+        R: RelationInfo<Parent = Out>,
+    {
+        let relation = rel.relation();
+        self.joins.push(Join {
+            table: relation.join_table(),
+            on: relation.on_expr(),
+            kind: JoinKind::Inner,
+        });
+        self
+    }
+
+    pub fn left_join<R>(mut self, rel: R) -> Self
+    where
+        R: RelationInfo<Parent = Out>,
+    {
+        let relation = rel.relation();
+        self.joins.push(Join {
+            table: relation.join_table(),
+            on: relation.on_expr(),
+            kind: JoinKind::Left,
+        });
+        self
+    }
+
+    pub fn join_on(mut self, table: Table, on: Expr<bool>) -> Self {
         self.joins.push(Join {
             table,
             on,
@@ -71,7 +101,7 @@ impl<Out> Select<Out> {
         self
     }
 
-    pub fn left_join(mut self, table: Table, on: Expr<bool>) -> Self {
+    pub fn left_join_on(mut self, table: Table, on: Expr<bool>) -> Self {
         self.joins.push(Join {
             table,
             on,
@@ -103,6 +133,35 @@ impl<Out> Select<Out> {
     pub fn columns(mut self, columns: Vec<ColumnRef>) -> Self {
         self.columns = Some(columns);
         self
+    }
+
+    pub fn with<L>(self, load: L) -> Select<L::Out2>
+    where
+        L: ApplyLoad<Out>,
+    {
+        load.apply(self)
+    }
+
+    #[doc(hidden)]
+    pub fn push_load(mut self, load: LoadSpec) -> Self {
+        self.loads.push(load);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn into_output<Out2>(self) -> Select<Out2> {
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            loads: self.loads,
+            _marker: PhantomData,
+        }
     }
 
     pub fn compile(&self) -> CompiledSql {

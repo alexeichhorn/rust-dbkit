@@ -1,4 +1,4 @@
-use dbkit::{model, HasMany};
+use dbkit::{model, BelongsTo, HasMany};
 
 #[model(table = "users")]
 pub struct User {
@@ -15,6 +15,9 @@ pub struct User {
 pub struct Todo {
     #[key]
     pub id: i64,
+    pub user_id: i64,
+    #[belongs_to(key = user_id, references = id)]
+    pub user: BelongsTo<User>,
     pub title: String,
 }
 
@@ -26,6 +29,14 @@ fn main() {
     let _insert = User::insert();
     let _update = User::update();
     let _delete = User::delete();
+
+    let _rel = User::todos;
+    let _rel2 = Todo::user;
+    let _load = User::todos.selectin();
+    let _loaded_query: dbkit::Select<UserModel<Vec<Todo>>> =
+        User::query().with(User::todos.selectin());
+    let _nested_query: dbkit::Select<UserModel<Vec<TodoModel<Option<User>>>>> = User::query()
+        .with(User::todos.selectin().with(Todo::user.joined()));
 
     let loaded = UserModel::<Vec<Todo>> {
         id: 1,

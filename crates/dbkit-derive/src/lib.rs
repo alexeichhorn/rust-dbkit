@@ -35,6 +35,8 @@ struct RelationInfo {
     state_mod_ident: Ident,
     child_type: Type,
     kind: RelationKind,
+    belongs_to_key: Option<Ident>,
+    belongs_to_ref: Option<Ident>,
 }
 
 #[derive(Default)]
@@ -108,13 +110,22 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 to_snake_case(&struct_ident.to_string()),
                 field_ident
             );
-            let param_ident = format_ident!("{}", to_camel_case(&field_ident.to_string()));
+            let param_ident = format_ident!("{}Rel", to_camel_case(&field_ident.to_string()));
+            let (belongs_to_key, belongs_to_ref) = if kind == RelationKind::BelongsTo {
+                let (key, references) = parse_belongs_to_args(&field.attrs)?;
+                (Some(key), Some(references))
+            } else {
+                (None, None)
+            };
+
             relation_fields.push(RelationInfo {
                 field: field.clone(),
                 param_ident: param_ident.clone(),
                 state_mod_ident,
                 child_type,
                 kind,
+                belongs_to_key,
+                belongs_to_ref,
             });
 
             let cleaned_field = Field {
@@ -279,6 +290,120 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         )
     });
 
+    let relation_consts = relation_fields.iter().filter_map(|rel| {
+        let field_ident = rel.field.ident.as_ref().expect("field ident");
+        let child_type = &rel.child_type;
+        match rel.kind {
+            RelationKind::HasMany => Some(quote!(
+                pub const #field_ident: ::dbkit::rel::HasMany<#struct_ident, #child_type> =
+                    ::dbkit::rel::HasMany::new(
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::PARENT_TABLE,
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::CHILD_TABLE,
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::PARENT_KEY,
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::CHILD_KEY,
+                    );
+            )),
+            RelationKind::BelongsTo => {
+                let key = rel.belongs_to_key.as_ref().expect("belongs_to key");
+                let references = rel.belongs_to_ref.as_ref().expect("belongs_to references");
+                Some(quote!(
+                    pub const #field_ident: ::dbkit::rel::BelongsTo<#struct_ident, #child_type> =
+                        ::dbkit::rel::BelongsTo::new(
+                            Self::TABLE,
+                            #child_type::TABLE,
+                            Self::#key.as_ref(),
+                            #child_type::#references.as_ref(),
+                        );
+                ))
+            }
+            RelationKind::ManyToMany => None,
+        }
+    });
+
+    let belongs_to_specs = relation_fields.iter().filter_map(|rel| {
+        if rel.kind != RelationKind::BelongsTo {
+            return None;
+        }
+        let parent_type = &rel.child_type;
+        let key = rel.belongs_to_key.as_ref().expect("belongs_to key");
+        let references = rel.belongs_to_ref.as_ref().expect("belongs_to references");
+        Some(quote!(
+            impl #impl_generics ::dbkit::rel::BelongsToSpec<#parent_type> for #model_ident #struct_type_args {
+                const CHILD_TABLE: ::dbkit::Table = Self::TABLE;
+                const PARENT_TABLE: ::dbkit::Table = #parent_type::TABLE;
+                const CHILD_KEY: ::dbkit::ColumnRef = Self::#key.as_ref();
+                const PARENT_KEY: ::dbkit::ColumnRef = #parent_type::#references.as_ref();
+            }
+        ))
+    });
+
+    let apply_load_impls = relation_fields.iter().flat_map(|rel| {
+        let child_type = &rel.child_type;
+        let rel_type = match rel.kind {
+            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
+            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            RelationKind::ManyToMany => return Vec::new().into_iter(),
+        };
+
+        let loaded_child = quote!(<Nested as ::dbkit::load::ApplyLoad<#child_type>>::Out2);
+        let loaded_param = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => quote!(Vec<#loaded_child>),
+            RelationKind::BelongsTo => quote!(Option<#loaded_child>),
+        };
+
+        let mut out_params = Vec::new();
+        for other in &relation_fields {
+            if other.field.ident == rel.field.ident {
+                out_params.push(loaded_param.clone());
+            } else {
+                let ident = &other.param_ident;
+                out_params.push(quote!(#ident));
+            }
+        }
+
+        let model_type = if generic_idents.is_empty() {
+            quote!(#model_ident)
+        } else {
+            quote!(#model_ident<#(#generic_idents),*>)
+        };
+        let out_type = if out_params.is_empty() {
+            quote!(#model_ident)
+        } else {
+            quote!(#model_ident<#(#out_params),*>)
+        };
+
+        let mut apply_generics = Vec::new();
+        apply_generics.push(quote!(Nested));
+        apply_generics.extend(impl_generics_params.iter().cloned());
+        let apply_generics = if apply_generics.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#apply_generics),*>)
+        };
+
+        let mut items = Vec::new();
+        for strategy in ["SelectIn", "Joined"] {
+            let load_ty = if strategy == "SelectIn" {
+                quote!(::dbkit::load::SelectIn<#rel_type, Nested>)
+            } else {
+                quote!(::dbkit::load::Joined<#rel_type, Nested>)
+            };
+            items.push(quote!(
+                impl #apply_generics ::dbkit::load::ApplyLoad<#model_type> for #load_ty
+                where
+                    Nested: ::dbkit::load::ApplyLoad<#child_type> + ::dbkit::load::NestedLoad,
+                {
+                    type Out2 = #out_type;
+
+                    fn apply(self, select: ::dbkit::Select<#model_type>) -> ::dbkit::Select<Self::Out2> {
+                        select.push_load(self.into_spec()).into_output()
+                    }
+                }
+            ));
+        }
+        items.into_iter()
+    });
+
     let output = quote! {
         #(#struct_attrs)*
         #vis struct #model_ident #struct_generics {
@@ -293,6 +418,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             pub const TABLE: ::dbkit::Table = #table_expr;
             #(#columns)*
             #primary_key_const
+            #(#relation_consts)*
 
             pub fn query() -> ::dbkit::Select<#struct_ident> {
                 ::dbkit::Select::new(Self::TABLE)
@@ -319,6 +445,8 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
 
         #(#relation_methods)*
+        #(#belongs_to_specs)*
+        #(#apply_load_impls)*
     };
 
     Ok(output.into())
@@ -342,9 +470,50 @@ fn parse_model_args(args: syn::punctuated::Punctuated<Meta, syn::Token![,]>) -> 
     out
 }
 
+fn parse_belongs_to_args(attrs: &[Attribute]) -> syn::Result<(Ident, Ident)> {
+    for attr in attrs {
+        if !attr.path().is_ident("belongs_to") {
+            continue;
+        }
+        let args = attr.parse_args_with(
+            syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+        )?;
+        let mut key = None;
+        let mut references = None;
+        for meta in args {
+            if let Meta::NameValue(nv) = meta {
+                if nv.path.is_ident("key") {
+                    key = extract_ident(&nv.value);
+                } else if nv.path.is_ident("references") {
+                    references = extract_ident(&nv.value);
+                }
+            }
+        }
+        if let (Some(key), Some(references)) = (key, references) {
+            return Ok((key, references));
+        }
+    }
+    Err(syn::Error::new(
+        proc_macro2::Span::call_site(),
+        "dbkit: #[belongs_to] requires key = <field> and references = <field>",
+    ))
+}
+
 fn extract_lit_str(expr: &syn::Expr) -> Option<String> {
-    if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(lit), .. }) = expr {
+    if let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(lit),
+        ..
+    }) = expr
+    {
         Some(lit.value())
+    } else {
+        None
+    }
+}
+
+fn extract_ident(expr: &syn::Expr) -> Option<Ident> {
+    if let syn::Expr::Path(path) = expr {
+        path.path.get_ident().cloned()
     } else {
         None
     }
