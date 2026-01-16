@@ -1,0 +1,10 @@
+[package]
+name = "dbkit-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+insta = "1"
