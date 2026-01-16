@@ -219,23 +219,31 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         )
     });
 
+    let any_state_ident = format_ident!("{}AnyState", struct_ident);
+
     let relation_state_modules = relation_fields.iter().map(|rel| {
         let state_mod = &rel.state_mod_ident;
-        let child_type = adjust_type_for_module(&rel.child_type);
-        let loaded_type = match rel.kind {
-            RelationKind::HasMany | RelationKind::ManyToMany => quote!(Vec<#child_type>),
-            RelationKind::BelongsTo => quote!(Option<#child_type>),
+        let child_any_state = any_state_path(&rel.child_type);
+        let (sealed_impl, state_impl) = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => (
+                quote!(impl<T: #child_any_state> Sealed for Vec<T> {}),
+                quote!(impl<T: #child_any_state> State for Vec<T> {}),
+            ),
+            RelationKind::BelongsTo => (
+                quote!(impl<T: #child_any_state> Sealed for Option<T> {}),
+                quote!(impl<T: #child_any_state> State for Option<T> {}),
+            ),
         };
         quote!(
             pub mod #state_mod {
                 mod sealed {
                     pub trait Sealed {}
                     impl Sealed for ::dbkit::NotLoaded {}
-                    impl Sealed for #loaded_type {}
+                    #sealed_impl
                 }
                 pub trait State: sealed::Sealed {}
                 impl State for ::dbkit::NotLoaded {}
-                impl State for #loaded_type {}
+                #state_impl
             }
         )
     });
@@ -243,9 +251,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let relation_methods = relation_fields.iter().map(|rel| {
         let field_ident = rel.field.ident.as_ref().expect("field ident");
         let child_type = &rel.child_type;
+        let child_any_state = any_state_path(child_type);
+        let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
         let loaded_type: Type = match rel.kind {
-            RelationKind::HasMany | RelationKind::ManyToMany => syn::parse_quote!(Vec<#child_type>),
-            RelationKind::BelongsTo => syn::parse_quote!(Option<#child_type>),
+            RelationKind::HasMany | RelationKind::ManyToMany => syn::parse_quote!(Vec<#item_ident>),
+            RelationKind::BelongsTo => syn::parse_quote!(Option<#item_ident>),
         };
 
         let mut other_params = Vec::new();
@@ -261,10 +271,14 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             }
         }
 
-        let impl_generics = if other_params.is_empty() {
+        let mut impl_params = Vec::new();
+        impl_params.push(quote!(#item_ident: #child_any_state));
+        impl_params.extend(other_params);
+
+        let impl_generics = if impl_params.is_empty() {
             quote!()
         } else {
-            quote!(<#(#other_params),*>)
+            quote!(<#(#impl_params),*>)
         };
         let type_args = if type_params.is_empty() {
             quote!()
@@ -274,10 +288,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
         let (return_ty, body) = match rel.kind {
             RelationKind::HasMany | RelationKind::ManyToMany => {
-                (quote!(&[#child_type]), quote!(&self.#field_ident))
+                (quote!(&[#item_ident]), quote!(&self.#field_ident))
             }
             RelationKind::BelongsTo => {
-                (quote!(Option<&#child_type>), quote!(self.#field_ident.as_ref()))
+                (quote!(Option<&#item_ident>), quote!(self.#field_ident.as_ref()))
             }
         };
 
@@ -413,6 +427,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         #vis type #struct_ident = #model_ident;
 
         #(#relation_state_modules)*
+
+        #vis trait #any_state_ident {}
+        impl #impl_generics #any_state_ident for #model_ident #struct_type_args {}
 
         impl #impl_generics #model_ident #struct_type_args {
             pub const TABLE: ::dbkit::Table = #table_expr;
@@ -699,6 +716,25 @@ fn adjust_type_for_module(ty: &Type) -> proc_macro2::TokenStream {
                 quote!(super::#ty)
             } else {
                 quote!(#ty)
+            }
+        }
+        _ => quote!(#ty),
+    }
+}
+
+fn any_state_path(ty: &Type) -> proc_macro2::TokenStream {
+    match ty {
+        Type::Path(path) => {
+            let mut new_path = path.path.clone();
+            if let Some(last) = new_path.segments.last_mut() {
+                let ident = last.ident.to_string();
+                last.ident = format_ident!(\"{}AnyState\", ident);
+                last.arguments = syn::PathArguments::None;
+            }
+            if new_path.leading_colon.is_none() && new_path.segments.len() == 1 {
+                quote!(super::#new_path)
+            } else {
+                quote!(#new_path)
             }
         }
         _ => quote!(#ty),
