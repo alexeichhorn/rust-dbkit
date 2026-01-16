@@ -9,7 +9,7 @@ pub mod types;
 
 pub use compile::CompiledSql;
 pub use expr::{Expr, ExprNode, Value};
-pub use load::{ApplyLoad, Joined, LoadSpec, NoLoad, SelectIn, Strategy};
+pub use load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 pub use mutation::{Delete, Insert, Update};
 pub use query::{Join, JoinKind, Order, OrderDirection, Select};
 pub use rel::{BelongsToSpec, Relation, RelationInfo, RelationKind};

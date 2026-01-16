@@ -206,6 +206,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         })
         .collect::<Vec<_>>();
 
+    let insert_values = insert_fields.iter().map(|field| {
+        let ident = field.ident.as_ref().expect("field ident");
+        quote!(insert = insert.value(Self::#ident, values.#ident);)
+    });
+
     let primary_key_const = primary_key.as_ref().map(|(ident, ty)| {
         let name = ident.to_string();
         quote!(pub const PRIMARY_KEY: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
@@ -299,6 +304,206 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             impl #impl_generics #model_ident #type_args {
                 pub fn #field_ident(&self) -> #return_ty {
                     #body
+                }
+            }
+        )
+    });
+
+    let model_value_arms = output_fields
+        .iter()
+        .filter(|field| !is_relation_field(field, &relation_fields))
+        .map(|field| {
+            let ident = field.ident.as_ref().expect("field ident");
+            let name = ident.to_string();
+            quote!(#name => Some(self.#ident.clone().into()),)
+        });
+
+    let model_value_impl = quote!(
+        impl #impl_generics ::dbkit::ModelValue for #model_ident #struct_type_args {
+            fn column_value(&self, column: ::dbkit::ColumnRef) -> Option<::dbkit::Value> {
+                if column.table.name != Self::TABLE.name {
+                    return None;
+                }
+                match column.name {
+                    #(#model_value_arms)*
+                    _ => None,
+                }
+            }
+        }
+    );
+
+    let from_row_generics = relation_fields.iter().map(|rel| {
+        let ident = &rel.param_ident;
+        let state_mod = &rel.state_mod_ident;
+        quote!(#ident: #state_mod::State + Default)
+    });
+
+    let from_row_impl_generics = if relation_fields.is_empty() {
+        quote!()
+    } else {
+        quote!(<#(#from_row_generics),*>)
+    };
+
+    let from_row_fields = output_fields.iter().map(|field| {
+        let ident = field.ident.as_ref().expect("field ident");
+        if is_relation_field(field, &relation_fields) {
+            quote!(#ident: Default::default())
+        } else {
+            let name = ident.to_string();
+            quote!(#ident: ::dbkit::sqlx::Row::try_get(row, #name)?)
+        }
+    });
+
+    let from_row_impl = quote!(
+        impl<'r> #from_row_impl_generics ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow>
+            for #model_ident #struct_type_args
+        {
+            fn from_row(row: &'r ::dbkit::sqlx::postgres::PgRow) -> Result<Self, ::dbkit::sqlx::Error> {
+                Ok(Self {
+                    #(#from_row_fields,)*
+                })
+            }
+        }
+    );
+
+    let set_relation_impls = relation_fields.iter().map(|rel| {
+        let field_ident = rel.field.ident.as_ref().expect("field ident");
+        let child_type = &rel.child_type;
+        let child_any_state = any_state_path(child_type);
+        let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
+        let (value_ty, rel_ty) = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => (
+                quote!(Vec<#item_ident>),
+                quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
+            ),
+            RelationKind::BelongsTo => (
+                quote!(Option<#item_ident>),
+                quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            ),
+        };
+
+        let mut other_params = Vec::new();
+        let mut type_params = Vec::new();
+        for other in &relation_fields {
+            if other.field.ident == rel.field.ident {
+                type_params.push(value_ty.clone());
+            } else {
+                let ident = &other.param_ident;
+                let state_mod = &other.state_mod_ident;
+                other_params.push(quote!(#ident: #state_mod::State));
+                type_params.push(quote!(#ident));
+            }
+        }
+
+        let mut impl_params = Vec::new();
+        impl_params.push(quote!(#item_ident: #child_any_state));
+        impl_params.extend(other_params);
+
+        let impl_generics = if impl_params.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#impl_params),*>)
+        };
+        let type_args = if type_params.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#type_params),*>)
+        };
+
+        quote!(
+            impl #impl_generics ::dbkit::SetRelation<#rel_ty, #value_ty> for #model_ident #type_args {
+                fn set_relation(&mut self, _rel: #rel_ty, value: #value_ty) -> Result<(), ::dbkit::Error> {
+                    self.#field_ident = value;
+                    Ok(())
+                }
+            }
+        )
+    });
+
+    let load_methods = relation_fields.iter().map(|rel| {
+        let field_ident = rel.field.ident.as_ref().expect("field ident");
+        let child_type = &rel.child_type;
+        let rel_type = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => {
+                quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>)
+            }
+            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+        };
+        let loaded_type = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => quote!(Vec<#child_type>),
+            RelationKind::BelongsTo => quote!(Option<#child_type>),
+        };
+        let loader_fn = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => {
+                quote!(::dbkit::runtime::load_selectin_has_many)
+            }
+            RelationKind::BelongsTo => quote!(::dbkit::runtime::load_selectin_belongs_to),
+        };
+
+        let mut other_params = Vec::new();
+        let mut type_params = Vec::new();
+        let mut out_params = Vec::new();
+        for other in &relation_fields {
+            if other.field.ident == rel.field.ident {
+                type_params.push(quote!(::dbkit::NotLoaded));
+                out_params.push(loaded_type.clone());
+            } else {
+                let ident = &other.param_ident;
+                let state_mod = &other.state_mod_ident;
+                other_params.push(quote!(#ident: #state_mod::State));
+                type_params.push(quote!(#ident));
+                out_params.push(quote!(#ident));
+            }
+        }
+
+        let impl_generics = if other_params.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#other_params),*>)
+        };
+        let type_args = if type_params.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#type_params),*>)
+        };
+        let out_type = if out_params.is_empty() {
+            quote!(#model_ident)
+        } else {
+            quote!(#model_ident<#(#out_params),*>)
+        };
+
+        let destructure_fields = output_fields.iter().map(|field| {
+            let ident = field.ident.as_ref().expect("field ident");
+            if ident == field_ident {
+                quote!(#ident: _)
+            } else {
+                quote!(#ident)
+            }
+        });
+
+        let build_fields = output_fields.iter().map(|field| {
+            let ident = field.ident.as_ref().expect("field ident");
+            if ident == field_ident {
+                quote!(#ident: Default::default())
+            } else {
+                quote!(#ident)
+            }
+        });
+
+        quote!(
+            impl #impl_generics #model_ident #type_args {
+                pub async fn load(
+                    self,
+                    rel: #rel_type,
+                    ex: impl ::dbkit::Executor,
+                ) -> Result<#out_type, ::dbkit::Error> {
+                    let Self { #(#destructure_fields,)* } = self;
+                    let mut out = #out_type {
+                        #(#build_fields,)*
+                    };
+                    let mut rows = vec![out];
+                    #loader_fn(ex, &mut rows, rel, &::dbkit::load::NoLoad).await?;
+                    Ok(rows.pop().expect("loaded row"))
                 }
             }
         )
@@ -405,12 +610,97 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             items.push(quote!(
                 impl #apply_generics ::dbkit::load::ApplyLoad<#model_type> for #load_ty
                 where
-                    Nested: ::dbkit::load::ApplyLoad<#child_type> + ::dbkit::load::NestedLoad,
+                    Nested: ::dbkit::load::ApplyLoad<#child_type>,
                 {
                     type Out2 = #out_type;
+                }
+            ));
+        }
+        items.into_iter()
+    });
 
-                    fn apply(self, select: ::dbkit::Select<#model_type>) -> ::dbkit::Select<Self::Out2> {
-                        select.push_load(self.into_spec()).into_output()
+    let run_load_impls = relation_fields.iter().flat_map(|rel| {
+        let child_type = &rel.child_type;
+        let rel_type = match rel.kind {
+            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
+            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            RelationKind::ManyToMany => return Vec::new().into_iter(),
+        };
+
+        let loaded_child = quote!(<Nested as ::dbkit::load::ApplyLoad<#child_type>>::Out2);
+        let loaded_param = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => quote!(Vec<#loaded_child>),
+            RelationKind::BelongsTo => quote!(Option<#loaded_child>),
+        };
+
+        let mut out_params = Vec::new();
+        for other in &relation_fields {
+            if other.field.ident == rel.field.ident {
+                out_params.push(loaded_param.clone());
+            } else {
+                let ident = &other.param_ident;
+                out_params.push(quote!(#ident));
+            }
+        }
+
+        let out_type = if out_params.is_empty() {
+            quote!(#model_ident)
+        } else {
+            quote!(#model_ident<#(#out_params),*>)
+        };
+
+        let mut apply_generics = Vec::new();
+        apply_generics.push(quote!(Nested));
+        apply_generics.extend(impl_generics_params.iter().cloned());
+        let apply_generics = if apply_generics.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#apply_generics),*>)
+        };
+
+        let (child_bounds, loader_fn) = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => (
+                quote!(#loaded_child: ::dbkit::ModelValue + for<'r> ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow> + Send + Unpin,),
+                quote!(::dbkit::runtime::load_selectin_has_many),
+            ),
+            RelationKind::BelongsTo => (
+                quote!(#loaded_child: ::dbkit::ModelValue + Clone + for<'r> ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow> + Send + Unpin,),
+                quote!(::dbkit::runtime::load_selectin_belongs_to),
+            ),
+        };
+
+        let joined_loader_fn = match rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => quote!(::dbkit::runtime::load_joined_has_many),
+            RelationKind::BelongsTo => quote!(::dbkit::runtime::load_joined_belongs_to),
+        };
+
+        let mut items = Vec::new();
+        for (strategy, loader) in [
+            (\"SelectIn\", loader_fn),
+            (\"Joined\", joined_loader_fn),
+        ] {
+            let load_ty = if strategy == \"SelectIn\" {
+                quote!(::dbkit::load::SelectIn<#rel_type, Nested>)
+            } else {
+                quote!(::dbkit::load::Joined<#rel_type, Nested>)
+            };
+
+            items.push(quote!(
+                impl #apply_generics ::dbkit::runtime::RunLoad<#out_type> for #load_ty
+                where
+                    Nested: ::dbkit::runtime::RunLoads<#loaded_child>,
+                    #out_type: ::dbkit::ModelValue + ::dbkit::SetRelation<#rel_type, #loaded_param>,
+                    #child_bounds
+                {
+                    fn run<'e, E>(
+                        &self,
+                        ex: E,
+                        rows: &mut [#out_type],
+                    ) -> ::dbkit::executor::BoxFuture<'e, Result<(), ::dbkit::Error>>
+                    where
+                        E: ::dbkit::Executor + 'e,
+                    {
+                        #loader(ex, rows, self.rel, &self.nested)
                     }
                 }
             ));
@@ -443,8 +733,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
             #by_id_fn
 
-            pub fn insert() -> ::dbkit::Insert<#struct_ident> {
-                ::dbkit::Insert::new(Self::TABLE)
+            pub fn insert(values: #insert_ident) -> ::dbkit::Insert<#struct_ident> {
+                let mut insert = ::dbkit::Insert::new(Self::TABLE);
+                #(#insert_values)*
+                insert
             }
 
             pub fn update() -> ::dbkit::Update<#struct_ident> {
@@ -462,8 +754,13 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
 
         #(#relation_methods)*
+        #model_value_impl
+        #from_row_impl
+        #(#set_relation_impls)*
+        #(#load_methods)*
         #(#belongs_to_specs)*
         #(#apply_load_impls)*
+        #(#run_load_impls)*
     };
 
     Ok(output.into())

@@ -1,30 +1,26 @@
-use crate::rel::{Relation, RelationInfo};
-use crate::Select;
-
-#[derive(Debug, Clone, Copy)]
-pub enum Strategy {
-    SelectIn,
-    Joined,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoadSpec {
-    pub relation: Relation,
-    pub strategy: Strategy,
-    pub nested: Vec<LoadSpec>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct NoLoad;
 
-pub trait NestedLoad {
-    fn into_nested(self) -> Vec<LoadSpec>;
+#[derive(Debug, Clone, Copy)]
+pub struct LoadChain<Prev, L> {
+    pub prev: Prev,
+    pub load: L,
 }
 
-impl NestedLoad for NoLoad {
-    fn into_nested(self) -> Vec<LoadSpec> {
-        Vec::new()
-    }
+pub trait ApplyLoad<Out> {
+    type Out2;
+}
+
+impl<Out> ApplyLoad<Out> for NoLoad {
+    type Out2 = Out;
+}
+
+impl<Out, Prev, L> ApplyLoad<Out> for LoadChain<Prev, L>
+where
+    Prev: ApplyLoad<Out>,
+    L: ApplyLoad<Prev::Out2>,
+{
+    type Out2 = <L as ApplyLoad<Prev::Out2>>::Out2;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,33 +39,14 @@ impl<R> SelectIn<R, NoLoad> {
 }
 
 impl<R, Nested> SelectIn<R, Nested> {
-    pub fn with<N>(self, nested: N) -> SelectIn<R, N> {
+    pub fn with<L>(self, load: L) -> SelectIn<R, LoadChain<Nested, L>> {
         SelectIn {
             rel: self.rel,
-            nested,
+            nested: LoadChain {
+                prev: self.nested,
+                load,
+            },
         }
-    }
-
-    pub fn into_spec(self) -> LoadSpec
-    where
-        R: RelationInfo,
-        Nested: NestedLoad,
-    {
-        LoadSpec {
-            relation: self.rel.relation(),
-            strategy: Strategy::SelectIn,
-            nested: self.nested.into_nested(),
-        }
-    }
-}
-
-impl<R, Nested> NestedLoad for SelectIn<R, Nested>
-where
-    R: RelationInfo,
-    Nested: NestedLoad,
-{
-    fn into_nested(self) -> Vec<LoadSpec> {
-        vec![self.into_spec()]
     }
 }
 
@@ -89,45 +66,13 @@ impl<R> Joined<R, NoLoad> {
 }
 
 impl<R, Nested> Joined<R, Nested> {
-    pub fn with<N>(self, nested: N) -> Joined<R, N> {
+    pub fn with<L>(self, load: L) -> Joined<R, LoadChain<Nested, L>> {
         Joined {
             rel: self.rel,
-            nested,
+            nested: LoadChain {
+                prev: self.nested,
+                load,
+            },
         }
-    }
-
-    pub fn into_spec(self) -> LoadSpec
-    where
-        R: RelationInfo,
-        Nested: NestedLoad,
-    {
-        LoadSpec {
-            relation: self.rel.relation(),
-            strategy: Strategy::Joined,
-            nested: self.nested.into_nested(),
-        }
-    }
-}
-
-impl<R, Nested> NestedLoad for Joined<R, Nested>
-where
-    R: RelationInfo,
-    Nested: NestedLoad,
-{
-    fn into_nested(self) -> Vec<LoadSpec> {
-        vec![self.into_spec()]
-    }
-}
-
-pub trait ApplyLoad<Out> {
-    type Out2;
-    fn apply(self, select: Select<Out>) -> Select<Self::Out2>;
-}
-
-impl<Out> ApplyLoad<Out> for NoLoad {
-    type Out2 = Out;
-
-    fn apply(self, select: Select<Out>) -> Select<Self::Out2> {
-        select
     }
 }

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
 use crate::expr::Expr;
-use crate::load::{ApplyLoad, LoadSpec};
+use crate::load::{ApplyLoad, LoadChain, NoLoad};
 use crate::rel::RelationInfo;
 use crate::schema::{ColumnRef, Table};
 
@@ -32,7 +32,7 @@ pub struct Order {
 }
 
 #[derive(Debug, Clone)]
-pub struct Select<Out> {
+pub struct Select<Out, Loads = NoLoad> {
     table: Table,
     columns: Option<Vec<ColumnRef>>,
     joins: Vec<Join>,
@@ -41,11 +41,11 @@ pub struct Select<Out> {
     limit: Option<u64>,
     offset: Option<u64>,
     distinct: bool,
-    loads: Vec<LoadSpec>,
+    loads: Loads,
     _marker: PhantomData<Out>,
 }
 
-impl<Out> Select<Out> {
+impl<Out> Select<Out, NoLoad> {
     pub fn new(table: Table) -> Self {
         Self {
             table,
@@ -56,11 +56,13 @@ impl<Out> Select<Out> {
             limit: None,
             offset: None,
             distinct: false,
-            loads: Vec::new(),
+            loads: NoLoad,
             _marker: PhantomData,
         }
     }
+}
 
+impl<Out, Loads> Select<Out, Loads> {
     pub fn filter(mut self, expr: Expr<bool>) -> Self {
         self.filters.push(expr);
         self
@@ -135,21 +137,10 @@ impl<Out> Select<Out> {
         self
     }
 
-    pub fn with<L>(self, load: L) -> Select<L::Out2>
+    pub fn with<L>(self, load: L) -> Select<L::Out2, LoadChain<Loads, L>>
     where
         L: ApplyLoad<Out>,
     {
-        load.apply(self)
-    }
-
-    #[doc(hidden)]
-    pub fn push_load(mut self, load: LoadSpec) -> Self {
-        self.loads.push(load);
-        self
-    }
-
-    #[doc(hidden)]
-    pub fn into_output<Out2>(self) -> Select<Out2> {
         Select {
             table: self.table,
             columns: self.columns,
@@ -159,7 +150,10 @@ impl<Out> Select<Out> {
             limit: self.limit,
             offset: self.offset,
             distinct: self.distinct,
-            loads: self.loads,
+            loads: LoadChain {
+                prev: self.loads,
+                load,
+            },
             _marker: PhantomData,
         }
     }
@@ -238,6 +232,11 @@ impl<Out> Select<Out> {
 
     pub fn debug_sql(&self) -> String {
         self.compile().sql
+    }
+
+    pub fn into_parts(self) -> (CompiledSql, Loads) {
+        let compiled = self.compile();
+        (compiled, self.loads)
     }
 }
 
