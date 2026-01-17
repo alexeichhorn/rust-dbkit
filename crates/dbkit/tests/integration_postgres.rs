@@ -466,3 +466,32 @@ async fn active_update_requires_primary_key() -> Result<(), dbkit::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn active_update_uses_only_primary_key_filter() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Before", "before@db.com").await?;
+    let untouched = seed_user(&mut tx, "Other", "other@db.com").await?;
+    let user_id = user.id;
+    let mut active = user.into_active();
+    active.name = "After".into();
+    active.email = "after@db.com".into();
+
+    let updated = active.update(&mut tx).await?;
+    assert_eq!(updated.id, user_id);
+    assert_eq!(updated.name, "After");
+    assert_eq!(updated.email, "after@db.com");
+
+    let fetched = User::by_id(user_id).one(&mut tx).await?.expect("user");
+    assert_eq!(fetched.name, "After");
+    assert_eq!(fetched.email, "after@db.com");
+
+    let other = User::by_id(untouched.id).one(&mut tx).await?.expect("other");
+    assert_eq!(other.name, "Other");
+    assert_eq!(other.email, "other@db.com");
+
+    Ok(())
+}
