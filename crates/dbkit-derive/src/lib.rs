@@ -892,6 +892,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 ::dbkit::Delete::new(Self::TABLE)
             }
 
+            pub fn new_active() -> #active_ident {
+                #active_ident::new()
+            }
+
             #into_active_fn
         }
 

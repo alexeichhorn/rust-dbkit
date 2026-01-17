@@ -101,7 +101,7 @@ let deleted = User::delete()
 Active model insert / update (change-tracked):
 
 ```rust
-let mut active = UserActive::new();
+let mut active = User::new_active();
 active.name = "Active".into();
 active.email = "active@db.com".into();
 

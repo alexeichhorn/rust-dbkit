@@ -383,7 +383,7 @@ async fn active_insert_roundtrip() -> Result<(), dbkit::Error> {
     let mut tx = db.begin().await?;
     setup_schema(&mut tx).await?;
 
-    let mut active = UserActive::new();
+    let mut active = User::new_active();
     active.name = "Active".into();
     active.email = "active@db.com".into();
 
