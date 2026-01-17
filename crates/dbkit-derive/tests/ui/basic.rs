@@ -88,7 +88,8 @@ fn main() {
         email: "a@b.com".to_string(),
         todos: dbkit::NotLoaded,
     };
-    let _future = unloaded.load(User::todos, Dummy);
+    let mut dummy = Dummy;
+    let _future = unloaded.load(User::todos, &mut dummy);
 
     let _insert_struct = UserInsert {
         name: "Alex".to_string(),
