@@ -56,15 +56,18 @@ async fn main() -> Result<(), dbkit::Error> {
 }
 ```
 
-## TODOs and current deviations
+## TODOs
 
-- Many-to-many is not implemented yet. `#[many_to_many]` is parsed but no descriptors/loaders exist.
-- Joined eager loading is currently a select-in fallback (no single-query join decoding yet).
-- Locking options (`for_update`, `skip_locked`, `nowait`) are not implemented.
-- Optional helpers like `count()`, `exists()`, `first()`, `paginate()` are not implemented.
-- Type support is limited to primitives + `String` (no uuid/chrono/time/json yet).
-- `NULL` bind values are not supported yet (binding `Option::None` fails).
-- `#[unique]` / `#[index]` are parsed but not stored as metadata.
+- [ ] Implement many-to-many (`#[many_to_many]`) descriptors and loaders.
+- [ ] Implement true joined eager loading (single-query join decoding).
+- [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
+- [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.
+- [ ] Expand type support (uuid/chrono/time/json feature gates).
+- [ ] Support binding `NULL` values (`Option::None`).
+- [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
+
+## Deviations from spec
+
 - Relation accessors are `*_loaded()` (e.g. `todos_loaded()`), not `todos()`, to avoid name clashes with relation descriptors.
 - `load(...)` requires an executor argument: `user.load(User::todos, &mut ex)`.
 - Relation state sealing is looser than spec (any `Vec<T>` / `Option<T>` satisfies the state trait).
