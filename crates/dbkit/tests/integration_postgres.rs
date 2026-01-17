@@ -210,3 +210,28 @@ async fn lazy_load_relation() -> Result<(), dbkit::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn join_filter_on_child_table() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user_keep = seed_user(&mut tx, "Keep", "keep@db.com").await?;
+    let user_drop = seed_user(&mut tx, "Drop", "drop@db.com").await?;
+    let _todo_keep = seed_todo(&mut tx, user_keep.id, "Keep me").await?;
+    let _todo_other = seed_todo(&mut tx, user_keep.id, "Also me").await?;
+    let _todo_drop = seed_todo(&mut tx, user_drop.id, "Ignore me").await?;
+
+    let users = User::query()
+        .join(User::todos)
+        .filter(Todo::title.eq("Keep me"))
+        .distinct()
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].id, user_keep.id);
+
+    Ok(())
+}
