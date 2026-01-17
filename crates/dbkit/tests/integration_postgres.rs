@@ -26,61 +26,10 @@ pub struct Todo {
 }
 
 fn db_url() -> String {
-    if let Ok(url) = std::env::var("DB_URL").or_else(|_| std::env::var("DATABASE_URL")) {
-        return url;
-    }
-
-    let mut candidates = Vec::new();
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    candidates.push(manifest_dir.join(".env"));
-    candidates.push(manifest_dir.join("..").join(".env"));
-    candidates.push(manifest_dir.join("..").join("..").join(".env"));
-    candidates.push(std::path::PathBuf::from(".env"));
-
-    for path in candidates {
-        if let Ok(contents) = std::fs::read_to_string(&path) {
-            if let Some(url) = parse_env_value(&contents, "DB_URL")
-                .or_else(|| parse_env_value(&contents, "DATABASE_URL"))
-            {
-                return url;
-            }
-        }
-    }
-
-    panic!("DB_URL or DATABASE_URL must be set for integration tests");
-}
-
-fn parse_env_value(contents: &str, key: &str) -> Option<String> {
-    for line in contents.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut parts = line.splitn(2, '=');
-        let name = parts.next()?.trim();
-        let value = parts.next()?.trim();
-        if name == key {
-            return Some(unquote_env(value));
-        }
-    }
-    None
-}
-
-fn unquote_env(value: &str) -> String {
-    let trimmed = value.trim();
-    if let Some(stripped) = trimmed
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-    {
-        return stripped.to_string();
-    }
-    if let Some(stripped) = trimmed
-        .strip_prefix('\'')
-        .and_then(|value| value.strip_suffix('\''))
-    {
-        return stripped.to_string();
-    }
-    trimmed.to_string()
+    let _ = dotenvy::dotenv();
+    std::env::var("DB_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("DB_URL or DATABASE_URL must be set for integration tests")
 }
 
 async fn setup_schema(
@@ -232,7 +181,7 @@ async fn nested_selectin_loads() -> Result<(), dbkit::Error> {
     let user = seed_user(&mut tx, "Jo", "jo@b.com").await?;
     let _todo = seed_todo(&mut tx, user.id, "Chain loads").await?;
 
-    let users: Vec<UserModel<Vec<TodoModel<Option<User>>>>> = User::query()
+    let users = User::query()  // should be Vec<UserModel<Vec<TodoModel<Option<User>>>>>
         .filter(User::id.eq(user.id))
         .with(User::todos.selectin().with(Todo::user.selectin()))
         .all(&mut tx)

@@ -152,6 +152,7 @@ version = "0.1.0"
 dependencies = [
  "dbkit-core",
  "dbkit-derive",
+ "dotenvy",
  "sqlx",
  "thiserror",
  "tokio",
