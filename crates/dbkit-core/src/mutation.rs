@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
-use crate::expr::{Expr, Value};
+use crate::expr::{ColumnValue, Expr, Value};
 use crate::schema::{Column, ColumnRef, Table};
 
 #[derive(Debug, Clone)]
@@ -28,10 +28,14 @@ impl<Out> Insert<Out> {
 
     pub fn value<M, T, V>(mut self, column: Column<M, T>, value: V) -> Self
     where
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
+        let value = match value.into_value() {
+            Some(value) => value,
+            None => Value::Null,
+        };
         self.columns.push(column.as_ref());
-        self.values.push(value.into());
+        self.values.push(value);
         self
     }
 
@@ -107,9 +111,13 @@ impl<Out> Update<Out> {
 
     pub fn set<M, T, V>(mut self, column: Column<M, T>, value: V) -> Self
     where
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
-        self.sets.push((column.as_ref(), value.into()));
+        let value = match value.into_value() {
+            Some(value) => value,
+            None => Value::Null,
+        };
+        self.sets.push((column.as_ref(), value));
         self
     }
 

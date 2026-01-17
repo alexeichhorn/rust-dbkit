@@ -23,6 +23,10 @@ impl SqlBuilder {
     }
 
     pub fn push_value(&mut self, value: Value) {
+        if value == Value::Null {
+            self.sql.push_str("NULL");
+            return;
+        }
         self.binds.push(value);
         let idx = self.binds.len();
         self.sql.push('$');

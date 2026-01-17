@@ -31,6 +31,20 @@ fn compiles_insert_returning_all() {
 }
 
 #[test]
+fn compiles_insert_with_null() {
+    let query: Insert<User> = Insert::new(user_table())
+        .value(user_email(), None)
+        .returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "INSERT INTO users (email) VALUES (NULL) RETURNING users.*"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
 fn compiles_update_with_filter() {
     let query: Update<User> = Update::new(user_table())
         .set(user_email(), "new@b.com")
@@ -46,6 +60,21 @@ fn compiles_update_with_filter() {
         sql.binds,
         vec![Value::String("new@b.com".to_string()), Value::I64(1)]
     );
+}
+
+#[test]
+fn compiles_update_set_null() {
+    let query: Update<User> = Update::new(user_table())
+        .set(user_email(), None)
+        .filter(user_id().eq(1_i64))
+        .returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "UPDATE users SET email = NULL WHERE (users.id = $1) RETURNING users.*"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(1)]);
 }
 
 #[test]

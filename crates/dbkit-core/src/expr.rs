@@ -18,6 +18,43 @@ pub enum Value {
     Time(chrono::NaiveTime),
 }
 
+pub trait ColumnValue<T> {
+    fn into_value(self) -> Option<Value>;
+}
+
+impl<T> ColumnValue<T> for T
+where
+    T: Into<Value>,
+{
+    fn into_value(self) -> Option<Value> {
+        Some(self.into())
+    }
+}
+
+impl<T> ColumnValue<T> for Option<T>
+where
+    T: Into<Value>,
+{
+    fn into_value(self) -> Option<Value> {
+        self.map(Into::into)
+    }
+}
+
+impl ColumnValue<String> for &str {
+    fn into_value(self) -> Option<Value> {
+        Some(Value::String(self.to_string()))
+    }
+}
+
+impl<T> ColumnValue<T> for &T
+where
+    T: Clone + Into<Value>,
+{
+    fn into_value(self) -> Option<Value> {
+        Some(self.clone().into())
+    }
+}
+
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Self::Bool(value)
@@ -202,13 +239,19 @@ where
 {
     pub fn eq<V>(self, value: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
-        Expr::new(ExprNode::Binary {
-            left: Box::new(ExprNode::Column(self.as_ref())),
-            op: BinaryOp::Eq,
-            right: Box::new(ExprNode::Value(value.into())),
-        })
+        match value.into_value() {
+            Some(value) => Expr::new(ExprNode::Binary {
+                left: Box::new(ExprNode::Column(self.as_ref())),
+                op: BinaryOp::Eq,
+                right: Box::new(ExprNode::Value(value)),
+            }),
+            None => Expr::new(ExprNode::IsNull {
+                expr: Box::new(ExprNode::Column(self.as_ref())),
+                negated: false,
+            }),
+        }
     }
 
     pub fn eq_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
@@ -221,13 +264,19 @@ where
 
     pub fn ne<V>(self, value: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
-        Expr::new(ExprNode::Binary {
-            left: Box::new(ExprNode::Column(self.as_ref())),
-            op: BinaryOp::Ne,
-            right: Box::new(ExprNode::Value(value.into())),
-        })
+        match value.into_value() {
+            Some(value) => Expr::new(ExprNode::Binary {
+                left: Box::new(ExprNode::Column(self.as_ref())),
+                op: BinaryOp::Ne,
+                right: Box::new(ExprNode::Value(value)),
+            }),
+            None => Expr::new(ExprNode::IsNull {
+                expr: Box::new(ExprNode::Column(self.as_ref())),
+                negated: true,
+            }),
+        }
     }
 
     pub fn lt<V>(self, value: V) -> Expr<bool>

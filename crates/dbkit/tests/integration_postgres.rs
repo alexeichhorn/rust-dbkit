@@ -27,6 +27,14 @@ pub struct Todo {
     pub user: dbkit::BelongsTo<User>,
 }
 
+#[model(table = "nullable_rows")]
+pub struct NullableRow {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub note: Option<String>,
+}
+
 #[model(table = "events")]
 pub struct Event {
     #[key]
@@ -74,6 +82,15 @@ async fn setup_schema(
             starts_at TIMESTAMP NOT NULL,\
             day DATE NOT NULL,\
             starts_at_time TIME NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE nullable_rows (\
+            id BIGSERIAL PRIMARY KEY,\
+            note TEXT NULL\
         )",
     )
     .execute(tx.as_mut())
@@ -134,6 +151,18 @@ async fn seed_event(
     .await?
     .expect("inserted event");
     Ok(event)
+}
+
+async fn seed_nullable_row(
+    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
+    note: Option<String>,
+) -> Result<NullableRow, dbkit::Error> {
+    let row = NullableRow::insert(NullableRowInsert { note })
+        .returning_all()
+        .one(&mut *tx)
+        .await?
+        .expect("inserted nullable row");
+    Ok(row)
 }
 
 #[tokio::test]
@@ -313,6 +342,37 @@ async fn uuid_date_time_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(found.starts_at, starts_at);
     assert_eq!(found.day, date);
     assert_eq!(found.starts_at_time, time);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let inserted = seed_nullable_row(&mut tx, None).await?;
+    assert!(inserted.note.is_none());
+
+    let some_row = seed_nullable_row(&mut tx, Some("hello".to_string())).await?;
+    assert_eq!(some_row.note.as_deref(), Some("hello"));
+
+    let updated = NullableRow::update()
+        .set(NullableRow::note, None)
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&mut tx)
+        .await?;
+    assert_eq!(updated.len(), 1);
+    assert!(updated[0].note.is_none());
+
+    let null_rows = NullableRow::query()
+        .filter(NullableRow::note.eq(None))
+        .all(&mut tx)
+        .await?;
+    assert_eq!(null_rows.len(), 2);
+    assert!(null_rows.iter().all(|row| row.note.is_none()));
 
     Ok(())
 }

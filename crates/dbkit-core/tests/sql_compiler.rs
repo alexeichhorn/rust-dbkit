@@ -60,6 +60,25 @@ fn compiles_is_null_expression() {
 }
 
 #[test]
+fn compiles_eq_none_as_is_null() {
+    let expr = user_email().eq(None);
+    let sql = expr_sql(expr);
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NULL)");
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_ne_none_as_is_not_null() {
+    let expr = user_email().ne(None);
+    let sql = expr_sql(expr);
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users WHERE (users.email IS NOT NULL)"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
 fn compiles_select_query() {
     let query: Select<User> = Select::new(user_table())
         .filter(user_email().like("%example%"))

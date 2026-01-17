@@ -202,7 +202,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
             let name = ident.to_string();
-            let ty = &field.ty;
+            let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
             quote!(pub const #ident: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
         })
         .collect::<Vec<_>>();
@@ -841,6 +841,26 @@ fn extract_ident(expr: &syn::Expr) -> Option<Ident> {
         path.path.get_ident().cloned()
     } else {
         None
+    }
+}
+
+fn option_inner_type(ty: &Type) -> Option<Type> {
+    let path = match ty {
+        Type::Path(path) => path,
+        _ => return None,
+    };
+    let segment = path.path.segments.last()?;
+    if segment.ident != "Option" {
+        return None;
+    }
+    let args = match &segment.arguments {
+        syn::PathArguments::AngleBracketed(args) => args,
+        _ => return None,
+    };
+    let inner = args.args.first()?;
+    match inner {
+        syn::GenericArgument::Type(inner_ty) => Some(inner_ty.clone()),
+        _ => None,
     }
 }
 

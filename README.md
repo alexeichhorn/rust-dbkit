@@ -63,7 +63,6 @@ async fn main() -> Result<(), dbkit::Error> {
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.
 - [ ] Expand type support (json feature gate).
-- [ ] Support binding `NULL` values (`Option::None`).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
 ## Deviations from spec
