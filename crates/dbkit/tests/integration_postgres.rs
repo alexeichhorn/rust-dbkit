@@ -615,3 +615,139 @@ async fn composite_primary_key_active_insert_requires_all_keys() -> Result<(), d
 
     Ok(())
 }
+
+#[tokio::test]
+async fn active_delete_removes_only_target() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Delete", "delete@db.com").await?;
+    let user_id = user.id;
+    let other = seed_user(&mut tx, "Keep", "keep@db.com").await?;
+
+    let active = user.into_active();
+    let deleted = active.delete(&mut tx).await?;
+    assert_eq!(deleted, 1);
+
+    let removed = User::by_id(user_id).one(&mut tx).await?;
+    assert!(removed.is_none());
+
+    let remaining = User::by_id(other.id).one(&mut tx).await?.expect("other");
+    assert_eq!(remaining.email, "keep@db.com");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_delete_requires_primary_key() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut active = User::new_active();
+    active.name = "No PK".into();
+    active.email = "no-pk@db.com".into();
+
+    let result = active.delete(&mut tx).await;
+    assert!(result.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn model_delete_removes_row() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Delete", "delete2@db.com").await?;
+    let user_id = user.id;
+    let deleted = user.delete(&mut tx).await?;
+    assert_eq!(deleted, 1);
+
+    let removed = User::by_id(user_id).one(&mut tx).await?;
+    assert!(removed.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn composite_primary_key_active_delete_uses_both_keys() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let target = seed_order_line(&mut tx, 1, 1, "A").await?;
+    let _same_order = seed_order_line(&mut tx, 1, 2, "B").await?;
+    let _same_line = seed_order_line(&mut tx, 2, 1, "C").await?;
+
+    let deleted = target.into_active().delete(&mut tx).await?;
+    assert_eq!(deleted, 1);
+
+    let removed = OrderLine::query()
+        .filter(OrderLine::order_id.eq(1))
+        .filter(OrderLine::line_id.eq(1))
+        .one(&mut tx)
+        .await?;
+    assert!(removed.is_none());
+
+    let same_order = OrderLine::query()
+        .filter(OrderLine::order_id.eq(1))
+        .filter(OrderLine::line_id.eq(2))
+        .one(&mut tx)
+        .await?
+        .expect("same order");
+    assert_eq!(same_order.note, "B");
+
+    let same_line = OrderLine::query()
+        .filter(OrderLine::order_id.eq(2))
+        .filter(OrderLine::line_id.eq(1))
+        .one(&mut tx)
+        .await?
+        .expect("same line");
+    assert_eq!(same_line.note, "C");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn composite_primary_key_active_delete_requires_all_keys() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut missing_line = OrderLine::new_active();
+    missing_line.order_id = 1.into();
+    missing_line.note = "Missing line".into();
+    assert!(missing_line.delete(&mut tx).await.is_err());
+
+    let mut missing_order = OrderLine::new_active();
+    missing_order.line_id = 1.into();
+    missing_order.note = "Missing order".into();
+    assert!(missing_order.delete(&mut tx).await.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn composite_primary_key_model_delete_removes_row() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let target = seed_order_line(&mut tx, 9, 9, "Z").await?;
+    let order_id = target.order_id;
+    let line_id = target.line_id;
+    let deleted = target.delete(&mut tx).await?;
+    assert_eq!(deleted, 1);
+
+    let removed = OrderLine::query()
+        .filter(OrderLine::order_id.eq(order_id))
+        .filter(OrderLine::line_id.eq(line_id))
+        .one(&mut tx)
+        .await?;
+    assert!(removed.is_none());
+
+    Ok(())
+}

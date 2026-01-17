@@ -282,6 +282,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
     );
 
+    let pk_idents = primary_keys
+        .iter()
+        .map(|(ident, _)| ident.clone())
+        .collect::<Vec<_>>();
+
     let active_update_fn = if !primary_keys.is_empty() {
         let pk_vars = primary_keys
             .iter()
@@ -348,6 +353,72 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 let update = update.returning_all();
                 let mut rows = ::dbkit::UpdateExt::all(update, ex).await?;
                 rows.pop().ok_or(::dbkit::Error::NotFound)
+            }
+        )
+    } else {
+        quote!()
+    };
+
+    let active_delete_fn = if !primary_keys.is_empty() {
+        let pk_vars = primary_keys
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| format_ident!("pk_value_{}", idx))
+            .collect::<Vec<_>>();
+        let pk_extracts = primary_keys
+            .iter()
+            .zip(pk_vars.iter())
+            .map(|((ident, _), var)| {
+                let pk_name = ident.to_string();
+                quote!(
+                    let #var = match #ident {
+                        ::dbkit::ActiveValue::Set(value) => value,
+                        ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset => {
+                            return Err(::dbkit::Error::Decode(format!(
+                                "missing required field: {}",
+                                #pk_name
+                            )));
+                        }
+                    };
+                )
+            });
+        let pk_filters = primary_keys
+            .iter()
+            .zip(pk_vars.iter())
+            .map(|((ident, _), var)| {
+                quote!(delete = delete.filter(#struct_ident::#ident.eq(#var));)
+            });
+        quote!(
+            pub async fn delete(
+                self,
+                ex: &mut (impl ::dbkit::Executor + Send),
+            ) -> Result<u64, ::dbkit::Error> {
+                let Self { #(#pk_idents,)* .. } = self;
+                #(#pk_extracts)*
+                let mut delete = ::dbkit::Delete::new(#struct_ident::TABLE);
+                #(#pk_filters)*
+                ::dbkit::DeleteExt::execute(delete, ex).await
+            }
+        )
+    } else {
+        quote!()
+    };
+
+    let model_delete_impl = if !primary_keys.is_empty() {
+        let pk_filters = primary_keys.iter().map(|(ident, _)| {
+            quote!(delete = delete.filter(Self::#ident.eq(#ident));)
+        });
+        quote!(
+            impl #impl_generics ::dbkit::ModelDelete for #model_ident #struct_type_args {
+                fn delete<'e, E>(self, ex: &'e mut E) -> ::dbkit::executor::BoxFuture<'e, Result<u64, ::dbkit::Error>>
+                where
+                    E: ::dbkit::Executor + Send + 'e,
+                {
+                    let Self { #(#pk_idents,)* .. } = self;
+                    let mut delete = ::dbkit::Delete::new(Self::TABLE);
+                    #(#pk_filters)*
+                    ::dbkit::DeleteExt::execute(delete, ex)
+                }
             }
         )
     } else {
@@ -949,6 +1020,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
             #active_insert_fn
             #active_update_fn
+            #active_delete_fn
         }
 
         #(#relation_methods)*
@@ -959,6 +1031,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         #(#belongs_to_specs)*
         #(#apply_load_impls)*
         #(#run_load_impls)*
+        #model_delete_impl
     };
 
     Ok(output.into())

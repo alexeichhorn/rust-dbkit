@@ -12,9 +12,9 @@ pub mod runtime;
 pub use database::Database;
 pub use error::Error;
 pub use executor::Executor;
-pub use model::{ModelValue, SetRelation};
+pub use model::{ModelDelete, ModelValue, SetRelation};
 pub use query_ext::{DeleteExt, InsertExt, SelectExt, UpdateExt};
 
 pub mod prelude {
-    pub use crate::{DeleteExt, InsertExt, SelectExt, UpdateExt};
+    pub use crate::{DeleteExt, InsertExt, ModelDelete, SelectExt, UpdateExt};
 }
