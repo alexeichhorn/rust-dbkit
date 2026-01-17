@@ -4,12 +4,13 @@ A small, Postgres-first async ORM-ish library with type-level loaded/unloaded re
 
 ## Quick intro
 
-Define models with `#[derive(Model)]` and use the generated query and relation APIs:
+Define models with `#[model]` and use the generated query and relation APIs:
 
 ```rust
-use dbkit::{Database, Model};
+use dbkit::{model, Database};
 
-#[derive(Debug, Model)]
+#[model(table = "users")]
+#[derive(Debug)]
 struct User {
     #[key]
     #[autoincrement]
@@ -21,7 +22,8 @@ struct User {
     todos: dbkit::HasMany<Todo>,
 }
 
-#[derive(Debug, Model)]
+#[model(table = "todos")]
+#[derive(Debug)]
 struct Todo {
     #[key]
     id: i64,
