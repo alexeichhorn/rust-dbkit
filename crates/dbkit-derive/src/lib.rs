@@ -40,6 +40,13 @@ struct RelationInfo {
     belongs_to_ref: Option<Ident>,
 }
 
+struct ScalarFieldInfo {
+    field: Field,
+    ident: Ident,
+    ty: Type,
+    is_autoincrement: bool,
+}
+
 #[derive(Default)]
 struct ModelArgs {
     table: Option<String>,
@@ -68,6 +75,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let mut relation_fields = Vec::new();
     let mut output_fields = Vec::new();
     let mut insert_fields = Vec::new();
+    let mut scalar_fields = Vec::new();
 
     let struct_attrs = filter_struct_attrs(&input.attrs);
 
@@ -145,8 +153,15 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         output_fields.push(cleaned_field.clone());
 
         if !(is_key && is_autoincrement) {
-            insert_fields.push(cleaned_field);
+            insert_fields.push(cleaned_field.clone());
         }
+
+        scalar_fields.push(ScalarFieldInfo {
+            field: cleaned_field,
+            ident: field_ident,
+            ty: field.ty.clone(),
+            is_autoincrement,
+        });
     }
 
     let table_expr = if let Some(schema) = schema_name {
@@ -211,6 +226,125 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let ident = field.ident.as_ref().expect("field ident");
         quote!(insert = insert.value(Self::#ident, values.#ident);)
     });
+
+    let active_ident = format_ident!("{}Active", struct_ident);
+
+    let active_fields = scalar_fields.iter().map(|field| {
+        let ident = &field.ident;
+        let vis = &field.field.vis;
+        let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
+        quote!(#vis #ident: ::dbkit::ActiveValue<#ty>)
+    });
+
+    let active_from_model = scalar_fields.iter().map(|field| {
+        let ident = &field.ident;
+        quote!(#ident: ::dbkit::ActiveValue::from(#ident))
+    });
+
+    let active_destructure = scalar_fields
+        .iter()
+        .map(|field| field.ident.clone())
+        .collect::<Vec<_>>();
+
+    let active_insert_steps = scalar_fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
+        let is_option = option_inner_type(&field.ty).is_some();
+        let required = !field.is_autoincrement && !is_option;
+        let required_check = if required {
+            quote!(return Err(::dbkit::Error::Decode(format!("missing required field: {}", #name)));)
+        } else {
+            quote!()
+        };
+        quote!(
+            match #ident {
+                ::dbkit::ActiveValue::Unset => {
+                    #required_check
+                }
+                ::dbkit::ActiveValue::Set(value) => {
+                    insert = insert.value(#struct_ident::#ident, value);
+                }
+                ::dbkit::ActiveValue::Null => {
+                    insert = insert.value(#struct_ident::#ident, None::<#ty>);
+                }
+            }
+        )
+    });
+
+    let active_insert_fn = quote!(
+        pub async fn insert(
+            self,
+            ex: &mut (impl ::dbkit::Executor + Send),
+        ) -> Result<#struct_ident, ::dbkit::Error> {
+            let Self { #(#active_destructure,)* } = self;
+            let mut insert = ::dbkit::Insert::new(#struct_ident::TABLE);
+            #(#active_insert_steps)*
+            let insert = insert.returning_all();
+            let row = ::dbkit::InsertExt::one(insert, ex).await?;
+            row.ok_or(::dbkit::Error::NotFound)
+        }
+    );
+
+    let active_update_fn = if let Some((pk_ident, _pk_ty)) = &primary_key {
+        let pk_name = pk_ident.to_string();
+        let update_steps = scalar_fields.iter().filter(|field| field.ident != *pk_ident).map(|field| {
+            let ident = &field.ident;
+            let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
+            quote!(
+                match #ident {
+                    ::dbkit::ActiveValue::Unset => {}
+                    ::dbkit::ActiveValue::Set(value) => {
+                        update = update.set(#struct_ident::#ident, value);
+                        any_set = true;
+                    }
+                    ::dbkit::ActiveValue::Null => {
+                        update = update.set(#struct_ident::#ident, None::<#ty>);
+                        any_set = true;
+                    }
+                }
+            )
+        });
+        quote!(
+            pub async fn update(
+                self,
+                ex: &mut (impl ::dbkit::Executor + Send),
+            ) -> Result<#struct_ident, ::dbkit::Error> {
+                let Self { #(#active_destructure,)* } = self;
+                let pk_value = match #pk_ident {
+                    ::dbkit::ActiveValue::Set(value) => value,
+                    ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset => {
+                        return Err(::dbkit::Error::Decode(format!(
+                            "missing required field: {}",
+                            #pk_name
+                        )));
+                    }
+                };
+                let mut update = ::dbkit::Update::new(#struct_ident::TABLE);
+                let mut any_set = false;
+                #(#update_steps)*
+                if !any_set {
+                    return Err(::dbkit::Error::Decode("no fields set for update".to_string()));
+                }
+                let update = update
+                    .filter(#struct_ident::#pk_ident.eq(pk_value))
+                    .returning_all();
+                let mut rows = ::dbkit::UpdateExt::all(update, ex).await?;
+                rows.pop().ok_or(::dbkit::Error::NotFound)
+            }
+        )
+    } else {
+        quote!()
+    };
+
+    let into_active_fn = quote!(
+        pub fn into_active(self) -> #active_ident {
+            let Self { #(#active_destructure,)* .. } = self;
+            #active_ident {
+                #(#active_from_model,)*
+            }
+        }
+    );
 
     let primary_key_const = primary_key.as_ref().map(|(ident, ty)| {
         let name = ident.to_string();
@@ -757,11 +891,27 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             pub fn delete() -> ::dbkit::Delete {
                 ::dbkit::Delete::new(Self::TABLE)
             }
+
+            #into_active_fn
         }
 
         #[derive(Debug, Clone)]
         #vis struct #insert_ident {
             #(#insert_fields,)*
+        }
+
+        #[derive(Debug, Clone, Default)]
+        #vis struct #active_ident {
+            #(#active_fields,)*
+        }
+
+        impl #active_ident {
+            pub fn new() -> Self {
+                Self::default()
+            }
+
+            #active_insert_fn
+            #active_update_fn
         }
 
         #(#relation_methods)*

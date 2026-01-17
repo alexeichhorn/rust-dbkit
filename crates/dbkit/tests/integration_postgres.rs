@@ -376,3 +376,93 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn active_insert_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut active = UserActive::new();
+    active.name = "Active".into();
+    active.email = "active@db.com".into();
+
+    let inserted = active.insert(&mut tx).await?;
+    let _: User = inserted.clone();
+    assert!(inserted.id > 0);
+    assert_eq!(inserted.name, "Active");
+    assert_eq!(inserted.email, "active@db.com");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_insert_missing_required_field_errors() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut active = UserActive::new();
+    active.name = "Missing email".into();
+
+    let result = active.insert(&mut tx).await;
+    assert!(result.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_update_from_loaded() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Before", "before@db.com").await?;
+    let user_id = user.id;
+    let user_email = user.email.clone();
+    let mut active = user.into_active();
+    active.name = "After".into();
+
+    let updated = active.update(&mut tx).await?;
+    let _: User = updated.clone();
+    assert_eq!(updated.id, user_id);
+    assert_eq!(updated.name, "After");
+    assert_eq!(updated.email, user_email);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_update_set_null() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let row = seed_nullable_row(&mut tx, Some("note".to_string())).await?;
+    let row_id = row.id;
+    let mut active = row.into_active();
+    active.note = None.into();
+
+    let updated = active.update(&mut tx).await?;
+    let _: NullableRow = updated.clone();
+    assert_eq!(updated.id, row_id);
+    assert!(updated.note.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_update_requires_primary_key() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut active = UserActive::new();
+    active.name = "No PK".into();
+    active.email = "no-pk@db.com".into();
+
+    let result = active.update(&mut tx).await;
+    assert!(result.is_err());
+
+    Ok(())
+}

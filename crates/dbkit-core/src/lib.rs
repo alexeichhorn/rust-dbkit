@@ -14,4 +14,4 @@ pub use mutation::{Delete, Insert, Update};
 pub use query::{Join, JoinKind, Order, OrderDirection, Select};
 pub use rel::{BelongsToSpec, Relation, RelationInfo, RelationKind};
 pub use schema::{Column, ColumnRef, Table};
-pub use types::{BelongsTo, HasMany, ManyToMany, NotLoaded};
+pub use types::{ActiveValue, BelongsTo, HasMany, ManyToMany, NotLoaded};
