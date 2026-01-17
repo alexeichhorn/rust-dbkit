@@ -45,14 +45,14 @@ async fn main() -> Result<(), dbkit::Error> {
         .await?;
 
     for u in &users {
-        for t in u.todos_loaded() {
+        for t in &u.todos {
             println!("{}", t.title);
         }
     }
 
     let user = User::by_id(1).one(&mut &db).await?.unwrap();
     let user = user.load(User::todos, &mut &db).await?;
-    println!("{}", user.todos_loaded().len());
+    println!("{}", user.todos.len());
 
     Ok(())
 }
@@ -69,6 +69,6 @@ async fn main() -> Result<(), dbkit::Error> {
 
 ## Deviations from spec
 
-- Relation accessors are `*_loaded()` (e.g. `todos_loaded()`), not `todos()`, to avoid name clashes with relation descriptors.
+- Method accessors are `*_loaded()` (e.g. `todos_loaded()`), not `todos()`, to avoid name clashes with relation descriptors. Loaded relations are also available on the public struct fields (e.g. `user.todos`).
 - `load(...)` requires an executor argument: `user.load(User::todos, &mut ex)`.
 - Relation state sealing is looser than spec (any `Vec<T>` / `Option<T>` satisfies the state trait).
