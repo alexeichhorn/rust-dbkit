@@ -196,6 +196,10 @@ pub fn build_arguments(binds: &[crate::Value]) -> Result<PgArguments, Error> {
             crate::Value::F32(value) => args.add(*value),
             crate::Value::F64(value) => args.add(*value),
             crate::Value::String(value) => args.add(value.clone()),
+            crate::Value::Uuid(value) => args.add(*value),
+            crate::Value::DateTime(value) => args.add(value.clone()),
+            crate::Value::Date(value) => args.add(value.clone()),
+            crate::Value::Time(value) => args.add(value.clone()),
         }
     }
     Ok(args)

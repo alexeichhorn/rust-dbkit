@@ -1,7 +1,9 @@
 #![allow(non_upper_case_globals)]
 
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
 use dbkit::{model, Database};
+use uuid::Uuid;
 
 #[model(table = "users")]
 pub struct User {
@@ -23,6 +25,16 @@ pub struct Todo {
     pub title: String,
     #[belongs_to(key = user_id, references = id)]
     pub user: dbkit::BelongsTo<User>,
+}
+
+#[model(table = "events")]
+pub struct Event {
+    #[key]
+    pub id: Uuid,
+    pub name: String,
+    pub starts_at: NaiveDateTime,
+    pub day: NaiveDate,
+    pub starts_at_time: NaiveTime,
 }
 
 fn db_url() -> String {
@@ -50,6 +62,18 @@ async fn setup_schema(
             id BIGSERIAL PRIMARY KEY,\
             user_id BIGINT NOT NULL,\
             title TEXT NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE events (\
+            id UUID PRIMARY KEY,\
+            name TEXT NOT NULL,\
+            starts_at TIMESTAMP NOT NULL,\
+            day DATE NOT NULL,\
+            starts_at_time TIME NOT NULL\
         )",
     )
     .execute(tx.as_mut())
@@ -88,6 +112,28 @@ async fn seed_todo(
     .await?
     .expect("inserted todo");
     Ok(todo)
+}
+
+async fn seed_event(
+    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
+    id: Uuid,
+    name: &str,
+    starts_at: NaiveDateTime,
+    day: NaiveDate,
+    starts_at_time: NaiveTime,
+) -> Result<Event, dbkit::Error> {
+    let event = Event::insert(EventInsert {
+        id,
+        name: name.to_string(),
+        starts_at,
+        day,
+        starts_at_time,
+    })
+    .returning_all()
+    .one(&mut *tx)
+    .await?
+    .expect("inserted event");
+    Ok(event)
 }
 
 #[tokio::test]
@@ -232,6 +278,41 @@ async fn join_filter_on_child_table() -> Result<(), dbkit::Error> {
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].id, user_keep.id);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn uuid_date_time_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let date = NaiveDate::from_ymd_opt(2024, 1, 2).expect("date");
+    let time = NaiveTime::from_hms_opt(3, 4, 5).expect("time");
+    let starts_at = NaiveDateTime::new(date, time);
+    let id = Uuid::nil();
+
+    let inserted = seed_event(&mut tx, id, "Launch", starts_at, date, time).await?;
+    assert_eq!(inserted.id, id);
+    assert_eq!(inserted.starts_at, starts_at);
+    assert_eq!(inserted.day, date);
+    assert_eq!(inserted.starts_at_time, time);
+
+    let found = Event::query()
+        .filter(Event::id.eq(id))
+        .filter(Event::day.eq(date))
+        .filter(Event::starts_at.eq(starts_at))
+        .filter(Event::starts_at_time.eq(time))
+        .one(&mut tx)
+        .await?
+        .expect("event");
+
+    assert_eq!(found.id, id);
+    assert_eq!(found.name, "Launch");
+    assert_eq!(found.starts_at, starts_at);
+    assert_eq!(found.day, date);
+    assert_eq!(found.starts_at_time, time);
 
     Ok(())
 }

@@ -12,6 +12,10 @@ pub enum Value {
     F32(f32),
     F64(f64),
     String(String),
+    Uuid(uuid::Uuid),
+    DateTime(chrono::NaiveDateTime),
+    Date(chrono::NaiveDate),
+    Time(chrono::NaiveTime),
 }
 
 impl From<bool> for Value {
@@ -59,6 +63,30 @@ impl From<String> for Value {
 impl From<&str> for Value {
     fn from(value: &str) -> Self {
         Self::String(value.to_string())
+    }
+}
+
+impl From<uuid::Uuid> for Value {
+    fn from(value: uuid::Uuid) -> Self {
+        Self::Uuid(value)
+    }
+}
+
+impl From<chrono::NaiveDateTime> for Value {
+    fn from(value: chrono::NaiveDateTime) -> Self {
+        Self::DateTime(value)
+    }
+}
+
+impl From<chrono::NaiveDate> for Value {
+    fn from(value: chrono::NaiveDate) -> Self {
+        Self::Date(value)
+    }
+}
+
+impl From<chrono::NaiveTime> for Value {
+    fn from(value: chrono::NaiveTime) -> Self {
+        Self::Time(value)
     }
 }
 

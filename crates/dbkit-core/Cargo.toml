@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+chrono = "0.4"
+uuid = "1"
 
 [dev-dependencies]
+chrono = "0.4"
 insta = "1"
+uuid = "1"
