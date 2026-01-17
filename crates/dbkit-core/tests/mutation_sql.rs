@@ -16,6 +16,10 @@ fn user_email() -> Column<User, String> {
     Column::new(user_table(), "email")
 }
 
+fn user_name() -> Column<User, String> {
+    Column::new(user_table(), "name")
+}
+
 #[test]
 fn compiles_insert_returning_all() {
     let query: Insert<User> = Insert::new(user_table())
@@ -59,6 +63,24 @@ fn compiles_update_with_filter() {
     assert_eq!(
         sql.binds,
         vec![Value::String("new@b.com".to_string()), Value::I64(1)]
+    );
+}
+
+#[test]
+fn compiles_update_returning_all_single_field() {
+    let query: Update<User> = Update::new(user_table())
+        .set(user_name(), "Updated")
+        .filter(user_id().eq(1_i64))
+        .returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "UPDATE users SET name = $1 WHERE (users.id = $2) RETURNING users.*"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String("Updated".to_string()), Value::I64(1)]
     );
 }
 
