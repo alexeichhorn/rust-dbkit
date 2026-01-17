@@ -98,6 +98,20 @@ let deleted = User::delete()
     .await?;
 ```
 
+Active model insert / update (change-tracked):
+
+```rust
+let mut active = UserActive::new();
+active.name = "Active".into();
+active.email = "active@db.com".into();
+
+let created = active.insert(&mut &db).await?;
+
+let mut active = created.into_active();
+active.name = "Updated".into();
+let updated = active.update(&mut &db).await?;
+```
+
 Eager loading and join filtering:
 
 ```rust
