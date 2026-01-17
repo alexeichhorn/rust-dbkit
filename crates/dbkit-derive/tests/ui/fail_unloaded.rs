@@ -1,4 +1,4 @@
-use dbkit::{model, HasMany};
+use dbkit::{model, BelongsTo, HasMany};
 
 #[model(table = "users")]
 pub struct User {
@@ -12,6 +12,9 @@ pub struct User {
 pub struct Todo {
     #[key]
     pub id: i64,
+    pub user_id: i64,
+    #[belongs_to(key = user_id, references = id)]
+    pub user: BelongsTo<User>,
     pub title: String,
 }
 
@@ -20,5 +23,5 @@ fn main() {
         id: 1,
         todos: dbkit::NotLoaded,
     };
-    let _should_fail = unloaded.todos();
+    let _should_fail = unloaded.todos_loaded();
 }

@@ -1,0 +1,22 @@
+warning: unused imports: `BelongsTo` and `HasMany`
+ --> tests/ui/fail_unloaded.rs:1:20
+  |
+1 | use dbkit::{model, BelongsTo, HasMany};
+  |                    ^^^^^^^^^  ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no method named `todos_loaded` found for struct `UserModel` in the current scope
+  --> tests/ui/fail_unloaded.rs:26:33
+   |
+ 3 | #[model(table = "users")]
+   | ------------------------- method `todos_loaded` not found for this struct
+...
+26 |     let _should_fail = unloaded.todos_loaded();
+   |                                 ^^^^^^^^^^^^
+   |
+help: there is a method `to_owned` with a similar name
+   |
+26 -     let _should_fail = unloaded.todos_loaded();
+26 +     let _should_fail = unloaded.to_owned();
+   |

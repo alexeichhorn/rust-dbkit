@@ -1,4 +1,4 @@
-use dbkit::{model, BelongsTo, HasMany};
+use dbkit::{model, BelongsTo, Executor, HasMany};
 
 #[model(table = "users")]
 pub struct User {
@@ -49,14 +49,46 @@ fn main() {
     };
     let _slice = loaded.todos_loaded();
 
-    let db: &dbkit::Database = todo!();
+    struct Dummy;
+    impl Executor for Dummy {
+        fn fetch_all<'e, T>(
+            &'e mut self,
+            _sql: &'e str,
+            _args: dbkit::sqlx::postgres::PgArguments,
+        ) -> dbkit::executor::BoxFuture<'e, Result<Vec<T>, dbkit::Error>>
+        where
+            T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
+        {
+            Box::pin(async { unimplemented!() })
+        }
+
+        fn fetch_optional<'e, T>(
+            &'e mut self,
+            _sql: &'e str,
+            _args: dbkit::sqlx::postgres::PgArguments,
+        ) -> dbkit::executor::BoxFuture<'e, Result<Option<T>, dbkit::Error>>
+        where
+            T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
+        {
+            Box::pin(async { unimplemented!() })
+        }
+
+        fn execute<'e>(
+            &'e mut self,
+            _sql: &'e str,
+            _args: dbkit::sqlx::postgres::PgArguments,
+        ) -> dbkit::executor::BoxFuture<'e, Result<u64, dbkit::Error>> {
+            Box::pin(async { unimplemented!() })
+        }
+    }
+
     let unloaded = UserModel {
         id: 1,
         name: "Alex".to_string(),
         email: "a@b.com".to_string(),
         todos: dbkit::NotLoaded,
     };
-    let _future = unloaded.load(User::todos, db);
+    let _future = unloaded.load(User::todos, Dummy);
 
     let _insert_struct = UserInsert {
         name: "Alex".to_string(),

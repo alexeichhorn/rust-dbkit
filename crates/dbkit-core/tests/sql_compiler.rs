@@ -19,17 +19,17 @@ fn user_email() -> Column<User, String> {
 fn compiles_basic_filter() {
     let expr = user_email().eq("a@b.com");
     let sql = expr_sql(expr);
-    assert_eq!(sql.sql, "(users.email = $1)");
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email = $1)");
     assert_eq!(sql.binds, vec![Value::String("a@b.com".to_string())]);
 }
 
 #[test]
 fn compiles_bool_composition() {
-    let expr = user_id().gt(10).and(user_email().ilike("%test%"));
+    let expr = user_id().gt(10_i64).and(user_email().ilike("%test%"));
     let sql = expr_sql(expr);
     assert_eq!(
         sql.sql,
-        "((users.id > $1) AND (users.email ILIKE $2))"
+        "SELECT users.* FROM users WHERE ((users.id > $1) AND (users.email ILIKE $2))"
     );
     assert_eq!(
         sql.binds,
@@ -41,7 +41,10 @@ fn compiles_bool_composition() {
 fn compiles_in_expression() {
     let expr = user_id().in_([1_i64, 2, 3]);
     let sql = expr_sql(expr);
-    assert_eq!(sql.sql, "(users.id IN ($1, $2, $3))");
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users WHERE (users.id IN ($1, $2, $3))"
+    );
     assert_eq!(
         sql.binds,
         vec![Value::I64(1), Value::I64(2), Value::I64(3)]
@@ -52,7 +55,7 @@ fn compiles_in_expression() {
 fn compiles_is_null_expression() {
     let expr = user_email().is_null();
     let sql = expr_sql(expr);
-    assert_eq!(sql.sql, "(users.email IS NULL)");
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NULL)");
     assert!(sql.binds.is_empty());
 }
 

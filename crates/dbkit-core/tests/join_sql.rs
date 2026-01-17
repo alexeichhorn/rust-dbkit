@@ -24,7 +24,12 @@ fn todo_user_id() -> Column<Todo, i64> {
 
 #[test]
 fn compiles_join_from_relation() {
-    let rel = HasMany::new(user_table(), todo_table(), user_id().as_ref(), todo_user_id().as_ref());
+    let rel = HasMany::<User, Todo>::new(
+        user_table(),
+        todo_table(),
+        user_id().as_ref(),
+        todo_user_id().as_ref(),
+    );
     let query: Select<User> = Select::new(user_table()).join(rel);
 
     let sql = query.compile();
@@ -37,7 +42,12 @@ fn compiles_join_from_relation() {
 
 #[test]
 fn compiles_left_join_from_relation() {
-    let rel = HasMany::new(user_table(), todo_table(), user_id().as_ref(), todo_user_id().as_ref());
+    let rel = HasMany::<User, Todo>::new(
+        user_table(),
+        todo_table(),
+        user_id().as_ref(),
+        todo_user_id().as_ref(),
+    );
     let query: Select<User> = Select::new(user_table()).left_join(rel);
 
     let sql = query.compile();
@@ -50,7 +60,12 @@ fn compiles_left_join_from_relation() {
 
 #[test]
 fn compiles_join_belongs_to_relation() {
-    let rel = BelongsTo::new(todo_table(), user_table(), todo_user_id().as_ref(), user_id().as_ref());
+    let rel = BelongsTo::<Todo, User>::new(
+        todo_table(),
+        user_table(),
+        todo_user_id().as_ref(),
+        user_id().as_ref(),
+    );
     let query: Select<Todo> = Select::new(todo_table()).join(rel);
 
     let sql = query.compile();

@@ -34,7 +34,7 @@ fn compiles_insert_returning_all() {
 fn compiles_update_with_filter() {
     let query: Update<User> = Update::new(user_table())
         .set(user_email(), "new@b.com")
-        .filter(user_id().eq(1))
+        .filter(user_id().eq(1_i64))
         .returning(vec![ColumnRef::new(user_table(), "id")]);
 
     let sql = query.compile();
@@ -50,7 +50,7 @@ fn compiles_update_with_filter() {
 
 #[test]
 fn compiles_delete_with_filter() {
-    let query = Delete::new(user_table()).filter(user_id().eq(42));
+    let query = Delete::new(user_table()).filter(user_id().eq(42_i64));
 
     let sql = query.compile();
     assert_eq!(sql.sql, "DELETE FROM users WHERE (users.id = $1)");
