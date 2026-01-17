@@ -8,25 +8,25 @@ use crate::Error;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-pub trait Executor: Copy + Send {
-    fn fetch_all<'e, T>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
+pub trait Executor {
+    fn fetch_all<'e, T>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e;
 
-    fn fetch_optional<'e, T>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<Option<T>, Error>>
+    fn fetch_optional<'e, T>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e;
 
-    fn execute<'e>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>>;
+    fn execute<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>>;
 }
 
 impl Executor for &crate::Database {
-    fn fetch_all<'e, T>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
+    fn fetch_all<'e, T>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
     {
         Box::pin(async move {
-            let rows = sqlx::query_as_with::<_, T>(sql, args)
+            let rows = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
                 .fetch_all(self.pool())
                 .await?;
             Ok(rows)
@@ -34,94 +34,149 @@ impl Executor for &crate::Database {
     }
 
     fn fetch_optional<'e, T>(
-        self,
-        sql: &str,
+        &'e mut self,
+        sql: &'e str,
         args: PgArguments,
     ) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
     {
         Box::pin(async move {
-            let row = sqlx::query_as_with::<_, T>(sql, args)
+            let row = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
                 .fetch_optional(self.pool())
                 .await?;
             Ok(row)
         })
     }
 
-    fn execute<'e>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
+    fn execute<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         Box::pin(async move {
-            let result = sqlx::query_with(sql, args).execute(self.pool()).await?;
+            let result = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .execute(self.pool())
+                .await?;
             Ok(result.rows_affected())
         })
     }
 }
 
 impl Executor for &sqlx::Pool<sqlx::Postgres> {
-    fn fetch_all<'e, T>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
+    fn fetch_all<'e, T>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
     {
         Box::pin(async move {
-            let rows = sqlx::query_as_with::<_, T>(sql, args).fetch_all(self).await?;
+            let rows = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .fetch_all(*self)
+                .await?;
             Ok(rows)
         })
     }
 
     fn fetch_optional<'e, T>(
-        self,
-        sql: &str,
+        &'e mut self,
+        sql: &'e str,
         args: PgArguments,
     ) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
     {
         Box::pin(async move {
-            let row = sqlx::query_as_with::<_, T>(sql, args)
-                .fetch_optional(self)
+            let row = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .fetch_optional(*self)
                 .await?;
             Ok(row)
         })
     }
 
-    fn execute<'e>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
+    fn execute<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         Box::pin(async move {
-            let result = sqlx::query_with(sql, args).execute(self).await?;
+            let result = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .execute(*self)
+                .await?;
             Ok(result.rows_affected())
         })
     }
 }
 
 impl<'c, 't> Executor for &'c mut sqlx::Transaction<'t, sqlx::Postgres> {
-    fn fetch_all<'e, T>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
+    fn fetch_all<'e, T>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
     {
         Box::pin(async move {
-            let rows = sqlx::query_as_with::<_, T>(sql, args).fetch_all(self).await?;
+            let conn = (*self).as_mut();
+            let rows = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .fetch_all(conn)
+                .await?;
             Ok(rows)
         })
     }
 
     fn fetch_optional<'e, T>(
-        self,
-        sql: &str,
+        &'e mut self,
+        sql: &'e str,
         args: PgArguments,
     ) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
     {
         Box::pin(async move {
-            let row = sqlx::query_as_with::<_, T>(sql, args)
-                .fetch_optional(self)
+            let conn = (*self).as_mut();
+            let row = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .fetch_optional(conn)
                 .await?;
             Ok(row)
         })
     }
 
-    fn execute<'e>(self, sql: &str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
+    fn execute<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         Box::pin(async move {
-            let result = sqlx::query_with(sql, args).execute(self).await?;
+            let conn = (*self).as_mut();
+            let result = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .execute(conn)
+                .await?;
+            Ok(result.rows_affected())
+        })
+    }
+}
+
+impl<'t> Executor for sqlx::Transaction<'t, sqlx::Postgres> {
+    fn fetch_all<'e, T>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
+    {
+        Box::pin(async move {
+            let conn = self.as_mut();
+            let rows = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .fetch_all(conn)
+                .await?;
+            Ok(rows)
+        })
+    }
+
+    fn fetch_optional<'e, T>(
+        &'e mut self,
+        sql: &'e str,
+        args: PgArguments,
+    ) -> BoxFuture<'e, Result<Option<T>, Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
+    {
+        Box::pin(async move {
+            let conn = self.as_mut();
+            let row = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .fetch_optional(conn)
+                .await?;
+            Ok(row)
+        })
+    }
+
+    fn execute<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
+        Box::pin(async move {
+            let conn = self.as_mut();
+            let result = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .execute(conn)
+                .await?;
             Ok(result.rows_affected())
         })
     }

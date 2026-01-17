@@ -7,15 +7,17 @@ use crate::rel::RelationInfo;
 use crate::{Error, Expr, ExprNode};
 
 pub trait RunLoads<Out> {
-    fn run<'e, E>(&self, ex: E, rows: &mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, ex: &'e mut E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + 'e;
+        E: Executor + Send + 'e,
+        Out: Send + 'e;
 }
 
 impl<Out> RunLoads<Out> for NoLoad {
-    fn run<'e, E>(&self, _ex: E, _rows: &mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, _ex: &'e mut E, _rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + 'e,
+        E: Executor + Send + 'e,
+        Out: Send + 'e,
     {
         Box::pin(async { Ok(()) })
     }
@@ -23,12 +25,13 @@ impl<Out> RunLoads<Out> for NoLoad {
 
 impl<Out, Prev, L> RunLoads<Out> for LoadChain<Prev, L>
 where
-    Prev: RunLoads<Out>,
-    L: RunLoad<Out>,
+    Prev: RunLoads<Out> + Sync,
+    L: RunLoad<Out> + Sync,
 {
-    fn run<'e, E>(&self, ex: E, rows: &mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, ex: &'e mut E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + 'e,
+        E: Executor + Send + 'e,
+        Out: Send + 'e,
     {
         Box::pin(async move {
             self.prev.run(ex, rows).await?;
@@ -38,23 +41,24 @@ where
 }
 
 pub trait RunLoad<Out> {
-    fn run<'e, E>(&self, ex: E, rows: &mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, ex: &'e mut E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + 'e;
+        E: Executor + Send + 'e,
+        Out: Send + 'e;
 }
 
 pub fn load_selectin_has_many<'e, E, Out, Rel, ChildOut, Nested>(
-    ex: E,
-    rows: &mut [Out],
+    ex: &'e mut E,
+    rows: &'e mut [Out],
     rel: Rel,
-    nested: &Nested,
+    nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + 'e,
-    Rel: RelationInfo,
-    Out: ModelValue + SetRelation<Rel, Vec<ChildOut>>,
+    E: Executor + Send + 'e,
+    Rel: RelationInfo + Clone + Send + 'e,
+    Out: ModelValue + SetRelation<Rel, Vec<ChildOut>> + Send,
     ChildOut: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
-    Nested: RunLoads<ChildOut>,
+    Nested: RunLoads<ChildOut> + Sync,
 {
     Box::pin(async move {
         if rows.is_empty() {
@@ -106,14 +110,14 @@ where
                 return Err(Error::RelationMismatch);
             };
             if key == Value::Null {
-                row.set_relation(rel, Vec::new())?;
-                continue;
-            }
+            row.set_relation(rel.clone(), Vec::new())?;
+            continue;
+        }
             let mut value = Vec::new();
             if let Some((_, items)) = groups.iter_mut().find(|(k, _)| *k == key) {
                 value = std::mem::take(items);
             }
-            row.set_relation(rel, value)?;
+            row.set_relation(rel.clone(), value)?;
         }
 
         Ok(())
@@ -121,17 +125,17 @@ where
 }
 
 pub fn load_selectin_belongs_to<'e, E, Out, Rel, ParentOut, Nested>(
-    ex: E,
-    rows: &mut [Out],
+    ex: &'e mut E,
+    rows: &'e mut [Out],
     rel: Rel,
-    nested: &Nested,
+    nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + 'e,
-    Rel: RelationInfo,
-    Out: ModelValue + SetRelation<Rel, Option<ParentOut>>,
+    E: Executor + Send + 'e,
+    Rel: RelationInfo + Clone + Send + 'e,
+    Out: ModelValue + SetRelation<Rel, Option<ParentOut>> + Send,
     ParentOut: ModelValue + Clone + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
-    Nested: RunLoads<ParentOut>,
+    Nested: RunLoads<ParentOut> + Sync,
 {
     Box::pin(async move {
         if rows.is_empty() {
@@ -175,7 +179,7 @@ where
                     .find(|parent| parent.column_value(relation.parent_key) == Some(key.clone()))
                     .cloned()
             });
-            row.set_relation(rel, value)?;
+            row.set_relation(rel.clone(), value)?;
         }
 
         Ok(())
@@ -183,33 +187,33 @@ where
 }
 
 pub fn load_joined_has_many<'e, E, Out, Rel, ChildOut, Nested>(
-    ex: E,
-    rows: &mut [Out],
+    ex: &'e mut E,
+    rows: &'e mut [Out],
     rel: Rel,
-    nested: &Nested,
+    nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + 'e,
-    Rel: RelationInfo,
-    Out: ModelValue + SetRelation<Rel, Vec<ChildOut>>,
+    E: Executor + Send + 'e,
+    Rel: RelationInfo + Clone + Send + 'e,
+    Out: ModelValue + SetRelation<Rel, Vec<ChildOut>> + Send,
     ChildOut: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
-    Nested: RunLoads<ChildOut>,
+    Nested: RunLoads<ChildOut> + Sync,
 {
     Box::pin(async move { load_selectin_has_many(ex, rows, rel, nested).await })
 }
 
 pub fn load_joined_belongs_to<'e, E, Out, Rel, ParentOut, Nested>(
-    ex: E,
-    rows: &mut [Out],
+    ex: &'e mut E,
+    rows: &'e mut [Out],
     rel: Rel,
-    nested: &Nested,
+    nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + 'e,
-    Rel: RelationInfo,
-    Out: ModelValue + SetRelation<Rel, Option<ParentOut>>,
+    E: Executor + Send + 'e,
+    Rel: RelationInfo + Clone + Send + 'e,
+    Out: ModelValue + SetRelation<Rel, Option<ParentOut>> + Send,
     ParentOut: ModelValue + Clone + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
-    Nested: RunLoads<ParentOut>,
+    Nested: RunLoads<ParentOut> + Sync,
 {
     Box::pin(async move { load_selectin_belongs_to(ex, rows, rel, nested).await })
 }

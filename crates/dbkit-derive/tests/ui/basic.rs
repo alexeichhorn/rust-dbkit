@@ -47,7 +47,7 @@ fn main() {
         email: "a@b.com".to_string(),
         todos: vec![],
     };
-    let _slice = loaded.todos();
+    let _slice = loaded.todos_loaded();
 
     let db: &dbkit::Database = todo!();
     let unloaded = UserModel {

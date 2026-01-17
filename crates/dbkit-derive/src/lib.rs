@@ -3,6 +3,7 @@ use quote::{format_ident, quote};
 use syn::{
     parse_macro_input, Attribute, Field, Fields, Ident, ItemStruct, Meta, Type,
 };
+use syn::parse::Parser;
 
 #[proc_macro_derive(Model, attributes(model, key, autoincrement, unique, index, has_many, belongs_to, many_to_many))]
 pub fn derive_model(_input: TokenStream) -> TokenStream {
@@ -228,15 +229,14 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let relation_state_modules = relation_fields.iter().map(|rel| {
         let state_mod = &rel.state_mod_ident;
-        let child_any_state = any_state_path(&rel.child_type);
         let (sealed_impl, state_impl) = match rel.kind {
             RelationKind::HasMany | RelationKind::ManyToMany => (
-                quote!(impl<T: #child_any_state> Sealed for Vec<T> {}),
-                quote!(impl<T: #child_any_state> State for Vec<T> {}),
+                quote!(impl<T> Sealed for Vec<T> {}),
+                quote!(impl<T> State for Vec<T> {}),
             ),
             RelationKind::BelongsTo => (
-                quote!(impl<T: #child_any_state> Sealed for Option<T> {}),
-                quote!(impl<T: #child_any_state> State for Option<T> {}),
+                quote!(impl<T> Sealed for Option<T> {}),
+                quote!(impl<T> State for Option<T> {}),
             ),
         };
         quote!(
@@ -255,8 +255,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let relation_methods = relation_fields.iter().map(|rel| {
         let field_ident = rel.field.ident.as_ref().expect("field ident");
-        let child_type = &rel.child_type;
-        let child_any_state = any_state_path(child_type);
+        let method_ident = format_ident!("{}_loaded", field_ident);
         let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
         let loaded_type: Type = match rel.kind {
             RelationKind::HasMany | RelationKind::ManyToMany => syn::parse_quote!(Vec<#item_ident>),
@@ -277,7 +276,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
 
         let mut impl_params = Vec::new();
-        impl_params.push(quote!(#item_ident: #child_any_state));
+        impl_params.push(quote!(#item_ident));
         impl_params.extend(other_params);
 
         let impl_generics = if impl_params.is_empty() {
@@ -302,7 +301,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
         quote!(
             impl #impl_generics #model_ident #type_args {
-                pub fn #field_ident(&self) -> #return_ty {
+                pub fn #method_ident(&self) -> #return_ty {
                     #body
                 }
             }
@@ -339,9 +338,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     });
 
     let from_row_impl_generics = if relation_fields.is_empty() {
-        quote!()
+        quote!(<'r>)
     } else {
-        quote!(<#(#from_row_generics),*>)
+        quote!(<'r, #(#from_row_generics),*>)
     };
 
     let from_row_fields = output_fields.iter().map(|field| {
@@ -355,7 +354,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     });
 
     let from_row_impl = quote!(
-        impl<'r> #from_row_impl_generics ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow>
+        impl #from_row_impl_generics ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow>
             for #model_ident #struct_type_args
         {
             fn from_row(row: &'r ::dbkit::sqlx::postgres::PgRow) -> Result<Self, ::dbkit::sqlx::Error> {
@@ -369,7 +368,6 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let set_relation_impls = relation_fields.iter().map(|rel| {
         let field_ident = rel.field.ident.as_ref().expect("field ident");
         let child_type = &rel.child_type;
-        let child_any_state = any_state_path(child_type);
         let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
         let (value_ty, rel_ty) = match rel.kind {
             RelationKind::HasMany | RelationKind::ManyToMany => (
@@ -396,7 +394,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
 
         let mut impl_params = Vec::new();
-        impl_params.push(quote!(#item_ident: #child_any_state));
+        impl_params.push(quote!(#item_ident));
         impl_params.extend(other_params);
 
         let impl_generics = if impl_params.is_empty() {
@@ -471,6 +469,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         } else {
             quote!(#model_ident<#(#out_params),*>)
         };
+        let out_construct = if out_params.is_empty() {
+            quote!(#model_ident)
+        } else {
+            quote!(#model_ident::<#(#out_params),*>)
+        };
 
         let destructure_fields = output_fields.iter().map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
@@ -495,14 +498,14 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 pub async fn load(
                     self,
                     rel: #rel_type,
-                    ex: impl ::dbkit::Executor,
+                    mut ex: impl ::dbkit::Executor + Send,
                 ) -> Result<#out_type, ::dbkit::Error> {
                     let Self { #(#destructure_fields,)* } = self;
-                    let mut out = #out_type {
+                    let mut out = #out_construct {
                         #(#build_fields,)*
                     };
                     let mut rows = vec![out];
-                    #loader_fn(ex, &mut rows, rel, &::dbkit::load::NoLoad).await?;
+                    #loader_fn(&mut ex, &mut rows, rel, &::dbkit::load::NoLoad).await?;
                     Ok(rows.pop().expect("loaded row"))
                 }
             }
@@ -651,7 +654,14 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
         let mut apply_generics = Vec::new();
         apply_generics.push(quote!(Nested));
-        apply_generics.extend(impl_generics_params.iter().cloned());
+        for other in &relation_fields {
+            if other.field.ident == rel.field.ident {
+                continue;
+            }
+            let ident = &other.param_ident;
+            let state_mod = &other.state_mod_ident;
+            apply_generics.push(quote!(#ident: #state_mod::State));
+        }
         let apply_generics = if apply_generics.is_empty() {
             quote!()
         } else {
@@ -676,10 +686,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
         let mut items = Vec::new();
         for (strategy, loader) in [
-            (\"SelectIn\", loader_fn),
-            (\"Joined\", joined_loader_fn),
+            ("SelectIn", loader_fn),
+            ("Joined", joined_loader_fn),
         ] {
-            let load_ty = if strategy == \"SelectIn\" {
+            let load_ty = if strategy == "SelectIn" {
                 quote!(::dbkit::load::SelectIn<#rel_type, Nested>)
             } else {
                 quote!(::dbkit::load::Joined<#rel_type, Nested>)
@@ -688,19 +698,19 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             items.push(quote!(
                 impl #apply_generics ::dbkit::runtime::RunLoad<#out_type> for #load_ty
                 where
-                    Nested: ::dbkit::runtime::RunLoads<#loaded_child>,
+                    Nested: ::dbkit::load::ApplyLoad<#child_type> + ::dbkit::runtime::RunLoads<#loaded_child> + Sync,
                     #out_type: ::dbkit::ModelValue + ::dbkit::SetRelation<#rel_type, #loaded_param>,
                     #child_bounds
                 {
                     fn run<'e, E>(
-                        &self,
-                        ex: E,
-                        rows: &mut [#out_type],
+                        &'e self,
+                        ex: &'e mut E,
+                        rows: &'e mut [#out_type],
                     ) -> ::dbkit::executor::BoxFuture<'e, Result<(), ::dbkit::Error>>
                     where
-                        E: ::dbkit::Executor + 'e,
+                        E: ::dbkit::Executor + Send + 'e,
                     {
-                        #loader(ex, rows, self.rel, &self.nested)
+                        #loader(ex, rows, self.rel.clone(), &self.nested)
                     }
                 }
             ));
@@ -710,6 +720,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let output = quote! {
         #(#struct_attrs)*
+        #[derive(Debug, Clone)]
         #vis struct #model_ident #struct_generics {
             #(#output_fields,)*
         }
@@ -861,7 +872,10 @@ fn filter_struct_attrs(attrs: &[Attribute]) -> Vec<Attribute> {
                     continue;
                 }
                 let new_attr = quote!(#[derive(#paths)]);
-                kept.push(syn::parse2(new_attr).expect("derive attr"));
+                let parsed = syn::Attribute::parse_outer
+                    .parse2(new_attr)
+                    .expect("derive attr");
+                kept.extend(parsed);
                 continue;
             }
         }
@@ -997,43 +1011,6 @@ fn to_camel_case(name: &str) -> String {
     out
 }
 
-fn adjust_type_for_module(ty: &Type) -> proc_macro2::TokenStream {
-    match ty {
-        Type::Path(path) => {
-            if path.qself.is_some() {
-                return quote!(#ty);
-            }
-            if path.path.leading_colon.is_some() {
-                return quote!(#ty);
-            }
-            let first = path.path.segments.first().map(|seg| seg.ident.to_string());
-            if matches!(first.as_deref(), Some("crate") | Some("self") | Some("super")) {
-                quote!(#ty)
-            } else if path.path.segments.len() == 1 {
-                quote!(super::#ty)
-            } else {
-                quote!(#ty)
-            }
-        }
-        _ => quote!(#ty),
-    }
-}
+// (unused helper removed)
 
-fn any_state_path(ty: &Type) -> proc_macro2::TokenStream {
-    match ty {
-        Type::Path(path) => {
-            let mut new_path = path.path.clone();
-            if let Some(last) = new_path.segments.last_mut() {
-                let ident = last.ident.to_string();
-                last.ident = format_ident!(\"{}AnyState\", ident);
-                last.arguments = syn::PathArguments::None;
-            }
-            if new_path.leading_colon.is_none() && new_path.segments.len() == 1 {
-                quote!(super::#new_path)
-            } else {
-                quote!(#new_path)
-            }
-        }
-        _ => quote!(#ty),
-    }
-}
+// (intentionally removed unused AnyState helpers)

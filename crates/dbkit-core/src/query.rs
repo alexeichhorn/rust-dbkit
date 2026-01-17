@@ -12,7 +12,7 @@ pub enum JoinKind {
     Left,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Join {
     pub table: Table,
     pub on: Expr<bool>,
