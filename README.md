@@ -62,7 +62,7 @@ async fn main() -> Result<(), dbkit::Error> {
 - [ ] Implement true joined eager loading (single-query join decoding).
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.
-- [ ] Expand type support (uuid/chrono/time/json feature gates).
+- [ ] Expand type support (json feature gate).
 - [ ] Support binding `NULL` values (`Option::None`).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
