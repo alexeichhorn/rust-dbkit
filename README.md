@@ -58,6 +58,93 @@ async fn main() -> Result<(), dbkit::Error> {
 }
 ```
 
+## More examples
+
+Basic query + ordering:
+
+```rust
+use dbkit::prelude::*;
+
+let users = User::query()
+    .filter(User::email.ilike("%@example.com"))
+    .order_by(dbkit::Order::asc(User::name.as_ref()))
+    .limit(20)
+    .all(&mut &db)
+    .await?;
+```
+
+Insert / update / delete:
+
+```rust
+let created = User::insert(UserInsert {
+    name: "Alex".to_string(),
+    email: "a@b.com".to_string(),
+})
+.returning_all()
+.one(&mut &db)
+.await?
+.expect("inserted");
+
+let updated = User::update()
+    .set(User::name, "Updated")
+    .filter(User::id.eq(created.id))
+    .returning_all()
+    .all(&mut &db)
+    .await?;
+
+let deleted = User::delete()
+    .filter(User::id.eq(created.id))
+    .execute(&mut &db)
+    .await?;
+```
+
+Eager loading and join filtering:
+
+```rust
+let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    .with(User::todos.selectin())
+    .all(&mut &db)
+    .await?;
+
+let filtered = User::query()
+    .join(User::todos)
+    .filter(Todo::title.eq("Keep me"))
+    .distinct()
+    .all(&mut &db)
+    .await?;
+```
+
+Lazy loading:
+
+```rust
+let user = User::by_id(1).one(&mut &db).await?.unwrap();
+let user = user.load(User::todos, &mut &db).await?;
+println!("todos: {}", user.todos.len());
+```
+
+NULL handling with `Option<T>`:
+
+```rust
+// assuming `NullableRow { note: Option<String> }`
+let row = NullableRow::insert(NullableRowInsert { note: None })
+    .returning_all()
+    .one(&mut &db)
+    .await?;
+
+let rows = NullableRow::query()
+    .filter(NullableRow::note.eq(None))
+    .all(&mut &db)
+    .await?;
+```
+
+Transactions:
+
+```rust
+let mut tx = db.begin().await?;
+let users = User::query().all(&mut tx).await?;
+tx.commit().await?;
+```
+
 ## TODOs
 
 - [ ] Implement many-to-many (`#[many_to_many]`) descriptors and loaders.
