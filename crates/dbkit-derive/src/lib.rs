@@ -44,6 +44,7 @@ struct ScalarFieldInfo {
     field: Field,
     ident: Ident,
     ty: Type,
+    is_key: bool,
     is_autoincrement: bool,
 }
 
@@ -71,7 +72,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .unwrap_or_else(|| to_snake_case(&struct_ident.to_string()));
     let schema_name = args.schema;
 
-    let mut primary_key: Option<(Ident, Type)> = None;
+    let mut primary_keys: Vec<(Ident, Type)> = Vec::new();
     let mut relation_fields = Vec::new();
     let mut output_fields = Vec::new();
     let mut insert_fields = Vec::new();
@@ -103,13 +104,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let is_autoincrement = has_attr(&field.attrs, "autoincrement");
 
         if is_key {
-            if primary_key.is_some() {
-                return Err(syn::Error::new_spanned(
-                    &field_ident,
-                    "dbkit: multiple #[key] fields are not supported",
-                ));
-            }
-            primary_key = Some((field_ident.clone(), field.ty.clone()));
+            primary_keys.push((field_ident.clone(), field.ty.clone()));
         }
 
         if is_relation {
@@ -160,6 +155,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             field: cleaned_field,
             ident: field_ident,
             ty: field.ty.clone(),
+            is_key,
             is_autoincrement,
         });
     }
@@ -286,49 +282,70 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
     );
 
-    let active_update_fn = if let Some((pk_ident, _pk_ty)) = &primary_key {
-        let pk_name = pk_ident.to_string();
-        let update_steps = scalar_fields.iter().filter(|field| field.ident != *pk_ident).map(|field| {
-            let ident = &field.ident;
-            let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
-            quote!(
-                match #ident {
-                    ::dbkit::ActiveValue::Unset => {}
-                    ::dbkit::ActiveValue::Set(value) => {
-                        update = update.set(#struct_ident::#ident, value);
-                        any_set = true;
+    let active_update_fn = if !primary_keys.is_empty() {
+        let pk_vars = primary_keys
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| format_ident!("pk_value_{}", idx))
+            .collect::<Vec<_>>();
+        let pk_extracts = primary_keys
+            .iter()
+            .zip(pk_vars.iter())
+            .map(|((ident, _), var)| {
+                let pk_name = ident.to_string();
+                quote!(
+                    let #var = match #ident {
+                        ::dbkit::ActiveValue::Set(value) => value,
+                        ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset => {
+                            return Err(::dbkit::Error::Decode(format!(
+                                "missing required field: {}",
+                                #pk_name
+                            )));
+                        }
+                    };
+                )
+            });
+        let pk_filters = primary_keys
+            .iter()
+            .zip(pk_vars.iter())
+            .map(|((ident, _), var)| {
+                quote!(update = update.filter(#struct_ident::#ident.eq(#var));)
+            });
+        let update_steps = scalar_fields
+            .iter()
+            .filter(|field| !field.is_key)
+            .map(|field| {
+                let ident = &field.ident;
+                let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
+                quote!(
+                    match #ident {
+                        ::dbkit::ActiveValue::Unset => {}
+                        ::dbkit::ActiveValue::Set(value) => {
+                            update = update.set(#struct_ident::#ident, value);
+                            any_set = true;
+                        }
+                        ::dbkit::ActiveValue::Null => {
+                            update = update.set(#struct_ident::#ident, None::<#ty>);
+                            any_set = true;
+                        }
                     }
-                    ::dbkit::ActiveValue::Null => {
-                        update = update.set(#struct_ident::#ident, None::<#ty>);
-                        any_set = true;
-                    }
-                }
-            )
-        });
+                )
+            });
         quote!(
             pub async fn update(
                 self,
                 ex: &mut (impl ::dbkit::Executor + Send),
             ) -> Result<#struct_ident, ::dbkit::Error> {
                 let Self { #(#active_destructure,)* } = self;
-                let pk_value = match #pk_ident {
-                    ::dbkit::ActiveValue::Set(value) => value,
-                    ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset => {
-                        return Err(::dbkit::Error::Decode(format!(
-                            "missing required field: {}",
-                            #pk_name
-                        )));
-                    }
-                };
+                #(#pk_extracts)*
                 let mut update = ::dbkit::Update::new(#struct_ident::TABLE);
                 let mut any_set = false;
                 #(#update_steps)*
                 if !any_set {
                     return Err(::dbkit::Error::Decode("no fields set for update".to_string()));
                 }
-                let update = update
-                    .filter(#struct_ident::#pk_ident.eq(pk_value))
-                    .returning_all();
+                #(#pk_filters)*
+                let update = update.returning_all();
                 let mut rows = ::dbkit::UpdateExt::all(update, ex).await?;
                 rows.pop().ok_or(::dbkit::Error::NotFound)
             }
@@ -346,18 +363,34 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
     );
 
-    let primary_key_const = primary_key.as_ref().map(|(ident, ty)| {
+    let primary_key_const = if primary_keys.len() == 1 {
+        let (ident, ty) = primary_keys
+            .first()
+            .expect("primary key length checked");
         let name = ident.to_string();
-        quote!(pub const PRIMARY_KEY: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
-    });
+        Some(quote!(pub const PRIMARY_KEY: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);))
+    } else if primary_keys.len() > 1 {
+        let pk_refs = primary_keys.iter().map(|(ident, _)| {
+            let name = ident.to_string();
+            quote!(::dbkit::ColumnRef::new(Self::TABLE, #name))
+        });
+        Some(quote!(pub const PRIMARY_KEYS: &'static [::dbkit::ColumnRef] = &[#(#pk_refs,)*];))
+    } else {
+        None
+    };
 
-    let by_id_fn = primary_key.as_ref().map(|(ident, ty)| {
-        quote!(
+    let by_id_fn = if primary_keys.len() == 1 {
+        let (ident, ty) = primary_keys
+            .first()
+            .expect("primary key length checked");
+        Some(quote!(
             pub fn by_id(id: #ty) -> ::dbkit::Select<#struct_ident> {
                 Self::query().filter(Self::#ident.eq(id)).limit(1)
             }
-        )
-    });
+        ))
+    } else {
+        None
+    };
 
     let any_state_ident = format_ident!("{}AnyState", struct_ident);
 

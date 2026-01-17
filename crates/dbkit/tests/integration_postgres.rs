@@ -45,6 +45,15 @@ pub struct Event {
     pub starts_at_time: NaiveTime,
 }
 
+#[model(table = "order_lines")]
+pub struct OrderLine {
+    #[key]
+    pub order_id: i64,
+    #[key]
+    pub line_id: i64,
+    pub note: String,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -91,6 +100,17 @@ async fn setup_schema(
         "CREATE TEMP TABLE nullable_rows (\
             id BIGSERIAL PRIMARY KEY,\
             note TEXT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE order_lines (\
+            order_id BIGINT NOT NULL,\
+            line_id BIGINT NOT NULL,\
+            note TEXT NOT NULL,\
+            PRIMARY KEY (order_id, line_id)\
         )",
     )
     .execute(tx.as_mut())
@@ -162,6 +182,24 @@ async fn seed_nullable_row(
         .one(&mut *tx)
         .await?
         .expect("inserted nullable row");
+    Ok(row)
+}
+
+async fn seed_order_line(
+    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
+    order_id: i64,
+    line_id: i64,
+    note: &str,
+) -> Result<OrderLine, dbkit::Error> {
+    let row = OrderLine::insert(OrderLineInsert {
+        order_id,
+        line_id,
+        note: note.to_string(),
+    })
+    .returning_all()
+    .one(&mut *tx)
+    .await?
+    .expect("inserted order line");
     Ok(row)
 }
 
@@ -492,6 +530,88 @@ async fn active_update_uses_only_primary_key_filter() -> Result<(), dbkit::Error
     let other = User::by_id(untouched.id).one(&mut tx).await?.expect("other");
     assert_eq!(other.name, "Other");
     assert_eq!(other.email, "other@db.com");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn composite_primary_key_active_update_uses_both_keys() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let first = seed_order_line(&mut tx, 1, 1, "A").await?;
+    let _same_order = seed_order_line(&mut tx, 1, 2, "B").await?;
+    let _same_line = seed_order_line(&mut tx, 2, 1, "C").await?;
+
+    let mut active = first.into_active();
+    active.note = "A1".into();
+    let updated = active.update(&mut tx).await?;
+    assert_eq!(updated.order_id, 1);
+    assert_eq!(updated.line_id, 1);
+    assert_eq!(updated.note, "A1");
+
+    let fetched = OrderLine::query()
+        .filter(OrderLine::order_id.eq(1))
+        .filter(OrderLine::line_id.eq(1))
+        .one(&mut tx)
+        .await?
+        .expect("updated");
+    assert_eq!(fetched.note, "A1");
+
+    let same_order = OrderLine::query()
+        .filter(OrderLine::order_id.eq(1))
+        .filter(OrderLine::line_id.eq(2))
+        .one(&mut tx)
+        .await?
+        .expect("same order");
+    assert_eq!(same_order.note, "B");
+
+    let same_line = OrderLine::query()
+        .filter(OrderLine::order_id.eq(2))
+        .filter(OrderLine::line_id.eq(1))
+        .one(&mut tx)
+        .await?
+        .expect("same line");
+    assert_eq!(same_line.note, "C");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn composite_primary_key_active_update_requires_all_keys() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut missing_line = OrderLine::new_active();
+    missing_line.order_id = 1.into();
+    missing_line.note = "Missing line".into();
+    assert!(missing_line.update(&mut tx).await.is_err());
+
+    let mut missing_order = OrderLine::new_active();
+    missing_order.line_id = 1.into();
+    missing_order.note = "Missing order".into();
+    assert!(missing_order.update(&mut tx).await.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn composite_primary_key_active_insert_requires_all_keys() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut missing_line = OrderLine::new_active();
+    missing_line.order_id = 1.into();
+    missing_line.note = "Missing line".into();
+    assert!(missing_line.insert(&mut tx).await.is_err());
+
+    let mut missing_order = OrderLine::new_active();
+    missing_order.line_id = 1.into();
+    missing_order.note = "Missing order".into();
+    assert!(missing_order.insert(&mut tx).await.is_err());
 
     Ok(())
 }

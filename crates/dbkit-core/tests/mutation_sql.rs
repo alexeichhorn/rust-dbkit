@@ -8,6 +8,10 @@ fn user_table() -> Table {
     Table::new("users")
 }
 
+fn order_line_table() -> Table {
+    Table::new("order_lines")
+}
+
 fn user_id() -> Column<User, i64> {
     Column::new(user_table(), "id")
 }
@@ -18,6 +22,18 @@ fn user_email() -> Column<User, String> {
 
 fn user_name() -> Column<User, String> {
     Column::new(user_table(), "name")
+}
+
+fn order_id() -> Column<User, i64> {
+    Column::new(order_line_table(), "order_id")
+}
+
+fn line_id() -> Column<User, i64> {
+    Column::new(order_line_table(), "line_id")
+}
+
+fn line_note() -> Column<User, String> {
+    Column::new(order_line_table(), "note")
 }
 
 #[test]
@@ -81,6 +97,25 @@ fn compiles_update_returning_all_single_field() {
     assert_eq!(
         sql.binds,
         vec![Value::String("Updated".to_string()), Value::I64(1)]
+    );
+}
+
+#[test]
+fn compiles_update_with_composite_key_filters() {
+    let query: Update<User> = Update::new(order_line_table())
+        .set(line_note(), "Updated")
+        .filter(order_id().eq(1_i64))
+        .filter(line_id().eq(2_i64))
+        .returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "UPDATE order_lines SET note = $1 WHERE (order_lines.order_id = $2) AND (order_lines.line_id = $3) RETURNING order_lines.*"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String("Updated".to_string()), Value::I64(1), Value::I64(2)]
     );
 }
 
