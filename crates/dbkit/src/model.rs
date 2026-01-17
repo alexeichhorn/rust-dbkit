@@ -18,3 +18,11 @@ pub trait ModelDelete: Sized {
     where
         E: Executor + Send + 'e;
 }
+
+pub trait LoadRelation<Rel>: Sized {
+    type Out;
+
+    fn load_relation<'e, E>(self, rel: Rel, ex: &'e mut E) -> BoxFuture<'e, Result<Self::Out, Error>>
+    where
+        E: Executor + Send + 'e;
+}

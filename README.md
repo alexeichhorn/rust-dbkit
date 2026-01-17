@@ -161,7 +161,6 @@ tx.commit().await?;
 
 ## TODOs
 
-- [ ] Implement many-to-many (`#[many_to_many]`) descriptors and loaders.
 - [ ] Implement true joined eager loading (single-query join decoding).
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.

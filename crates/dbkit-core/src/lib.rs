@@ -12,6 +12,6 @@ pub use expr::{ColumnValue, Expr, ExprNode, Value};
 pub use load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 pub use mutation::{Delete, Insert, Update};
 pub use query::{Join, JoinKind, Order, OrderDirection, Select};
-pub use rel::{BelongsToSpec, Relation, RelationInfo, RelationKind};
+pub use rel::{BelongsToSpec, ManyToManyThrough, Relation, RelationInfo, RelationKind};
 pub use schema::{Column, ColumnRef, Table};
 pub use types::{ActiveValue, BelongsTo, HasMany, ManyToMany, NotLoaded};

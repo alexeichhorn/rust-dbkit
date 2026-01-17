@@ -73,11 +73,13 @@ impl<Out, Loads> Select<Out, Loads> {
         R: RelationInfo<Parent = Out>,
     {
         let relation = rel.relation();
-        self.joins.push(Join {
-            table: relation.join_table(),
-            on: relation.on_expr(),
-            kind: JoinKind::Inner,
-        });
+        for (table, on) in relation.join_steps() {
+            self.joins.push(Join {
+                table,
+                on,
+                kind: JoinKind::Inner,
+            });
+        }
         self
     }
 
@@ -86,11 +88,13 @@ impl<Out, Loads> Select<Out, Loads> {
         R: RelationInfo<Parent = Out>,
     {
         let relation = rel.relation();
-        self.joins.push(Join {
-            table: relation.join_table(),
-            on: relation.on_expr(),
-            kind: JoinKind::Left,
-        });
+        for (table, on) in relation.join_steps() {
+            self.joins.push(Join {
+                table,
+                on,
+                kind: JoinKind::Left,
+            });
+        }
         self
     }
 

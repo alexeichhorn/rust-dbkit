@@ -38,6 +38,9 @@ struct RelationInfo {
     kind: RelationKind,
     belongs_to_key: Option<Ident>,
     belongs_to_ref: Option<Ident>,
+    many_to_many_through: Option<Ident>,
+    many_to_many_left_key: Option<Ident>,
+    many_to_many_right_key: Option<Ident>,
 }
 
 struct ScalarFieldInfo {
@@ -121,6 +124,13 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             } else {
                 (None, None)
             };
+            let (many_to_many_through, many_to_many_left_key, many_to_many_right_key) =
+                if kind == RelationKind::ManyToMany {
+                    let (through, left_key, right_key) = parse_many_to_many_args(&field.attrs)?;
+                    (Some(through), Some(left_key), Some(right_key))
+                } else {
+                    (None, None, None)
+                };
 
             relation_fields.push(RelationInfo {
                 field: field.clone(),
@@ -130,6 +140,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 kind,
                 belongs_to_key,
                 belongs_to_ref,
+                many_to_many_through,
+                many_to_many_left_key,
+                many_to_many_right_key,
             });
 
             let cleaned_field = Field {
@@ -165,6 +178,17 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     } else {
         quote!(::dbkit::Table::new(#table_name))
     };
+
+    if relation_fields
+        .iter()
+        .any(|rel| rel.kind == RelationKind::ManyToMany)
+        && primary_keys.len() != 1
+    {
+        return Err(syn::Error::new_spanned(
+            struct_ident,
+            "dbkit: many-to-many requires exactly one #[key] on the parent model",
+        ));
+    }
 
     let generics_with_defaults = relation_fields
         .iter()
@@ -608,10 +632,20 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let child_type = &rel.child_type;
         let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
         let (value_ty, rel_ty) = match rel.kind {
-            RelationKind::HasMany | RelationKind::ManyToMany => (
+            RelationKind::HasMany => (
                 quote!(Vec<#item_ident>),
                 quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
             ),
+            RelationKind::ManyToMany => {
+                let through = rel
+                    .many_to_many_through
+                    .as_ref()
+                    .expect("many-to-many through");
+                (
+                    quote!(Vec<#item_ident>),
+                    quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>),
+                )
+            }
             RelationKind::BelongsTo => (
                 quote!(Option<#item_ident>),
                 quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
@@ -656,23 +690,40 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         )
     });
 
-    let load_methods = relation_fields.iter().map(|rel| {
+    let load_method = quote!(
+        pub async fn load<Rel>(
+            self,
+            rel: Rel,
+            ex: &mut (impl ::dbkit::Executor + Send),
+        ) -> Result<<Self as ::dbkit::LoadRelation<Rel>>::Out, ::dbkit::Error>
+        where
+            Self: ::dbkit::LoadRelation<Rel>,
+        {
+            ::dbkit::LoadRelation::load_relation(self, rel, ex).await
+        }
+    );
+
+    let load_relation_impls = relation_fields.iter().map(|rel| {
         let field_ident = rel.field.ident.as_ref().expect("field ident");
         let child_type = &rel.child_type;
         let rel_type = match rel.kind {
-            RelationKind::HasMany | RelationKind::ManyToMany => {
-                quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>)
-            }
+            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
             RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            RelationKind::ManyToMany => {
+                let through = rel
+                    .many_to_many_through
+                    .as_ref()
+                    .expect("many-to-many through");
+                quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>)
+            }
         };
         let loaded_type = match rel.kind {
             RelationKind::HasMany | RelationKind::ManyToMany => quote!(Vec<#child_type>),
             RelationKind::BelongsTo => quote!(Option<#child_type>),
         };
         let loader_fn = match rel.kind {
-            RelationKind::HasMany | RelationKind::ManyToMany => {
-                quote!(::dbkit::runtime::load_selectin_has_many)
-            }
+            RelationKind::HasMany => quote!(::dbkit::runtime::load_selectin_has_many),
+            RelationKind::ManyToMany => quote!(::dbkit::runtime::load_selectin_many_to_many),
             RelationKind::BelongsTo => quote!(::dbkit::runtime::load_selectin_belongs_to),
         };
 
@@ -686,7 +737,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             } else {
                 let ident = &other.param_ident;
                 let state_mod = &other.state_mod_ident;
-                other_params.push(quote!(#ident: #state_mod::State));
+                other_params.push(quote!(#ident: #state_mod::State + Send + 'static));
                 type_params.push(quote!(#ident));
                 out_params.push(quote!(#ident));
             }
@@ -732,19 +783,26 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         });
 
         quote!(
-            impl #impl_generics #model_ident #type_args {
-                pub async fn load(
+            impl #impl_generics ::dbkit::LoadRelation<#rel_type> for #model_ident #type_args {
+                type Out = #out_type;
+
+                fn load_relation<'e, E>(
                     self,
                     rel: #rel_type,
-                    mut ex: impl ::dbkit::Executor + Send,
-                ) -> Result<#out_type, ::dbkit::Error> {
-                    let Self { #(#destructure_fields,)* } = self;
-                    let mut out = #out_construct {
-                        #(#build_fields,)*
-                    };
-                    let mut rows = vec![out];
-                    #loader_fn(&mut ex, &mut rows, rel, &::dbkit::load::NoLoad).await?;
-                    Ok(rows.pop().expect("loaded row"))
+                    ex: &'e mut E,
+                ) -> ::dbkit::executor::BoxFuture<'e, Result<Self::Out, ::dbkit::Error>>
+                where
+                    E: ::dbkit::Executor + Send + 'e,
+                {
+                    Box::pin(async move {
+                        let Self { #(#destructure_fields,)* } = self;
+                        let mut out = #out_construct {
+                            #(#build_fields,)*
+                        };
+                        let mut rows = vec![out];
+                        #loader_fn(ex, &mut rows, rel, &::dbkit::load::NoLoad).await?;
+                        Ok(rows.pop().expect("loaded row"))
+                    })
                 }
             }
         )
@@ -776,7 +834,36 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                         );
                 ))
             }
-            RelationKind::ManyToMany => None,
+            RelationKind::ManyToMany => {
+                let through = rel
+                    .many_to_many_through
+                    .as_ref()
+                    .expect("many-to-many through");
+                let left_key = rel
+                    .many_to_many_left_key
+                    .as_ref()
+                    .expect("many-to-many left_key");
+                let right_key = rel
+                    .many_to_many_right_key
+                    .as_ref()
+                    .expect("many-to-many right_key");
+                let parent_pk = primary_keys
+                    .first()
+                    .map(|(ident, _)| ident)
+                    .expect("many-to-many parent pk");
+                Some(quote!(
+                    pub const #field_ident: ::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through> =
+                        ::dbkit::rel::ManyToMany::new(
+                            Self::TABLE,
+                            #child_type::TABLE,
+                            #through::TABLE,
+                            Self::#parent_pk.as_ref(),
+                            #child_type::PRIMARY_KEY.as_ref(),
+                            #through::#left_key.as_ref(),
+                            #through::#right_key.as_ref(),
+                        );
+                ))
+            }
         }
     });
 
@@ -802,7 +889,13 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let rel_type = match rel.kind {
             RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
             RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
-            RelationKind::ManyToMany => return Vec::new().into_iter(),
+            RelationKind::ManyToMany => {
+                let through = rel
+                    .many_to_many_through
+                    .as_ref()
+                    .expect("many-to-many through");
+                quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>)
+            }
         };
 
         let loaded_child = quote!(<Nested as ::dbkit::load::ApplyLoad<#child_type>>::Out2);
@@ -862,10 +955,14 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let run_load_impls = relation_fields.iter().flat_map(|rel| {
         let child_type = &rel.child_type;
+        let through = rel.many_to_many_through.as_ref();
         let rel_type = match rel.kind {
             RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
             RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
-            RelationKind::ManyToMany => return Vec::new().into_iter(),
+            RelationKind::ManyToMany => {
+                let through = through.expect("many-to-many through");
+                quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>)
+            }
         };
 
         let loaded_child = quote!(<Nested as ::dbkit::load::ApplyLoad<#child_type>>::Out2);
@@ -898,7 +995,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             }
             let ident = &other.param_ident;
             let state_mod = &other.state_mod_ident;
-            apply_generics.push(quote!(#ident: #state_mod::State));
+            apply_generics.push(quote!(#ident: #state_mod::State + Send + 'static));
         }
         let apply_generics = if apply_generics.is_empty() {
             quote!()
@@ -907,10 +1004,20 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         };
 
         let (child_bounds, loader_fn) = match rel.kind {
-            RelationKind::HasMany | RelationKind::ManyToMany => (
+            RelationKind::HasMany => (
                 quote!(#loaded_child: ::dbkit::ModelValue + for<'r> ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow> + Send + Unpin,),
                 quote!(::dbkit::runtime::load_selectin_has_many),
             ),
+            RelationKind::ManyToMany => {
+                let through = through.expect("many-to-many through");
+                (
+                    quote!(
+                        #loaded_child: ::dbkit::ModelValue + Clone + for<'r> ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow> + Send + Unpin,
+                        #through: ::dbkit::ModelValue + for<'r> ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow> + Send + Unpin,
+                    ),
+                    quote!(::dbkit::runtime::load_selectin_many_to_many),
+                )
+            }
             RelationKind::BelongsTo => (
                 quote!(#loaded_child: ::dbkit::ModelValue + Clone + for<'r> ::dbkit::sqlx::FromRow<'r, ::dbkit::sqlx::postgres::PgRow> + Send + Unpin,),
                 quote!(::dbkit::runtime::load_selectin_belongs_to),
@@ -918,7 +1025,8 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         };
 
         let joined_loader_fn = match rel.kind {
-            RelationKind::HasMany | RelationKind::ManyToMany => quote!(::dbkit::runtime::load_joined_has_many),
+            RelationKind::HasMany => quote!(::dbkit::runtime::load_joined_has_many),
+            RelationKind::ManyToMany => quote!(::dbkit::runtime::load_joined_many_to_many),
             RelationKind::BelongsTo => quote!(::dbkit::runtime::load_joined_belongs_to),
         };
 
@@ -1001,6 +1109,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             }
 
             #into_active_fn
+            #load_method
         }
 
         #[derive(Debug, Clone)]
@@ -1027,7 +1136,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         #model_value_impl
         #from_row_impl
         #(#set_relation_impls)*
-        #(#load_methods)*
+        #(#load_relation_impls)*
         #(#belongs_to_specs)*
         #(#apply_load_impls)*
         #(#run_load_impls)*
@@ -1081,6 +1190,38 @@ fn parse_belongs_to_args(attrs: &[Attribute]) -> syn::Result<(Ident, Ident)> {
     Err(syn::Error::new(
         proc_macro2::Span::call_site(),
         "dbkit: #[belongs_to] requires key = <field> and references = <field>",
+    ))
+}
+
+fn parse_many_to_many_args(attrs: &[Attribute]) -> syn::Result<(Ident, Ident, Ident)> {
+    for attr in attrs {
+        if !attr.path().is_ident("many_to_many") {
+            continue;
+        }
+        let args = attr.parse_args_with(
+            syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+        )?;
+        let mut through = None;
+        let mut left_key = None;
+        let mut right_key = None;
+        for meta in args {
+            if let Meta::NameValue(nv) = meta {
+                if nv.path.is_ident("through") {
+                    through = extract_ident(&nv.value);
+                } else if nv.path.is_ident("left_key") {
+                    left_key = extract_ident(&nv.value);
+                } else if nv.path.is_ident("right_key") {
+                    right_key = extract_ident(&nv.value);
+                }
+            }
+        }
+        if let (Some(through), Some(left_key), Some(right_key)) = (through, left_key, right_key) {
+            return Ok((through, left_key, right_key));
+        }
+    }
+    Err(syn::Error::new(
+        proc_macro2::Span::call_site(),
+        "dbkit: #[many_to_many] requires through = <Model>, left_key = <field>, right_key = <field>",
     ))
 }
 

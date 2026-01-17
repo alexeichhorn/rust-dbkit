@@ -25,6 +25,8 @@ pub struct Todo {
     pub title: String,
     #[belongs_to(key = user_id, references = id)]
     pub user: dbkit::BelongsTo<User>,
+    #[many_to_many(through = TodoTag, left_key = todo_id, right_key = tag_id)]
+    pub tags: dbkit::ManyToMany<Tag>,
 }
 
 #[model(table = "nullable_rows")]
@@ -43,6 +45,24 @@ pub struct Event {
     pub starts_at: NaiveDateTime,
     pub day: NaiveDate,
     pub starts_at_time: NaiveTime,
+}
+
+#[model(table = "tags")]
+pub struct Tag {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub name: String,
+    #[many_to_many(through = TodoTag, left_key = tag_id, right_key = todo_id)]
+    pub todos: dbkit::ManyToMany<Todo>,
+}
+
+#[model(table = "todo_tags")]
+pub struct TodoTag {
+    #[key]
+    pub todo_id: i64,
+    #[key]
+    pub tag_id: i64,
 }
 
 #[model(table = "order_lines")]
@@ -79,6 +99,25 @@ async fn setup_schema(
             id BIGSERIAL PRIMARY KEY,\
             user_id BIGINT NOT NULL,\
             title TEXT NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE tags (\
+            id BIGSERIAL PRIMARY KEY,\
+            name TEXT NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE todo_tags (\
+            todo_id BIGINT NOT NULL,\
+            tag_id BIGINT NOT NULL,\
+            PRIMARY KEY (todo_id, tag_id)\
         )",
     )
     .execute(tx.as_mut())
@@ -149,6 +188,33 @@ async fn seed_todo(
     .await?
     .expect("inserted todo");
     Ok(todo)
+}
+
+async fn seed_tag(
+    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
+    name: &str,
+) -> Result<Tag, dbkit::Error> {
+    let tag = Tag::insert(TagInsert {
+        name: name.to_string(),
+    })
+    .returning_all()
+    .one(&mut *tx)
+    .await?
+    .expect("inserted tag");
+    Ok(tag)
+}
+
+async fn seed_todo_tag(
+    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
+    todo_id: i64,
+    tag_id: i64,
+) -> Result<TodoTag, dbkit::Error> {
+    let row = TodoTag::insert(TodoTagInsert { todo_id, tag_id })
+        .returning_all()
+        .one(&mut *tx)
+        .await?
+        .expect("inserted todo_tag");
+    Ok(row)
 }
 
 async fn seed_event(
@@ -415,6 +481,144 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     Ok(())
 }
 
+#[tokio::test]
+async fn many_to_many_selectin_loads_children() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Tagger", "tagger@db.com").await?;
+    let todo1 = seed_todo(&mut tx, user.id, "First").await?;
+    let todo2 = seed_todo(&mut tx, user.id, "Second").await?;
+
+    let tag_a = seed_tag(&mut tx, "A").await?;
+    let tag_b = seed_tag(&mut tx, "B").await?;
+
+    let _t1a = seed_todo_tag(&mut tx, todo1.id, tag_a.id).await?;
+    let _t1b = seed_todo_tag(&mut tx, todo1.id, tag_b.id).await?;
+    let _t2b = seed_todo_tag(&mut tx, todo2.id, tag_b.id).await?;
+
+    let todos: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
+        .filter(Todo::user_id.eq(user.id))
+        .with(Todo::tags.selectin())
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(todos.len(), 2);
+    let mut tags_t1: Vec<String> = todos
+        .iter()
+        .find(|todo| todo.id == todo1.id)
+        .expect("todo1")
+        .tags
+        .iter()
+        .map(|tag| tag.name.clone())
+        .collect();
+    tags_t1.sort();
+    assert_eq!(tags_t1, vec!["A", "B"]);
+
+    let mut tags_t2: Vec<String> = todos
+        .iter()
+        .find(|todo| todo.id == todo2.id)
+        .expect("todo2")
+        .tags
+        .iter()
+        .map(|tag| tag.name.clone())
+        .collect();
+    tags_t2.sort();
+    assert_eq!(tags_t2, vec!["B"]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn many_to_many_selectin_reverse_loads_parents() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Tagger", "tagger2@db.com").await?;
+    let todo1 = seed_todo(&mut tx, user.id, "First").await?;
+    let todo2 = seed_todo(&mut tx, user.id, "Second").await?;
+
+    let tag_a = seed_tag(&mut tx, "A").await?;
+    let tag_b = seed_tag(&mut tx, "B").await?;
+
+    let _t1a = seed_todo_tag(&mut tx, todo1.id, tag_a.id).await?;
+    let _t1b = seed_todo_tag(&mut tx, todo1.id, tag_b.id).await?;
+    let _t2b = seed_todo_tag(&mut tx, todo2.id, tag_b.id).await?;
+
+    let tags: Vec<TagModel<Vec<Todo>>> = Tag::query()
+        .with(Tag::todos.selectin())
+        .all(&mut tx)
+        .await?;
+
+    let tag_a_loaded = tags.iter().find(|tag| tag.id == tag_a.id).expect("tag a");
+    let mut todos_a: Vec<String> = tag_a_loaded
+        .todos
+        .iter()
+        .map(|todo| todo.title.clone())
+        .collect();
+    todos_a.sort();
+    assert_eq!(todos_a, vec!["First"]);
+
+    let tag_b_loaded = tags.iter().find(|tag| tag.id == tag_b.id).expect("tag b");
+    let mut todos_b: Vec<String> = tag_b_loaded
+        .todos
+        .iter()
+        .map(|todo| todo.title.clone())
+        .collect();
+    todos_b.sort();
+    assert_eq!(todos_b, vec!["First", "Second"]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn many_to_many_join_filter() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Joiner", "joiner@db.com").await?;
+    let todo1 = seed_todo(&mut tx, user.id, "First").await?;
+    let todo2 = seed_todo(&mut tx, user.id, "Second").await?;
+
+    let tag_a = seed_tag(&mut tx, "A").await?;
+    let tag_b = seed_tag(&mut tx, "B").await?;
+
+    let _t1a = seed_todo_tag(&mut tx, todo1.id, tag_a.id).await?;
+    let _t2b = seed_todo_tag(&mut tx, todo2.id, tag_b.id).await?;
+
+    let todos = Todo::query()
+        .join(Todo::tags)
+        .filter(Tag::name.eq("B"))
+        .distinct()
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].id, todo2.id);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn many_to_many_lazy_load() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Lazy", "lazy@db.com").await?;
+    let todo = seed_todo(&mut tx, user.id, "First").await?;
+    let tag = seed_tag(&mut tx, "A").await?;
+    let _link = seed_todo_tag(&mut tx, todo.id, tag.id).await?;
+
+    let loaded = todo.load(Todo::tags, &mut tx).await?;
+    assert_eq!(loaded.tags.len(), 1);
+    assert_eq!(loaded.tags[0].name, "A");
+
+    Ok(())
+}
 #[tokio::test]
 async fn active_insert_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
