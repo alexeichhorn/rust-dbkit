@@ -1189,6 +1189,120 @@ async fn active_insert_missing_required_field_errors() -> Result<(), dbkit::Erro
 }
 
 #[tokio::test]
+async fn active_save_inserts_new_active_even_with_primary_key_set() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut active = OrderLine::new_active();
+    active.order_id = 7.into();
+    active.line_id = 8.into();
+    active.note = "Saved".into();
+
+    let inserted = active.save(&mut tx).await?;
+    assert_eq!(inserted.order_id, 7);
+    assert_eq!(inserted.line_id, 8);
+    assert_eq!(inserted.note, "Saved");
+
+    let fetched = OrderLine::query()
+        .filter(OrderLine::order_id.eq(7))
+        .filter(OrderLine::line_id.eq(8))
+        .one(&mut tx)
+        .await?
+        .expect("order line");
+    assert_eq!(fetched.note, "Saved");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_save_updates_loaded_models() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Before Save", "before-save@db.com").await?;
+    let user_id = user.id;
+    let user_email = user.email.clone();
+    let mut active = user.into_active();
+    active.name = "After Save".into();
+
+    let saved = active.save(&mut tx).await?;
+    assert_eq!(saved.id, user_id);
+    assert_eq!(saved.name, "After Save");
+    assert_eq!(saved.email, user_email);
+
+    let fetched = User::by_id(user_id).one(&mut tx).await?.expect("user");
+    assert_eq!(fetched.name, "After Save");
+    assert_eq!(fetched.email, user_email);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_save_loaded_without_changes_is_noop() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "No Change", "no-change@db.com").await?;
+    let user_id = user.id;
+    let user_email = user.email.clone();
+    let active = user.into_active();
+
+    let saved = active.save(&mut tx).await?;
+    assert_eq!(saved.id, user_id);
+    assert_eq!(saved.name, "No Change");
+    assert_eq!(saved.email, user_email);
+
+    let fetched = User::by_id(user_id).one(&mut tx).await?.expect("user");
+    assert_eq!(fetched.name, "No Change");
+    assert_eq!(fetched.email, user_email);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_save_missing_required_fields_errors_on_insert() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let mut active = User::new_active();
+    active.name = "Missing email".into();
+
+    let result = active.save(&mut tx).await;
+    assert!(result.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_save_composite_changing_key_returns_not_found() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let row = seed_order_line(&mut tx, 5, 5, "Orig").await?;
+    let mut active = row.into_active();
+    active.line_id = 9.into();
+    active.note = "Changed".into();
+
+    let result = active.save(&mut tx).await;
+    assert!(result.is_err());
+
+    let fetched = OrderLine::query()
+        .filter(OrderLine::order_id.eq(5))
+        .filter(OrderLine::line_id.eq(5))
+        .one(&mut tx)
+        .await?
+        .expect("row");
+    assert_eq!(fetched.note, "Orig");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn active_update_from_loaded() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let mut tx = db.begin().await?;

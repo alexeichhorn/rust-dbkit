@@ -149,6 +149,19 @@ let updated = active.update(&mut &db).await?;
 Note: `into_active()` marks fields as unchanged. Updates only include fields you explicitly set
 (`ActiveValue::Set`) or null out (`ActiveValue::Null`), so existing values aren’t overwritten.
 
+Active model save (insert vs update):
+
+```rust
+let mut active = User::new_active();
+active.name = "Saved".into();
+active.email = "saved@db.com".into();
+let created = active.save(&mut &db).await?;
+
+let mut active = created.into_active();
+active.name = "Renamed".into();
+let updated = active.save(&mut &db).await?;
+```
+
 Eager loading and join filtering:
 
 ```rust
@@ -313,7 +326,7 @@ tx.commit().await?;
 - [x] Add `between(a, b)` convenience for columns/expressions.
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
-- [ ] Add ActiveModel `save()` that chooses insert vs update.
+- [x] Add ActiveModel `save()` that chooses insert vs update.
 - [ ] Expand type support (json feature gate).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 

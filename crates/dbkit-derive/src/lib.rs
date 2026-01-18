@@ -443,6 +443,94 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         quote!()
     };
 
+    let active_save_flag_checks = scalar_fields.iter().map(|field| {
+        let ident = &field.ident;
+        quote!(
+            match &#ident {
+                ::dbkit::ActiveValue::Unchanged(_) | ::dbkit::ActiveValue::UnchangedNull => {
+                    any_loaded = true;
+                }
+                ::dbkit::ActiveValue::Set(_) | ::dbkit::ActiveValue::Null => {
+                    any_changed = true;
+                }
+                ::dbkit::ActiveValue::Unset => {}
+            }
+        )
+    });
+
+    let active_save_model_fields = scalar_fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        if option_inner_type(&field.ty).is_some() {
+            quote!(
+                #ident: match #ident {
+                    ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => Some(value),
+                    ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::UnchangedNull => None,
+                    ::dbkit::ActiveValue::Unset => {
+                        return Err(::dbkit::Error::Decode(format!(
+                            "missing required field: {}",
+                            #name
+                        )));
+                    }
+                },
+            )
+        } else {
+            quote!(
+                #ident: match #ident {
+                    ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => value,
+                    ::dbkit::ActiveValue::Null
+                    | ::dbkit::ActiveValue::Unset
+                    | ::dbkit::ActiveValue::UnchangedNull => {
+                        return Err(::dbkit::Error::Decode(format!(
+                            "missing required field: {}",
+                            #name
+                        )));
+                    }
+                },
+            )
+        }
+    });
+
+    let active_save_relation_defaults = relation_fields.iter().map(|rel| {
+        let ident = rel.field.ident.as_ref().expect("field ident");
+        quote!(#ident: Default::default(),)
+    });
+
+    let active_save_update_branch = if !primary_keys.is_empty() {
+        quote!(return Self { #(#active_destructure,)* }.update(ex).await;)
+    } else {
+        quote!(
+            return Err(::dbkit::Error::Decode(
+                "update requires primary key".to_string(),
+            ));
+        )
+    };
+
+    let active_save_fn = quote!(
+        pub async fn save(
+            self,
+            ex: &mut (impl ::dbkit::Executor + Send),
+        ) -> Result<#struct_ident, ::dbkit::Error> {
+            let Self { #(#active_destructure,)* } = self;
+            let mut any_loaded = false;
+            let mut any_changed = false;
+            #(#active_save_flag_checks)*
+
+            if any_loaded {
+                if any_changed {
+                    #active_save_update_branch
+                }
+                let model = #struct_ident {
+                    #(#active_save_model_fields)*
+                    #(#active_save_relation_defaults)*
+                };
+                return Ok(model);
+            }
+
+            Self { #(#active_destructure,)* }.insert(ex).await
+        }
+    );
+
     let model_delete_impl = if !primary_keys.is_empty() {
         let pk_filters = primary_keys.iter().map(|(ident, _)| {
             quote!(delete = delete.filter(Self::#ident.eq(#ident));)
@@ -1159,6 +1247,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             #active_insert_fn
             #active_update_fn
             #active_delete_fn
+            #active_save_fn
         }
 
         #(#relation_methods)*
