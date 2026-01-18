@@ -12,6 +12,7 @@ pub enum Value {
     F32(f32),
     F64(f64),
     String(String),
+    Array(Vec<String>),
     Uuid(uuid::Uuid),
     DateTime(chrono::NaiveDateTime),
     Date(chrono::NaiveDate),
@@ -100,6 +101,12 @@ impl From<String> for Value {
 impl From<&str> for Value {
     fn from(value: &str) -> Self {
         Self::String(value.to_string())
+    }
+}
+
+impl From<Vec<String>> for Value {
+    fn from(value: Vec<String>) -> Self {
+        Self::Array(value)
     }
 }
 

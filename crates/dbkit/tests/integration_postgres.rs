@@ -57,6 +57,14 @@ pub struct Tag {
     pub todos: dbkit::ManyToMany<Todo>,
 }
 
+#[model(table = "profiles")]
+pub struct Profile {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub tags: Vec<String>,
+}
+
 #[model(table = "todo_tags")]
 pub struct TodoTag {
     #[key]
@@ -108,6 +116,15 @@ async fn setup_schema(
         "CREATE TEMP TABLE tags (\
             id BIGSERIAL PRIMARY KEY,\
             name TEXT NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE profiles (\
+            id BIGSERIAL PRIMARY KEY,\
+            tags TEXT[] NOT NULL\
         )",
     )
     .execute(tx.as_mut())
@@ -508,6 +525,42 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
         .await?;
     assert_eq!(null_rows.len(), 2);
     assert!(null_rows.iter().all(|row| row.note.is_none()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn array_column_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let tags = vec!["alpha".to_string(), "beta".to_string()];
+    let inserted = Profile::insert(ProfileInsert { tags: tags.clone() })
+        .returning_all()
+        .one(&mut tx)
+        .await?
+        .expect("inserted profile");
+    assert_eq!(inserted.tags, tags);
+
+    let matched = Profile::query()
+        .filter(Profile::tags.eq(tags.clone()))
+        .all(&mut tx)
+        .await?;
+    assert_eq!(matched.len(), 1);
+    assert_eq!(matched[0].id, inserted.id);
+
+    let updated_tags = vec!["gamma".to_string(), "delta".to_string()];
+    let mut active = inserted.into_active();
+    active.tags = updated_tags.clone().into();
+    let updated = active.update(&mut tx).await?;
+    assert_eq!(updated.tags, updated_tags);
+
+    let fetched = Profile::by_id(updated.id)
+        .one(&mut tx)
+        .await?
+        .expect("updated profile");
+    assert_eq!(fetched.tags, updated_tags);
 
     Ok(())
 }

@@ -50,3 +50,22 @@ fn select_binds_uuid_datetime_date_time() {
         ]
     );
 }
+
+#[test]
+fn value_from_string_array() {
+    let items = vec!["a".to_string(), "b".to_string()];
+    assert_eq!(Value::from(items.clone()), Value::Array(items));
+}
+
+#[test]
+fn select_binds_string_array() {
+    let table = Table::new("profiles");
+    let tags_col: Column<(), Vec<String>> = Column::new(table, "tags");
+    let items = vec!["a".to_string(), "b".to_string()];
+
+    let compiled = Select::<()>::new(table)
+        .filter(tags_col.eq(items.clone()))
+        .compile();
+
+    assert_eq!(compiled.binds, vec![Value::Array(items)]);
+}
