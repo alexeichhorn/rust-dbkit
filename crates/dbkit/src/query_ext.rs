@@ -14,6 +14,20 @@ pub trait SelectExt<Out, Loads> {
         E: Executor + Send + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
+
+    fn count<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<i64, Error>>
+    where
+        E: Executor + Send + 'e;
+
+    fn exists<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<bool, Error>>
+    where
+        E: Executor + Send + 'e;
+
+    fn paginate<'e, E>(self, page: u64, per_page: u64, ex: &'e mut E) -> BoxFuture<'e, Result<Page<Out>, Error>>
+    where
+        E: Executor + Send + 'e,
+        Loads: RunLoads<Out> + Send + Sync + 'e,
+        Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 }
 
 impl<Out, Loads> SelectExt<Out, Loads> for Select<Out, Loads> {
@@ -38,7 +52,7 @@ impl<Out, Loads> SelectExt<Out, Loads> for Select<Out, Loads> {
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        let (compiled, loads) = self.into_parts();
+        let (compiled, loads) = self.limit(1).into_parts();
         Box::pin(async move {
             let args = build_arguments(&compiled.binds)?;
             let row = ex.fetch_optional::<Out>(&compiled.sql, args).await?;
@@ -49,6 +63,71 @@ impl<Out, Loads> SelectExt<Out, Loads> for Select<Out, Loads> {
             loads.run(ex, &mut rows).await?;
             Ok(rows.pop())
         })
+    }
+
+    fn count<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<i64, Error>>
+    where
+        E: Executor + Send + 'e,
+    {
+        let compiled = self.compile_without_pagination();
+        let sql = format!("SELECT COUNT(*) AS count FROM ({}) AS sub", compiled.sql);
+        Box::pin(async move {
+            let args = build_arguments(&compiled.binds)?;
+            let row = ex.fetch_optional::<(i64,)>(&sql, args).await?;
+            Ok(row.map(|(count,)| count).unwrap_or(0))
+        })
+    }
+
+    fn exists<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<bool, Error>>
+    where
+        E: Executor + Send + 'e,
+    {
+        let compiled = self.compile_without_pagination();
+        let sql = format!("SELECT EXISTS({})", compiled.sql);
+        Box::pin(async move {
+            let args = build_arguments(&compiled.binds)?;
+            let row = ex.fetch_optional::<(bool,)>(&sql, args).await?;
+            Ok(row.map(|(value,)| value).unwrap_or(false))
+        })
+    }
+
+    fn paginate<'e, E>(self, page: u64, per_page: u64, ex: &'e mut E) -> BoxFuture<'e, Result<Page<Out>, Error>>
+    where
+        E: Executor + Send + 'e,
+        Loads: RunLoads<Out> + Send + Sync + 'e,
+        Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
+    {
+        Box::pin(async move {
+            let page = if page == 0 { 1 } else { page };
+            let per_page = if per_page == 0 { 1 } else { per_page };
+            let total = self.count(ex).await?;
+            let offset = (page - 1).saturating_mul(per_page);
+            let items = self.limit(per_page).offset(offset).all(ex).await?;
+            Ok(Page {
+                items,
+                page,
+                per_page,
+                total,
+            })
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: i64,
+}
+
+impl<T> Page<T> {
+    pub fn total_pages(&self) -> u64 {
+        if self.per_page == 0 || self.total <= 0 {
+            return 0;
+        }
+        let total = self.total as u64;
+        (total + self.per_page - 1) / self.per_page
     }
 }
 

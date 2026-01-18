@@ -954,6 +954,69 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
 }
 
 #[tokio::test]
+async fn query_helpers_count_exists_first_paginate() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user1 = seed_user(&mut tx, "PageOne", "page1@db.com").await?;
+    let user2 = seed_user(&mut tx, "PageTwo", "page2@db.com").await?;
+    let user3 = seed_user(&mut tx, "PageThree", "page3@db.com").await?;
+
+    let total = User::query().count(&mut tx).await?;
+    assert_eq!(total, 3);
+
+    let filtered_total = User::query()
+        .filter(User::email.eq("page2@db.com"))
+        .count(&mut tx)
+        .await?;
+    assert_eq!(filtered_total, 1);
+
+    let exists = User::query()
+        .filter(User::email.eq("page2@db.com"))
+        .exists(&mut tx)
+        .await?;
+    assert!(exists);
+
+    let missing = User::query()
+        .filter(User::email.eq("missing@db.com"))
+        .exists(&mut tx)
+        .await?;
+    assert!(!missing);
+
+    let first = User::query()
+        .order_by(dbkit::Order::asc(User::id.as_ref()))
+        .one(&mut tx)
+        .await?;
+    assert_eq!(first.expect("first").id, user1.id);
+
+    let page1 = User::query()
+        .order_by(dbkit::Order::asc(User::id.as_ref()))
+        .paginate(1, 2, &mut tx)
+        .await?;
+    assert_eq!(page1.items.len(), 2);
+    assert_eq!(page1.items[0].id, user1.id);
+    assert_eq!(page1.items[1].id, user2.id);
+    assert_eq!(page1.page, 1);
+    assert_eq!(page1.per_page, 2);
+    assert_eq!(page1.total, 3);
+    assert_eq!(page1.total_pages(), 2);
+
+    let page2 = User::query()
+        .order_by(dbkit::Order::asc(User::id.as_ref()))
+        .paginate(2, 2, &mut tx)
+        .await?;
+    assert_eq!(page2.items.len(), 1);
+    assert_eq!(page2.items[0].id, user3.id);
+    assert_eq!(page2.page, 2);
+    assert_eq!(page2.per_page, 2);
+    assert_eq!(page2.total, 3);
+    assert_eq!(page2.total_pages(), 2);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn many_to_many_selectin_loads_children() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let mut tx = db.begin().await?;

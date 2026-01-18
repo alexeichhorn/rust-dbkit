@@ -73,6 +73,22 @@ let users = User::query()
     .await?;
 ```
 
+Count / exists / pagination:
+
+```rust
+let total = User::query().count(&mut &db).await?;
+let exists = User::query()
+    .filter(User::email.eq("a@b.com"))
+    .exists(&mut &db)
+    .await?;
+
+let page = User::query()
+    .order_by(dbkit::Order::asc(User::id.as_ref()))
+    .paginate(1, 20, &mut &db)
+    .await?;
+println!("page {} of {}", page.page, page.total_pages());
+```
+
 Insert / update / delete:
 
 ```rust
@@ -293,7 +309,7 @@ tx.commit().await?;
 - [x] Allow `order_by` on expressions or aliases (e.g., `date_trunc(...)`, `total`).
 - [x] Add `between(a, b)` convenience for columns/expressions.
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
-- [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.
+- [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
 - [ ] Add ActiveModel `save()` that chooses insert vs update.
 - [ ] Expand type support (json feature gate).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).

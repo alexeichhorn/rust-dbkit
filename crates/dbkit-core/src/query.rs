@@ -266,6 +266,14 @@ impl<Out, Loads> Select<Out, Loads> {
     }
 
     pub fn compile(&self) -> CompiledSql {
+        self.compile_inner(true, true)
+    }
+
+    pub fn compile_without_pagination(&self) -> CompiledSql {
+        self.compile_inner(false, false)
+    }
+
+    fn compile_inner(&self, include_order: bool, include_pagination: bool) -> CompiledSql {
         let mut builder = SqlBuilder::new();
         builder.push_sql("SELECT ");
         if self.distinct {
@@ -335,7 +343,7 @@ impl<Out, Loads> Select<Out, Loads> {
                 expr.node.to_sql(&mut builder);
             }
         }
-        if !self.order_by.is_empty() {
+        if include_order && !self.order_by.is_empty() {
             builder.push_sql(" ORDER BY ");
             for (idx, order) in self.order_by.iter().enumerate() {
                 if idx > 0 {
@@ -351,13 +359,15 @@ impl<Out, Loads> Select<Out, Loads> {
                 });
             }
         }
-        if let Some(limit) = self.limit {
-            builder.push_sql(" LIMIT ");
-            builder.push_sql(&limit.to_string());
-        }
-        if let Some(offset) = self.offset {
-            builder.push_sql(" OFFSET ");
-            builder.push_sql(&offset.to_string());
+        if include_pagination {
+            if let Some(limit) = self.limit {
+                builder.push_sql(" LIMIT ");
+                builder.push_sql(&limit.to_string());
+            }
+            if let Some(offset) = self.offset {
+                builder.push_sql(" OFFSET ");
+                builder.push_sql(&offset.to_string());
+            }
         }
         builder.finish()
     }

@@ -14,7 +14,7 @@ pub use database::Database;
 pub use error::Error;
 pub use executor::Executor;
 pub use model::{LoadRelation, ModelDelete, ModelValue, SetRelation};
-pub use query_ext::{DeleteExt, InsertExt, SelectExt, UpdateExt};
+pub use query_ext::{DeleteExt, InsertExt, Page, SelectExt, UpdateExt};
 
 pub mod prelude {
     pub use crate::{DeleteExt, InsertExt, LoadRelation, ModelDelete, SelectExt, UpdateExt};
