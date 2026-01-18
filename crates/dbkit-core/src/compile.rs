@@ -27,8 +27,12 @@ impl SqlBuilder {
             self.sql.push_str("NULL");
             return;
         }
-        self.binds.push(value);
-        let idx = self.binds.len();
+        let idx = if let Some(existing) = self.binds.iter().position(|item| item == &value) {
+            existing + 1
+        } else {
+            self.binds.push(value);
+            self.binds.len()
+        };
         self.sql.push('$');
         self.sql.push_str(&idx.to_string());
     }

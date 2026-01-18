@@ -85,6 +85,16 @@ pub struct FuncRow {
     pub starts_at: NaiveDateTime,
 }
 
+#[model(table = "sales")]
+pub struct Sale {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub region: String,
+    pub amount: i64,
+    pub created_at: NaiveDateTime,
+}
+
 #[model(table = "todo_tags")]
 pub struct TodoTag {
     #[key]
@@ -166,6 +176,17 @@ async fn setup_schema(
             backup_email TEXT,\
             region TEXT,\
             starts_at TIMESTAMP NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE sales (\
+            id BIGSERIAL PRIMARY KEY,\
+            region TEXT NOT NULL,\
+            amount BIGINT NOT NULL,\
+            created_at TIMESTAMP NOT NULL\
         )",
     )
     .execute(tx.as_mut())
@@ -763,6 +784,118 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(combined_match[0].id, row1.id);
 
     let _ = later_start;
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct RegionAgg {
+    region: String,
+    total: dbkit::sqlx::types::BigDecimal,
+    count: i64,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct BucketAgg {
+    bucket: NaiveDateTime,
+    total: dbkit::sqlx::types::BigDecimal,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct UserTodoAgg {
+    name: String,
+    todo_count: i64,
+}
+
+#[tokio::test]
+async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let day1 = NaiveDate::from_ymd_opt(2024, 2, 1).expect("day");
+    let day2 = NaiveDate::from_ymd_opt(2024, 2, 2).expect("day");
+    let day1_start = NaiveDateTime::new(day1, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
+    let day2_start = NaiveDateTime::new(day2, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
+
+    let inserted = Sale::insert_many(vec![
+        SaleInsert {
+            region: "us".to_string(),
+            amount: 40,
+            created_at: NaiveDateTime::new(day1, NaiveTime::from_hms_opt(10, 0, 0).expect("time")),
+        },
+        SaleInsert {
+            region: "us".to_string(),
+            amount: 70,
+            created_at: NaiveDateTime::new(day1, NaiveTime::from_hms_opt(12, 0, 0).expect("time")),
+        },
+        SaleInsert {
+            region: "eu".to_string(),
+            amount: 30,
+            created_at: NaiveDateTime::new(day1, NaiveTime::from_hms_opt(14, 0, 0).expect("time")),
+        },
+        SaleInsert {
+            region: "apac".to_string(),
+            amount: 200,
+            created_at: NaiveDateTime::new(day2, NaiveTime::from_hms_opt(9, 0, 0).expect("time")),
+        },
+    ])
+    .execute(&mut tx)
+    .await?;
+    assert_eq!(inserted, 4);
+
+    let mut region_rows: Vec<RegionAgg> = Sale::query()
+        .select_only()
+        .column(Sale::region)
+        .column_as(dbkit::func::sum(Sale::amount), "total")
+        .column_as(dbkit::func::count(Sale::id), "count")
+        .group_by(Sale::region)
+        .order_by(dbkit::Order::asc(Sale::region.as_ref()))
+        .having(dbkit::func::sum(Sale::amount).gt(100_i64))
+        .into_model()
+        .all(&mut tx)
+        .await?;
+    region_rows.sort_by(|a, b| a.region.cmp(&b.region));
+    assert_eq!(region_rows.len(), 2);
+    assert_eq!(region_rows[0].region, "apac");
+    assert_eq!(region_rows[0].total.to_string(), "200");
+    assert_eq!(region_rows[0].count, 1);
+    assert_eq!(region_rows[1].region, "us");
+    assert_eq!(region_rows[1].total.to_string(), "110");
+    assert_eq!(region_rows[1].count, 2);
+
+    let mut bucket_rows: Vec<BucketAgg> = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::date_trunc("day", Sale::created_at), "bucket")
+        .column_as(dbkit::func::sum(Sale::amount), "total")
+        .group_by(dbkit::func::date_trunc("day", Sale::created_at))
+        .into_model()
+        .all(&mut tx)
+        .await?;
+    bucket_rows.sort_by(|a, b| a.bucket.cmp(&b.bucket));
+    assert_eq!(bucket_rows.len(), 2);
+    assert_eq!(bucket_rows[0].bucket, day1_start);
+    assert_eq!(bucket_rows[0].total.to_string(), "140");
+    assert_eq!(bucket_rows[1].bucket, day2_start);
+    assert_eq!(bucket_rows[1].total.to_string(), "200");
+
+    let user = seed_user(&mut tx, "AggUser", "agg@db.com").await?;
+    let _todo1 = seed_todo(&mut tx, user.id, "Alpha").await?;
+    let _todo2 = seed_todo(&mut tx, user.id, "Beta").await?;
+
+    let joined_rows: Vec<UserTodoAgg> = User::query()
+        .select_only()
+        .column_as(User::name, "name")
+        .column_as(dbkit::func::count(Todo::id), "todo_count")
+        .join(User::todos)
+        .group_by(User::name)
+        .order_by(dbkit::Order::desc(User::name.as_ref()))
+        .into_model()
+        .all(&mut tx)
+        .await?;
+    assert_eq!(joined_rows.len(), 1);
+    assert_eq!(joined_rows[0].name, "AggUser");
+    assert_eq!(joined_rows[0].todo_count, 2);
 
     Ok(())
 }

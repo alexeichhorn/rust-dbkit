@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
-use crate::expr::Expr;
+use crate::expr::{Expr, ExprNode, IntoExpr};
 use crate::load::{ApplyLoad, LoadChain, NoLoad};
 use crate::rel::RelationInfo;
 use crate::schema::{ColumnRef, Table};
@@ -19,6 +19,12 @@ pub struct Join {
     pub kind: JoinKind,
 }
 
+#[derive(Debug, Clone)]
+pub struct SelectItem {
+    pub expr: ExprNode,
+    pub alias: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum OrderDirection {
     Asc,
@@ -34,9 +40,11 @@ pub struct Order {
 #[derive(Debug, Clone)]
 pub struct Select<Out, Loads = NoLoad> {
     table: Table,
-    columns: Option<Vec<ColumnRef>>,
+    columns: Option<Vec<SelectItem>>,
     joins: Vec<Join>,
     filters: Vec<Expr<bool>>,
+    group_by: Vec<ExprNode>,
+    having: Vec<Expr<bool>>,
     order_by: Vec<Order>,
     limit: Option<u64>,
     offset: Option<u64>,
@@ -52,6 +60,8 @@ impl<Out> Select<Out, NoLoad> {
             columns: None,
             joins: Vec::new(),
             filters: Vec::new(),
+            group_by: Vec::new(),
+            having: Vec::new(),
             order_by: Vec::new(),
             limit: None,
             offset: None,
@@ -63,8 +73,47 @@ impl<Out> Select<Out, NoLoad> {
 }
 
 impl<Out, Loads> Select<Out, Loads> {
+    pub fn select_only(mut self) -> Self {
+        self.columns = Some(Vec::new());
+        self
+    }
+
+    pub fn column<T>(mut self, expr: impl IntoExpr<T>) -> Self {
+        let item = SelectItem {
+            expr: expr.into_expr().node,
+            alias: None,
+        };
+        match &mut self.columns {
+            Some(columns) => columns.push(item),
+            None => self.columns = Some(vec![item]),
+        }
+        self
+    }
+
+    pub fn column_as<T>(mut self, expr: impl IntoExpr<T>, alias: &str) -> Self {
+        let item = SelectItem {
+            expr: expr.into_expr().node,
+            alias: Some(alias.to_string()),
+        };
+        match &mut self.columns {
+            Some(columns) => columns.push(item),
+            None => self.columns = Some(vec![item]),
+        }
+        self
+    }
+
     pub fn filter(mut self, expr: Expr<bool>) -> Self {
         self.filters.push(expr);
+        self
+    }
+
+    pub fn group_by<T>(mut self, expr: impl IntoExpr<T>) -> Self {
+        self.group_by.push(expr.into_expr().node);
+        self
+    }
+
+    pub fn having(mut self, expr: Expr<bool>) -> Self {
+        self.having.push(expr);
         self
     }
 
@@ -137,8 +186,32 @@ impl<Out, Loads> Select<Out, Loads> {
     }
 
     pub fn columns(mut self, columns: Vec<ColumnRef>) -> Self {
-        self.columns = Some(columns);
+        let items = columns
+            .into_iter()
+            .map(|col| SelectItem {
+                expr: ExprNode::Column(col),
+                alias: None,
+            })
+            .collect::<Vec<_>>();
+        self.columns = Some(items);
         self
+    }
+
+    pub fn into_model<T>(self) -> Select<T, Loads> {
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            loads: self.loads,
+            _marker: PhantomData,
+        }
     }
 
     pub fn with<L>(self, load: L) -> Select<L::Out2, LoadChain<Loads, L>>
@@ -150,6 +223,8 @@ impl<Out, Loads> Select<Out, Loads> {
             columns: self.columns,
             joins: self.joins,
             filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
             order_by: self.order_by,
             limit: self.limit,
             offset: self.offset,
@@ -174,7 +249,11 @@ impl<Out, Loads> Select<Out, Loads> {
                     if idx > 0 {
                         builder.push_sql(", ");
                     }
-                    builder.push_column(*col);
+                    col.expr.to_sql(&mut builder);
+                    if let Some(alias) = &col.alias {
+                        builder.push_sql(" AS ");
+                        builder.push_sql(alias);
+                    }
                 }
             }
             None => {
@@ -204,6 +283,24 @@ impl<Out, Loads> Select<Out, Loads> {
         if !self.filters.is_empty() {
             builder.push_sql(" WHERE ");
             for (idx, expr) in self.filters.iter().enumerate() {
+                if idx > 0 {
+                    builder.push_sql(" AND ");
+                }
+                expr.node.to_sql(&mut builder);
+            }
+        }
+        if !self.group_by.is_empty() {
+            builder.push_sql(" GROUP BY ");
+            for (idx, expr) in self.group_by.iter().enumerate() {
+                if idx > 0 {
+                    builder.push_sql(", ");
+                }
+                expr.to_sql(&mut builder);
+            }
+        }
+        if !self.having.is_empty() {
+            builder.push_sql(" HAVING ");
+            for (idx, expr) in self.having.iter().enumerate() {
                 if idx > 0 {
                     builder.push_sql(" AND ");
                 }

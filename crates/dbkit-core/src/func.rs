@@ -8,6 +8,22 @@ pub fn upper(arg: impl IntoExpr<String>) -> Expr<String> {
     })
 }
 
+pub fn count<T>(arg: impl IntoExpr<T>) -> Expr<i64> {
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "COUNT",
+        args: vec![expr.node],
+    })
+}
+
+pub fn sum<T>(arg: impl IntoExpr<T>) -> Expr<T> {
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "SUM",
+        args: vec![expr.node],
+    })
+}
+
 pub fn coalesce<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     let left = a.into_expr();
     let right = b.into_expr();

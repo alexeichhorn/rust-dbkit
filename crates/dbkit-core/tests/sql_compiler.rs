@@ -7,6 +7,9 @@ struct User;
 #[derive(Debug)]
 struct Event;
 
+#[derive(Debug)]
+struct Sale;
+
 fn user_table() -> Table {
     Table::new("users")
 }
@@ -29,6 +32,26 @@ fn event_table() -> Table {
 
 fn event_starts_at() -> Column<Event, NaiveDateTime> {
     Column::new(event_table(), "starts_at")
+}
+
+fn sales_table() -> Table {
+    Table::new("sales")
+}
+
+fn sales_id() -> Column<Sale, i64> {
+    Column::new(sales_table(), "id")
+}
+
+fn sales_region() -> Column<Sale, String> {
+    Column::new(sales_table(), "region")
+}
+
+fn sales_amount() -> Column<Sale, i64> {
+    Column::new(sales_table(), "amount")
+}
+
+fn sales_created_at() -> Column<Sale, NaiveDateTime> {
+    Column::new(sales_table(), "created_at")
 }
 
 #[test]
@@ -166,6 +189,97 @@ fn compiles_nested_functions() {
             Value::String("unknown".to_string()),
             Value::String("ALPHA".to_string()),
         ]
+    );
+}
+
+#[test]
+fn compiles_select_only_with_columns() {
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column(user_email())
+        .column(user_id());
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT users.email, users.id FROM users");
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_select_only_with_column_as() {
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(user_email(), "email_addr");
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT users.email AS email_addr FROM users");
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_select_only_with_func_column() {
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column(func::upper(user_email()));
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT UPPER(users.email) FROM users");
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_group_by_and_having() {
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column(user_email())
+        .column_as(func::count(user_id()), "cnt")
+        .group_by(user_email())
+        .having(func::count(user_id()).gt(1_i64));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.email, COUNT(users.id) AS cnt FROM users GROUP BY users.email HAVING (COUNT(users.id) > $1)"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(1)]);
+}
+
+#[test]
+fn compiles_select_only_with_join_and_group_by() {
+    let todos_table = Table::new("todos");
+    let todo_user_id: Column<User, i64> = Column::new(todos_table, "user_id");
+    let todo_id: Column<User, i64> = Column::new(todos_table, "id");
+
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column(user_id())
+        .column_as(func::count(todo_id), "todo_count")
+        .join_on(todos_table, user_id().eq_col(todo_user_id))
+        .group_by(user_id());
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.id, COUNT(todos.id) AS todo_count FROM users JOIN todos ON (users.id = todos.user_id) GROUP BY users.id"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_group_by_expression() {
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(func::date_trunc("day", sales_created_at()), "bucket")
+        .column_as(func::sum(sales_amount()), "total")
+        .group_by(func::date_trunc("day", sales_created_at()));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT DATE_TRUNC($1, sales.created_at) AS bucket, SUM(sales.amount) AS total FROM sales GROUP BY DATE_TRUNC($1, sales.created_at)"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String("day".to_string())]
     );
 }
 
