@@ -178,6 +178,74 @@ let user = user.load(User::todos, &mut &db).await?;
 println!("todos: {}", user.todos.len());
 ```
 
+Aggregation and projections:
+
+```rust
+use dbkit::prelude::*;
+
+#[derive(sqlx::FromRow, Debug)]
+struct RegionTotal {
+    region: String,
+    total: dbkit::sqlx::types::BigDecimal,
+}
+
+let totals: Vec<RegionTotal> = Sale::query()
+    .select_only()
+    .column_as(Sale::region, "region")
+    .column_as(dbkit::func::sum(Sale::amount), "total")
+    .group_by(Sale::region)
+    .having(dbkit::func::sum(Sale::amount).gt(0_i64))
+    .into_model()
+    .all(&mut &db)
+    .await?;
+```
+
+SQL functions and expression-based grouping:
+
+```rust
+#[derive(sqlx::FromRow, Debug)]
+struct BucketTotal {
+    bucket: chrono::NaiveDateTime,
+    total: dbkit::sqlx::types::BigDecimal,
+}
+
+let buckets: Vec<BucketTotal> = Sale::query()
+    .select_only()
+    .column_as(dbkit::func::date_trunc("day", Sale::created_at), "bucket")
+    .column_as(dbkit::func::sum(Sale::amount), "total")
+    .group_by(dbkit::func::date_trunc("day", Sale::created_at))
+    .into_model()
+    .all(&mut &db)
+    .await?;
+```
+
+Join + aggregation:
+
+```rust
+#[derive(sqlx::FromRow, Debug)]
+struct UserTodoAgg {
+    name: String,
+    todo_count: i64,
+}
+
+let rows: Vec<UserTodoAgg> = User::query()
+    .select_only()
+    .column_as(User::name, "name")
+    .column_as(dbkit::func::count(Todo::id), "todo_count")
+    .join(User::todos)
+    .group_by(User::name)
+    .order_by(dbkit::Order::desc(User::name.as_ref()))
+    .into_model()
+    .all(&mut &db)
+    .await?;
+```
+
+Notes:
+- `select_only()` switches from `SELECT *` to projections via `column(...)` or `column_as(...)`.
+- Use `into_model::<T>()` to map into a custom `sqlx::FromRow` struct.
+- `SUM` over integer columns returns `NUMERIC` in Postgres; use `BigDecimal` (or cast) for totals.
+- Aggregations work across joins; order-by currently expects a real column/expr rather than an alias.
+
 NULL handling with `Option<T>`:
 
 ```rust
