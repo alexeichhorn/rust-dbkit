@@ -178,6 +178,10 @@ pub enum UnaryOp {
 pub enum ExprNode {
     Column(ColumnRef),
     Value(Value),
+    Func {
+        name: &'static str,
+        args: Vec<ExprNode>,
+    },
     Binary {
         left: Box<ExprNode>,
         op: BinaryOp,
@@ -219,6 +223,242 @@ impl<T> Expr<T> {
             node,
             _marker: PhantomData,
         }
+    }
+}
+
+pub trait IntoExpr<T> {
+    fn into_expr(self) -> Expr<T>;
+}
+
+impl<T> IntoExpr<T> for Expr<T> {
+    fn into_expr(self) -> Expr<T> {
+        self
+    }
+}
+
+impl<M, T> IntoExpr<T> for Column<M, T> {
+    fn into_expr(self) -> Expr<T> {
+        Expr::new(ExprNode::Column(self.as_ref()))
+    }
+}
+
+impl IntoExpr<String> for String {
+    fn into_expr(self) -> Expr<String> {
+        Expr::new(ExprNode::Value(Value::String(self)))
+    }
+}
+
+impl IntoExpr<String> for &str {
+    fn into_expr(self) -> Expr<String> {
+        Expr::new(ExprNode::Value(Value::String(self.to_string())))
+    }
+}
+
+impl IntoExpr<bool> for bool {
+    fn into_expr(self) -> Expr<bool> {
+        Expr::new(ExprNode::Value(Value::Bool(self)))
+    }
+}
+
+impl IntoExpr<i16> for i16 {
+    fn into_expr(self) -> Expr<i16> {
+        Expr::new(ExprNode::Value(Value::I16(self)))
+    }
+}
+
+impl IntoExpr<i32> for i32 {
+    fn into_expr(self) -> Expr<i32> {
+        Expr::new(ExprNode::Value(Value::I32(self)))
+    }
+}
+
+impl IntoExpr<i64> for i64 {
+    fn into_expr(self) -> Expr<i64> {
+        Expr::new(ExprNode::Value(Value::I64(self)))
+    }
+}
+
+impl IntoExpr<f32> for f32 {
+    fn into_expr(self) -> Expr<f32> {
+        Expr::new(ExprNode::Value(Value::F32(self)))
+    }
+}
+
+impl IntoExpr<f64> for f64 {
+    fn into_expr(self) -> Expr<f64> {
+        Expr::new(ExprNode::Value(Value::F64(self)))
+    }
+}
+
+impl IntoExpr<uuid::Uuid> for uuid::Uuid {
+    fn into_expr(self) -> Expr<uuid::Uuid> {
+        Expr::new(ExprNode::Value(Value::Uuid(self)))
+    }
+}
+
+impl IntoExpr<chrono::NaiveDateTime> for chrono::NaiveDateTime {
+    fn into_expr(self) -> Expr<chrono::NaiveDateTime> {
+        Expr::new(ExprNode::Value(Value::DateTime(self)))
+    }
+}
+
+impl IntoExpr<chrono::NaiveDate> for chrono::NaiveDate {
+    fn into_expr(self) -> Expr<chrono::NaiveDate> {
+        Expr::new(ExprNode::Value(Value::Date(self)))
+    }
+}
+
+impl IntoExpr<chrono::NaiveTime> for chrono::NaiveTime {
+    fn into_expr(self) -> Expr<chrono::NaiveTime> {
+        Expr::new(ExprNode::Value(Value::Time(self)))
+    }
+}
+
+impl IntoExpr<Vec<String>> for Vec<String> {
+    fn into_expr(self) -> Expr<Vec<String>> {
+        Expr::new(ExprNode::Value(Value::Array(self)))
+    }
+}
+
+impl IntoExpr<serde_json::Value> for serde_json::Value {
+    fn into_expr(self) -> Expr<serde_json::Value> {
+        Expr::new(ExprNode::Value(Value::Json(self)))
+    }
+}
+
+impl<T> Expr<T>
+where
+    T: 'static,
+{
+    pub fn eq<V>(self, value: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        match value.into_value() {
+            Some(value) => Expr::new(ExprNode::Binary {
+                left: Box::new(self.node),
+                op: BinaryOp::Eq,
+                right: Box::new(ExprNode::Value(value)),
+            }),
+            None => Expr::new(ExprNode::IsNull {
+                expr: Box::new(self.node),
+                negated: false,
+            }),
+        }
+    }
+
+    pub fn ne<V>(self, value: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        match value.into_value() {
+            Some(value) => Expr::new(ExprNode::Binary {
+                left: Box::new(self.node),
+                op: BinaryOp::Ne,
+                right: Box::new(ExprNode::Value(value)),
+            }),
+            None => Expr::new(ExprNode::IsNull {
+                expr: Box::new(self.node),
+                negated: true,
+            }),
+        }
+    }
+
+    pub fn lt<V>(self, value: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Lt,
+            right: Box::new(ExprNode::Value(value.into_value().unwrap_or(Value::Null))),
+        })
+    }
+
+    pub fn le<V>(self, value: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Le,
+            right: Box::new(ExprNode::Value(value.into_value().unwrap_or(Value::Null))),
+        })
+    }
+
+    pub fn gt<V>(self, value: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Gt,
+            right: Box::new(ExprNode::Value(value.into_value().unwrap_or(Value::Null))),
+        })
+    }
+
+    pub fn ge<V>(self, value: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Ge,
+            right: Box::new(ExprNode::Value(value.into_value().unwrap_or(Value::Null))),
+        })
+    }
+
+    pub fn like<V>(self, pattern: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        Expr::new(ExprNode::Like {
+            expr: Box::new(self.node),
+            pattern: pattern.into_value().unwrap_or(Value::Null),
+            case_insensitive: false,
+        })
+    }
+
+    pub fn ilike<V>(self, pattern: V) -> Expr<bool>
+    where
+        V: ColumnValue<T>,
+    {
+        Expr::new(ExprNode::Like {
+            expr: Box::new(self.node),
+            pattern: pattern.into_value().unwrap_or(Value::Null),
+            case_insensitive: true,
+        })
+    }
+
+    pub fn is_null(self) -> Expr<bool> {
+        Expr::new(ExprNode::IsNull {
+            expr: Box::new(self.node),
+            negated: false,
+        })
+    }
+
+    pub fn is_not_null(self) -> Expr<bool> {
+        Expr::new(ExprNode::IsNull {
+            expr: Box::new(self.node),
+            negated: true,
+        })
+    }
+
+    pub fn in_<I, V>(self, values: I) -> Expr<bool>
+    where
+        I: IntoIterator<Item = V>,
+        V: ColumnValue<T>,
+    {
+        let mut binds = Vec::new();
+        for value in values {
+            if let Some(value) = value.into_value() {
+                binds.push(value);
+            }
+        }
+        Expr::new(ExprNode::In {
+            expr: Box::new(self.node),
+            values: binds,
+        })
     }
 }
 

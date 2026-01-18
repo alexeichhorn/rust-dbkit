@@ -5,6 +5,7 @@ pub use sqlx;
 pub mod database;
 pub mod error;
 pub mod executor;
+pub mod func;
 pub mod model;
 pub mod query_ext;
 pub mod runtime;

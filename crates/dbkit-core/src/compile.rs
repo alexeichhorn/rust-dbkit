@@ -54,6 +54,17 @@ impl ToSql for ExprNode {
         match self {
             ExprNode::Column(col) => builder.push_column(*col),
             ExprNode::Value(value) => builder.push_value(value.clone()),
+            ExprNode::Func { name, args } => {
+                builder.push_sql(name);
+                builder.push_sql("(");
+                for (idx, arg) in args.iter().enumerate() {
+                    if idx > 0 {
+                        builder.push_sql(", ");
+                    }
+                    arg.to_sql(builder);
+                }
+                builder.push_sql(")");
+            }
             ExprNode::Binary { left, op, right } => {
                 builder.push_sql("(");
                 left.to_sql(builder);

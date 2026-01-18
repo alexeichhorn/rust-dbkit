@@ -74,6 +74,17 @@ pub struct JsonRow {
     pub data: serde_json::Value,
 }
 
+#[model(table = "func_rows")]
+pub struct FuncRow {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub email: Option<String>,
+    pub backup_email: Option<String>,
+    pub region: Option<String>,
+    pub starts_at: NaiveDateTime,
+}
+
 #[model(table = "todo_tags")]
 pub struct TodoTag {
     #[key]
@@ -143,6 +154,18 @@ async fn setup_schema(
         "CREATE TEMP TABLE json_rows (\
             id BIGSERIAL PRIMARY KEY,\
             data JSONB NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE func_rows (\
+            id BIGSERIAL PRIMARY KEY,\
+            email TEXT,\
+            backup_email TEXT,\
+            region TEXT,\
+            starts_at TIMESTAMP NOT NULL\
         )",
     )
     .execute(tx.as_mut())
@@ -615,6 +638,131 @@ async fn json_column_roundtrip() -> Result<(), dbkit::Error> {
         .await?
         .expect("updated json row");
     assert_eq!(fetched.data, updated_payload);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let day = NaiveDate::from_ymd_opt(2024, 1, 2).expect("day");
+    let day_start = NaiveDateTime::new(day, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
+    let later_day = NaiveDate::from_ymd_opt(2024, 1, 3).expect("day");
+    let later_start =
+        NaiveDateTime::new(later_day, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
+
+    let row1 = FuncRow::insert(FuncRowInsert {
+        email: Some("alpha@ex.com".to_string()),
+        backup_email: None,
+        region: Some("us".to_string()),
+        starts_at: NaiveDateTime::new(day, NaiveTime::from_hms_opt(10, 0, 0).expect("time")),
+    })
+    .returning_all()
+    .one(&mut tx)
+    .await?
+    .expect("row1");
+
+    let row2 = FuncRow::insert(FuncRowInsert {
+        email: None,
+        backup_email: Some("beta@ex.com".to_string()),
+        region: Some("eu".to_string()),
+        starts_at: NaiveDateTime::new(day, NaiveTime::from_hms_opt(12, 0, 0).expect("time")),
+    })
+    .returning_all()
+    .one(&mut tx)
+    .await?
+    .expect("row2");
+
+    let row3 = FuncRow::insert(FuncRowInsert {
+        email: None,
+        backup_email: None,
+        region: Some("uk".to_string()),
+        starts_at: NaiveDateTime::new(later_day, NaiveTime::from_hms_opt(9, 0, 0).expect("time")),
+    })
+    .returning_all()
+    .one(&mut tx)
+    .await?
+    .expect("row3");
+
+    let row4 = FuncRow::insert(FuncRowInsert {
+        email: Some("gamma@ex.com".to_string()),
+        backup_email: Some("backup@ex.com".to_string()),
+        region: None,
+        starts_at: NaiveDateTime::new(later_day, NaiveTime::from_hms_opt(15, 0, 0).expect("time")),
+    })
+    .returning_all()
+    .one(&mut tx)
+    .await?
+    .expect("row4");
+
+    let upper_match = FuncRow::query()
+        .filter(dbkit::func::upper(dbkit::func::coalesce(
+            FuncRow::email,
+            FuncRow::backup_email,
+        ))
+        .eq("BETA@EX.COM"))
+        .all(&mut tx)
+        .await?;
+    assert_eq!(upper_match.len(), 1);
+    assert_eq!(upper_match[0].id, row2.id);
+
+    let fallback_match = FuncRow::query()
+        .filter(dbkit::func::coalesce(FuncRow::email, "fallback").eq("fallback"))
+        .all(&mut tx)
+        .await?;
+    let mut fallback_ids: Vec<i64> = fallback_match.iter().map(|row| row.id).collect();
+    fallback_ids.sort();
+    assert_eq!(fallback_ids, vec![row2.id, row3.id]);
+
+    let nested_match = FuncRow::query()
+        .filter(
+            dbkit::func::coalesce(
+                dbkit::func::coalesce(FuncRow::email, FuncRow::backup_email),
+                "none",
+            )
+            .eq("none"),
+        )
+        .all(&mut tx)
+        .await?;
+    assert_eq!(nested_match.len(), 1);
+    assert_eq!(nested_match[0].id, row3.id);
+
+    let truncated_match = FuncRow::query()
+        .filter(dbkit::func::date_trunc("day", FuncRow::starts_at).eq(day_start))
+        .all(&mut tx)
+        .await?;
+    let mut day_ids: Vec<i64> = truncated_match.iter().map(|row| row.id).collect();
+    day_ids.sort();
+    assert_eq!(day_ids, vec![row1.id, row2.id]);
+
+    let region_match = FuncRow::query()
+        .filter(
+            dbkit::func::upper(dbkit::func::coalesce(FuncRow::region, "unknown"))
+                .eq("UNKNOWN"),
+        )
+        .all(&mut tx)
+        .await?;
+    assert_eq!(region_match.len(), 1);
+    assert_eq!(region_match[0].id, row4.id);
+
+    let combined_match = FuncRow::query()
+        .filter(
+            dbkit::func::upper(dbkit::func::coalesce(
+                FuncRow::email,
+                FuncRow::backup_email,
+            ))
+            .eq("ALPHA@EX.COM"),
+        )
+        .filter(dbkit::func::date_trunc("day", FuncRow::starts_at).eq(day_start))
+        .all(&mut tx)
+        .await?;
+    assert_eq!(combined_match.len(), 1);
+    assert_eq!(combined_match[0].id, row1.id);
+
+    let _ = later_start;
 
     Ok(())
 }
