@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use dbkit_core::{expr::Value, func, Column, Expr, Order, Select, Table};
+use dbkit_core::{expr::Value, func, Column, Condition, Expr, Order, Select, Table};
 
 #[derive(Debug)]
 struct User;
@@ -360,6 +360,54 @@ fn compiles_between_on_func_expression() {
             Value::DateTime(start),
             Value::DateTime(end)
         ]
+    );
+}
+
+#[test]
+fn condition_any_empty_returns_none() {
+    let cond = Condition::any();
+    assert!(cond.into_expr().is_none());
+}
+
+#[test]
+fn condition_all_empty_returns_none() {
+    let cond = Condition::all();
+    assert!(cond.into_expr().is_none());
+}
+
+#[test]
+fn compiles_condition_any_or() {
+    let cond = Condition::any()
+        .add(user_email().like("%example%"))
+        .add(user_id().gt(10_i64));
+
+    let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users WHERE ((users.email LIKE $1) OR (users.id > $2))"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String("%example%".to_string()), Value::I64(10)]
+    );
+}
+
+#[test]
+fn compiles_condition_all_and() {
+    let cond = Condition::all()
+        .add(user_email().like("%example%"))
+        .add(user_id().gt(10_i64));
+
+    let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users WHERE ((users.email LIKE $1) AND (users.id > $2))"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String("%example%".to_string()), Value::I64(10)]
     );
 }
 

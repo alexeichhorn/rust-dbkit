@@ -671,3 +671,45 @@ where
         })
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub enum ConditionKind {
+    Any,
+    All,
+}
+
+#[derive(Debug, Clone)]
+pub struct Condition {
+    kind: ConditionKind,
+    exprs: Vec<Expr<bool>>,
+}
+
+impl Condition {
+    pub fn any() -> Self {
+        Self {
+            kind: ConditionKind::Any,
+            exprs: Vec::new(),
+        }
+    }
+
+    pub fn all() -> Self {
+        Self {
+            kind: ConditionKind::All,
+            exprs: Vec::new(),
+        }
+    }
+
+    pub fn add(mut self, expr: Expr<bool>) -> Self {
+        self.exprs.push(expr);
+        self
+    }
+
+    pub fn into_expr(self) -> Option<Expr<bool>> {
+        let mut iter = self.exprs.into_iter();
+        let first = iter.next()?;
+        Some(iter.fold(first, |acc, expr| match self.kind {
+            ConditionKind::Any => acc.or(expr),
+            ConditionKind::All => acc.and(expr),
+        }))
+    }
+}

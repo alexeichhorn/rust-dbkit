@@ -146,6 +146,18 @@ let filtered = User::query()
     .await?;
 ```
 
+Dynamic conditions:
+
+```rust
+let mut cond = dbkit::Condition::any()
+    .add(User::region.eq("us"))
+    .add(User::region.is_null().and(Creator::region.eq("us")));
+
+if let Some(expr) = cond.into_expr() {
+    query = query.filter(expr);
+}
+```
+
 Type-level loaded relations:
 
 ```rust
@@ -277,7 +289,7 @@ tx.commit().await?;
 - [x] Add JSON column support (`serde_json::Value`) for insert/update/filter.
 - [x] Add Postgres array column support (e.g., `Vec<String>`) for insert/update/filter.
 - [x] Add bulk insert support (multi-row `insert_many`).
-- [ ] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
+- [x] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
 - [x] Allow `order_by` on expressions or aliases (e.g., `date_trunc(...)`, `total`).
 - [x] Add `between(a, b)` convenience for columns/expressions.
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
