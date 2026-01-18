@@ -294,6 +294,7 @@ tx.commit().await?;
 - [x] Add `between(a, b)` convenience for columns/expressions.
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.
+- [ ] Add ActiveModel `save()` that chooses insert vs update.
 - [ ] Expand type support (json feature gate).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
