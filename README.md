@@ -98,6 +98,24 @@ let deleted = User::delete()
     .await?;
 ```
 
+Bulk insert:
+
+```rust
+let inserted = User::insert_many(vec![
+    UserInsert {
+        name: "Alpha".to_string(),
+        email: "alpha@db.com".to_string(),
+    },
+    UserInsert {
+        name: "Beta".to_string(),
+        email: "beta@db.com".to_string(),
+    },
+])
+.execute(&mut &db)
+.await?;
+assert_eq!(inserted, 2);
+```
+
 Active model insert / update (change-tracked):
 
 ```rust
