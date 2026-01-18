@@ -128,6 +128,30 @@ let filtered = User::query()
     .await?;
 ```
 
+Type-level loaded relations:
+
+```rust
+// `User` is the "bare row" alias: all relations are `NotLoaded`.
+fn accepts_unloaded(user: &User) {
+    println!("{}", user.name);
+}
+
+// Use the generic model type to require loaded relations in APIs.
+fn needs_loaded(user: &UserModel<Vec<Todo>>) {
+    // safe: todos are guaranteed to be loaded
+    println!("todos: {}", user.todos.len());
+}
+
+// For multiple relations, generic params follow relation-field order.
+// In this repo, `Todo` declares `user` then `tags`, so:
+// - user loaded, tags not loaded => TodoModel<Option<User>, dbkit::NotLoaded>
+// - user loaded, tags loaded     => TodoModel<Option<User>, Vec<Tag>>
+//
+// Nested loaded relations compose too:
+// `UserModel<Vec<TodoModel<Option<User>, Vec<Tag>>>>`
+// (i.e., users with todos loaded, and each todo has its user + tags loaded)
+```
+
 Lazy loading:
 
 ```rust
@@ -169,6 +193,5 @@ tx.commit().await?;
 
 ## Deviations from spec
 
-- Method accessors are `*_loaded()` (e.g. `todos_loaded()`), not `todos()`, to avoid name clashes with relation descriptors. Loaded relations are also available on the public struct fields (e.g. `user.todos`).
 - `load(...)` requires an executor argument: `user.load(User::todos, &mut ex)`.
 - Relation state sealing is looser than spec (any `Vec<T>` / `Option<T>` satisfies the state trait).
