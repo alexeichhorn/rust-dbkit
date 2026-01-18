@@ -1,5 +1,6 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit_core::{Column, Select, Table, Value};
+use serde_json::json;
 use uuid::Uuid;
 
 #[test]
@@ -49,6 +50,25 @@ fn select_binds_uuid_datetime_date_time() {
             Value::Time(time),
         ]
     );
+}
+
+#[test]
+fn value_from_json() {
+    let payload = json!({"name": "alice", "active": true});
+    assert_eq!(Value::from(payload.clone()), Value::Json(payload));
+}
+
+#[test]
+fn select_binds_json() {
+    let table = Table::new("json_rows");
+    let data_col: Column<(), serde_json::Value> = Column::new(table, "data");
+    let payload = json!({"name": "alice", "active": true});
+
+    let compiled = Select::<()>::new(table)
+        .filter(data_col.eq(payload.clone()))
+        .compile();
+
+    assert_eq!(compiled.binds, vec![Value::Json(payload)]);
 }
 
 #[test]

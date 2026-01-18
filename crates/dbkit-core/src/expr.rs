@@ -13,6 +13,7 @@ pub enum Value {
     F64(f64),
     String(String),
     Array(Vec<String>),
+    Json(serde_json::Value),
     Uuid(uuid::Uuid),
     DateTime(chrono::NaiveDateTime),
     Date(chrono::NaiveDate),
@@ -107,6 +108,12 @@ impl From<&str> for Value {
 impl From<Vec<String>> for Value {
     fn from(value: Vec<String>) -> Self {
         Self::Array(value)
+    }
+}
+
+impl From<serde_json::Value> for Value {
+    fn from(value: serde_json::Value) -> Self {
+        Self::Json(value)
     }
 }
 

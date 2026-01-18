@@ -3,6 +3,7 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
 use dbkit::{model, Database};
+use serde_json::json;
 use uuid::Uuid;
 
 #[model(table = "users")]
@@ -65,6 +66,14 @@ pub struct Profile {
     pub tags: Vec<String>,
 }
 
+#[model(table = "json_rows")]
+pub struct JsonRow {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub data: serde_json::Value,
+}
+
 #[model(table = "todo_tags")]
 pub struct TodoTag {
     #[key]
@@ -125,6 +134,15 @@ async fn setup_schema(
         "CREATE TEMP TABLE profiles (\
             id BIGSERIAL PRIMARY KEY,\
             tags TEXT[] NOT NULL\
+        )",
+    )
+    .execute(tx.as_mut())
+    .await?;
+
+    dbkit::sqlx::query(
+        "CREATE TEMP TABLE json_rows (\
+            id BIGSERIAL PRIMARY KEY,\
+            data JSONB NOT NULL\
         )",
     )
     .execute(tx.as_mut())
@@ -561,6 +579,42 @@ async fn array_column_roundtrip() -> Result<(), dbkit::Error> {
         .await?
         .expect("updated profile");
     assert_eq!(fetched.tags, updated_tags);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn json_column_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let payload = json!({"name": "alpha", "active": true});
+    let inserted = JsonRow::insert(JsonRowInsert { data: payload.clone() })
+        .returning_all()
+        .one(&mut tx)
+        .await?
+        .expect("inserted json row");
+    assert_eq!(inserted.data, payload);
+
+    let matched = JsonRow::query()
+        .filter(JsonRow::data.eq(payload.clone()))
+        .all(&mut tx)
+        .await?;
+    assert_eq!(matched.len(), 1);
+    assert_eq!(matched[0].id, inserted.id);
+
+    let updated_payload = json!({"name": "beta", "active": false});
+    let mut active = inserted.into_active();
+    active.data = updated_payload.clone().into();
+    let updated = active.update(&mut tx).await?;
+    assert_eq!(updated.data, updated_payload);
+
+    let fetched = JsonRow::by_id(updated.id)
+        .one(&mut tx)
+        .await?
+        .expect("updated json row");
+    assert_eq!(fetched.data, updated_payload);
 
     Ok(())
 }

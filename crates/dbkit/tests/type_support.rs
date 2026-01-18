@@ -1,6 +1,7 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::executor::build_arguments;
 use dbkit::Value;
+use serde_json::json;
 use uuid::Uuid;
 
 #[test]
@@ -17,6 +18,14 @@ fn build_arguments_accepts_uuid_datetime_date_time() {
         Value::from(time),
     ];
 
+    let result = build_arguments(&values);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn build_arguments_accepts_json() {
+    let payload = json!({"name": "alice", "active": true});
+    let values = vec![Value::from(payload)];
     let result = build_arguments(&values);
     assert!(result.is_ok());
 }

@@ -203,6 +203,7 @@ dependencies = [
  "dbkit-core",
  "dbkit-derive",
  "dotenvy",
+ "serde_json",
  "sqlx",
  "thiserror",
  "tokio",
@@ -215,6 +216,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "insta",
+ "serde_json",
  "uuid",
 ]
 
