@@ -879,6 +879,42 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(bucket_rows[1].bucket, day2_start);
     assert_eq!(bucket_rows[1].total.to_string(), "200");
 
+    let ordered_buckets: Vec<BucketAgg> = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::date_trunc("day", Sale::created_at), "bucket")
+        .column_as(dbkit::func::sum(Sale::amount), "total")
+        .group_by(dbkit::func::date_trunc("day", Sale::created_at))
+        .order_by(dbkit::Order::desc(dbkit::func::date_trunc(
+            "day",
+            Sale::created_at,
+        )))
+        .into_model()
+        .all(&mut tx)
+        .await?;
+    assert_eq!(ordered_buckets.len(), 2);
+    assert_eq!(ordered_buckets[0].bucket, day2_start);
+    assert_eq!(ordered_buckets[0].total.to_string(), "200");
+    assert_eq!(ordered_buckets[1].bucket, day1_start);
+    assert_eq!(ordered_buckets[1].total.to_string(), "140");
+
+    let ordered_regions: Vec<RegionAgg> = Sale::query()
+        .select_only()
+        .column(Sale::region)
+        .column_as(dbkit::func::sum(Sale::amount), "total")
+        .column_as(dbkit::func::count(Sale::id), "count")
+        .group_by(Sale::region)
+        .order_by(dbkit::Order::desc_alias("total"))
+        .into_model()
+        .all(&mut tx)
+        .await?;
+    assert_eq!(ordered_regions.len(), 3);
+    assert_eq!(ordered_regions[0].region, "apac");
+    assert_eq!(ordered_regions[0].total.to_string(), "200");
+    assert_eq!(ordered_regions[1].region, "us");
+    assert_eq!(ordered_regions[1].total.to_string(), "110");
+    assert_eq!(ordered_regions[2].region, "eu");
+    assert_eq!(ordered_regions[2].total.to_string(), "30");
+
     let user = seed_user(&mut tx, "AggUser", "agg@db.com").await?;
     let _todo1 = seed_todo(&mut tx, user.id, "Alpha").await?;
     let _todo2 = seed_todo(&mut tx, user.id, "Beta").await?;

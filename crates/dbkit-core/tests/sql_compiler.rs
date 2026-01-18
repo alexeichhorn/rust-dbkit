@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use dbkit_core::{expr::Value, func, Column, Expr, Select, Table};
+use dbkit_core::{expr::Value, func, Column, Expr, Order, Select, Table};
 
 #[derive(Debug)]
 struct User;
@@ -281,6 +281,36 @@ fn compiles_group_by_expression() {
         sql.binds,
         vec![Value::String("day".to_string())]
     );
+}
+
+#[test]
+fn compiles_order_by_expression() {
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(func::date_trunc("day", sales_created_at()), "bucket")
+        .order_by(Order::desc(func::date_trunc("day", sales_created_at())));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT DATE_TRUNC($1, sales.created_at) AS bucket FROM sales ORDER BY DATE_TRUNC($1, sales.created_at) DESC"
+    );
+    assert_eq!(sql.binds, vec![Value::String("day".to_string())]);
+}
+
+#[test]
+fn compiles_order_by_alias() {
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(user_email(), "email_addr")
+        .order_by(Order::asc_alias("email_addr"));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.email AS email_addr FROM users ORDER BY email_addr ASC"
+    );
+    assert!(sql.binds.is_empty());
 }
 
 #[test]

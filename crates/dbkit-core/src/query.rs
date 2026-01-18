@@ -31,9 +31,37 @@ pub enum OrderDirection {
     Desc,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+pub enum OrderExpr {
+    Expr(ExprNode),
+    Alias(String),
+}
+
+pub trait IntoOrderExpr {
+    fn into_order_expr(self) -> OrderExpr;
+}
+
+impl IntoOrderExpr for ColumnRef {
+    fn into_order_expr(self) -> OrderExpr {
+        OrderExpr::Expr(ExprNode::Column(self))
+    }
+}
+
+impl<M, T> IntoOrderExpr for crate::schema::Column<M, T> {
+    fn into_order_expr(self) -> OrderExpr {
+        OrderExpr::Expr(ExprNode::Column(self.as_ref()))
+    }
+}
+
+impl<T> IntoOrderExpr for Expr<T> {
+    fn into_order_expr(self) -> OrderExpr {
+        OrderExpr::Expr(self.node)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Order {
-    pub column: ColumnRef,
+    pub expr: OrderExpr,
     pub direction: OrderDirection,
 }
 
@@ -313,7 +341,10 @@ impl<Out, Loads> Select<Out, Loads> {
                 if idx > 0 {
                     builder.push_sql(", ");
                 }
-                builder.push_column(order.column);
+                match &order.expr {
+                    OrderExpr::Expr(expr) => expr.to_sql(&mut builder),
+                    OrderExpr::Alias(alias) => builder.push_sql(alias),
+                }
                 builder.push_sql(match order.direction {
                     OrderDirection::Asc => " ASC",
                     OrderDirection::Desc => " DESC",
@@ -342,16 +373,30 @@ impl<Out, Loads> Select<Out, Loads> {
 }
 
 impl Order {
-    pub fn asc(column: ColumnRef) -> Self {
+    pub fn asc(expr: impl IntoOrderExpr) -> Self {
         Self {
-            column,
+            expr: expr.into_order_expr(),
             direction: OrderDirection::Asc,
         }
     }
 
-    pub fn desc(column: ColumnRef) -> Self {
+    pub fn desc(expr: impl IntoOrderExpr) -> Self {
         Self {
-            column,
+            expr: expr.into_order_expr(),
+            direction: OrderDirection::Desc,
+        }
+    }
+
+    pub fn asc_alias(alias: &str) -> Self {
+        Self {
+            expr: OrderExpr::Alias(alias.to_string()),
+            direction: OrderDirection::Asc,
+        }
+    }
+
+    pub fn desc_alias(alias: &str) -> Self {
+        Self {
+            expr: OrderExpr::Alias(alias.to_string()),
             direction: OrderDirection::Desc,
         }
     }
