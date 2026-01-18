@@ -65,6 +65,28 @@ fn compiles_insert_with_null() {
 }
 
 #[test]
+fn compiles_insert_many_rows() {
+    let query: Insert<User> = Insert::new(user_table())
+        .row(|row| row.value(user_email(), "a@b.com").value(user_name(), "Alice"))
+        .row(|row| row.value(user_email(), None::<String>).value(user_name(), "Bob"))
+        .returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "INSERT INTO users (email, name) VALUES ($1, $2), (NULL, $3) RETURNING users.*"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("a@b.com".to_string()),
+            Value::String("Alice".to_string()),
+            Value::String("Bob".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn compiles_update_with_filter() {
     let query: Update<User> = Update::new(user_table())
         .set(user_email(), "new@b.com")

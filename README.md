@@ -190,7 +190,7 @@ tx.commit().await?;
 - [ ] Add SQL function expressions in queries (e.g., `COALESCE`, `DATE_TRUNC`, `UPPER`).
 - [ ] Add JSON column support (`serde_json::Value`) for insert/update/filter.
 - [ ] Add Postgres array column support (e.g., `Vec<String>`) for insert/update/filter.
-- [ ] Add bulk insert support (multi-row `insert_many`).
+- [x] Add bulk insert support (multi-row `insert_many`).
 - [ ] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.

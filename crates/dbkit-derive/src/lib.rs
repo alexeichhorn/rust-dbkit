@@ -246,6 +246,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let ident = field.ident.as_ref().expect("field ident");
         quote!(insert = insert.value(Self::#ident, values.#ident);)
     });
+    let insert_field_idents = insert_fields
+        .iter()
+        .map(|field| field.ident.as_ref().expect("field ident"))
+        .collect::<Vec<_>>();
 
     let active_ident = format_ident!("{}Active", struct_ident);
 
@@ -1093,6 +1097,20 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             pub fn insert(values: #insert_ident) -> ::dbkit::Insert<#struct_ident> {
                 let mut insert = ::dbkit::Insert::new(Self::TABLE);
                 #(#insert_values)*
+                insert
+            }
+
+            pub fn insert_many(values: Vec<#insert_ident>) -> ::dbkit::Insert<#struct_ident> {
+                let mut insert = ::dbkit::Insert::new(Self::TABLE);
+                for value in values {
+                    insert = insert.row(|row| {
+                        let mut row = row;
+                        #(
+                            row = row.value(Self::#insert_field_idents, value.#insert_field_idents);
+                        )*
+                        row
+                    });
+                }
                 insert
             }
 

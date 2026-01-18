@@ -301,6 +301,37 @@ async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
 }
 
 #[tokio::test]
+async fn insert_many_inserts_multiple_rows() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let inserted = User::insert_many(vec![
+        UserInsert {
+            name: "Alpha".to_string(),
+            email: "alpha@db.com".to_string(),
+        },
+        UserInsert {
+            name: "Beta".to_string(),
+            email: "beta@db.com".to_string(),
+        },
+    ])
+    .execute(&mut tx)
+    .await?;
+    assert_eq!(inserted, 2);
+
+    let users = User::query()
+        .order_by(dbkit::Order::asc(User::id.as_ref()))
+        .all(&mut tx)
+        .await?;
+    assert_eq!(users.len(), 2);
+    assert_eq!(users[0].name, "Alpha");
+    assert_eq!(users[1].name, "Beta");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn selectin_has_many_loads_children() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let mut tx = db.begin().await?;
