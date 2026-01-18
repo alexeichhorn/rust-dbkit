@@ -14,6 +14,8 @@ pub struct ManyToMany<T>(std::marker::PhantomData<T>);
 pub enum ActiveValue<T> {
     Unset,
     Set(T),
+    Unchanged(T),
+    UnchangedNull,
     Null,
 }
 
@@ -28,12 +30,27 @@ impl<T> ActiveValue<T> {
         *self = Self::Set(value);
     }
 
+    pub fn unchanged(value: T) -> Self {
+        Self::Unchanged(value)
+    }
+
+    pub fn unchanged_option(value: Option<T>) -> Self {
+        match value {
+            Some(value) => Self::Unchanged(value),
+            None => Self::UnchangedNull,
+        }
+    }
+
     pub fn set_null(&mut self) {
         *self = Self::Null;
     }
 
     pub fn is_unset(&self) -> bool {
         matches!(self, Self::Unset)
+    }
+
+    pub fn is_unchanged(&self) -> bool {
+        matches!(self, Self::Unchanged(_) | Self::UnchangedNull)
     }
 }
 

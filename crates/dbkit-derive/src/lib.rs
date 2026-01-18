@@ -262,7 +262,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let active_from_model = scalar_fields.iter().map(|field| {
         let ident = &field.ident;
-        quote!(#ident: ::dbkit::ActiveValue::from(#ident))
+        if option_inner_type(&field.ty).is_some() {
+            quote!(#ident: ::dbkit::ActiveValue::unchanged_option(#ident))
+        } else {
+            quote!(#ident: ::dbkit::ActiveValue::unchanged(#ident))
+        }
     });
 
     let active_destructure = scalar_fields
@@ -288,6 +292,12 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 }
                 ::dbkit::ActiveValue::Set(value) => {
                     insert = insert.value(#struct_ident::#ident, value);
+                }
+                ::dbkit::ActiveValue::Unchanged(value) => {
+                    insert = insert.value(#struct_ident::#ident, value);
+                }
+                ::dbkit::ActiveValue::UnchangedNull => {
+                    insert = insert.value(#struct_ident::#ident, None::<#ty>);
                 }
                 ::dbkit::ActiveValue::Null => {
                     insert = insert.value(#struct_ident::#ident, None::<#ty>);
@@ -328,8 +338,8 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 let pk_name = ident.to_string();
                 quote!(
                     let #var = match #ident {
-                        ::dbkit::ActiveValue::Set(value) => value,
-                        ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset => {
+                        ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => value,
+                        ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset | ::dbkit::ActiveValue::UnchangedNull => {
                             return Err(::dbkit::Error::Decode(format!(
                                 "missing required field: {}",
                                 #pk_name
@@ -357,6 +367,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                             update = update.set(#struct_ident::#ident, value);
                             any_set = true;
                         }
+                        ::dbkit::ActiveValue::Unchanged(_) | ::dbkit::ActiveValue::UnchangedNull => {}
                         ::dbkit::ActiveValue::Null => {
                             update = update.set(#struct_ident::#ident, None::<#ty>);
                             any_set = true;
@@ -400,8 +411,8 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 let pk_name = ident.to_string();
                 quote!(
                     let #var = match #ident {
-                        ::dbkit::ActiveValue::Set(value) => value,
-                        ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset => {
+                        ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => value,
+                        ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset | ::dbkit::ActiveValue::UnchangedNull => {
                             return Err(::dbkit::Error::Decode(format!(
                                 "missing required field: {}",
                                 #pk_name

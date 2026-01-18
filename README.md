@@ -146,6 +146,9 @@ active.name = "Updated".into();
 let updated = active.update(&mut &db).await?;
 ```
 
+Note: `into_active()` marks fields as unchanged. Updates only include fields you explicitly set
+(`ActiveValue::Set`) or null out (`ActiveValue::Null`), so existing values aren’t overwritten.
+
 Eager loading and join filtering:
 
 ```rust

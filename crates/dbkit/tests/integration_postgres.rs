@@ -1210,6 +1210,33 @@ async fn active_update_from_loaded() -> Result<(), dbkit::Error> {
 }
 
 #[tokio::test]
+async fn active_update_does_not_overwrite_other_fields() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    // This test simulates a concurrent update to a different column and ensures
+    // ActiveModel updates only changed fields (no stale-field overwrite).
+    let user = seed_user(&mut tx, "Before", "before@db.com").await?;
+    let mut active = user.clone().into_active();
+
+    User::update()
+        .set(User::email, "updated@db.com")
+        .filter(User::id.eq(user.id))
+        .execute(&mut tx)
+        .await?;
+
+    active.name = "After".into();
+    let _ = active.update(&mut tx).await?;
+
+    let fetched = User::by_id(user.id).one(&mut tx).await?.expect("user");
+    assert_eq!(fetched.name, "After");
+    assert_eq!(fetched.email, "updated@db.com");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn active_update_set_null() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let mut tx = db.begin().await?;
