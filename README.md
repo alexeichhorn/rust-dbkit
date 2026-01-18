@@ -186,6 +186,12 @@ tx.commit().await?;
 ## TODOs
 
 - [ ] Implement true joined eager loading (single-query join decoding).
+- [ ] Add aggregation/projection support: `select_only`, `column_as`, `group_by`, `sum`, `count`, and mapping into custom result structs (e.g., `into_model::<T>()` for aggregates).
+- [ ] Add SQL function expressions in queries (e.g., `COALESCE`, `DATE_TRUNC`, `UPPER`).
+- [ ] Add JSON column support (`serde_json::Value`) for insert/update/filter.
+- [ ] Add Postgres array column support (e.g., `Vec<String>`) for insert/update/filter.
+- [ ] Add bulk insert support (multi-row `insert_many`).
+- [ ] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.
 - [ ] Expand type support (json feature gate).
