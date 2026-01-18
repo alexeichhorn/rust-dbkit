@@ -844,6 +844,23 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     .await?;
     assert_eq!(inserted, 4);
 
+    let day1_end = NaiveDateTime::new(day1, NaiveTime::from_hms_opt(23, 59, 59).expect("time"));
+
+    let mut amount_between = Sale::query()
+        .filter(Sale::amount.between(40_i64, 70_i64))
+        .all(&mut tx)
+        .await?;
+    amount_between.sort_by(|a, b| a.amount.cmp(&b.amount));
+    assert_eq!(amount_between.len(), 2);
+    assert_eq!(amount_between[0].amount, 40);
+    assert_eq!(amount_between[1].amount, 70);
+
+    let day1_sales = Sale::query()
+        .filter(Sale::created_at.between(day1_start, day1_end))
+        .all(&mut tx)
+        .await?;
+    assert_eq!(day1_sales.len(), 3);
+
     let mut region_rows: Vec<RegionAgg> = Sale::query()
         .select_only()
         .column(Sale::region)

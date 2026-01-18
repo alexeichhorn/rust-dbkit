@@ -279,7 +279,7 @@ tx.commit().await?;
 - [x] Add bulk insert support (multi-row `insert_many`).
 - [ ] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
 - [x] Allow `order_by` on expressions or aliases (e.g., `date_trunc(...)`, `total`).
-- [ ] Add `between(a, b)` convenience for columns/expressions.
+- [x] Add `between(a, b)` convenience for columns/expressions.
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [ ] Add optional helpers: `count()`, `exists()`, `first()`, `paginate()`.
 - [ ] Expand type support (json feature gate).

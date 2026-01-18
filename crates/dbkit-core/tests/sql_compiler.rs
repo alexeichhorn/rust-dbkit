@@ -328,6 +328,41 @@ fn compiles_select_query() {
     assert_eq!(sql.binds, vec![Value::String("%example%".to_string())]);
 }
 
+#[test]
+fn compiles_between_expression() {
+    let query: Select<User> = Select::new(user_table()).filter(user_id().between(1_i64, 5_i64));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users WHERE ((users.id >= $1) AND (users.id <= $2))"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(1), Value::I64(5)]);
+}
+
+#[test]
+fn compiles_between_on_func_expression() {
+    let start = NaiveDateTime::from_timestamp_opt(1_700_000_000, 0).expect("start");
+    let end = NaiveDateTime::from_timestamp_opt(1_700_000_100, 0).expect("end");
+    let query: Select<Sale> = Select::new(sales_table()).filter(
+        func::date_trunc("day", sales_created_at()).between(start, end),
+    );
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT sales.* FROM sales WHERE ((DATE_TRUNC($1, sales.created_at) >= $2) AND (DATE_TRUNC($1, sales.created_at) <= $3))"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("day".to_string()),
+            Value::DateTime(start),
+            Value::DateTime(end)
+        ]
+    );
+}
+
 fn expr_sql(expr: Expr<bool>) -> dbkit_core::CompiledSql {
     let query: Select<User> = Select::new(user_table()).filter(expr);
     query.compile()

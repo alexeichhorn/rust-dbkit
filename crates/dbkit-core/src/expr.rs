@@ -408,6 +408,31 @@ where
         })
     }
 
+    pub fn between<L, U>(self, low: L, high: U) -> Expr<bool>
+    where
+        L: ColumnValue<T>,
+        U: ColumnValue<T>,
+    {
+        let low_value = low.into_value().unwrap_or(Value::Null);
+        let high_value = high.into_value().unwrap_or(Value::Null);
+        let node = self.node;
+        let left = ExprNode::Binary {
+            left: Box::new(node.clone()),
+            op: BinaryOp::Ge,
+            right: Box::new(ExprNode::Value(low_value)),
+        };
+        let right = ExprNode::Binary {
+            left: Box::new(node),
+            op: BinaryOp::Le,
+            right: Box::new(ExprNode::Value(high_value)),
+        };
+        Expr::new(ExprNode::Bool {
+            left: Box::new(left),
+            op: BoolOp::And,
+            right: Box::new(right),
+        })
+    }
+
     pub fn like<V>(self, pattern: V) -> Expr<bool>
     where
         V: ColumnValue<T>,
@@ -574,6 +599,28 @@ where
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ge,
             right: Box::new(ExprNode::Value(value.into())),
+        })
+    }
+
+    pub fn between<L, U>(self, low: L, high: U) -> Expr<bool>
+    where
+        L: Into<Value>,
+        U: Into<Value>,
+    {
+        let left = ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::Ge,
+            right: Box::new(ExprNode::Value(low.into())),
+        };
+        let right = ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::Le,
+            right: Box::new(ExprNode::Value(high.into())),
+        };
+        Expr::new(ExprNode::Bool {
+            left: Box::new(left),
+            op: BoolOp::And,
+            right: Box::new(right),
         })
     }
 
