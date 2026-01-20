@@ -327,7 +327,6 @@ tx.commit().await?;
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
 - [x] Add ActiveModel `save()` that chooses insert vs update.
-- [ ] Expand type support (json feature gate).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
 ## Deviations from spec
