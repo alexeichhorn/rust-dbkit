@@ -44,6 +44,14 @@ impl Executor for CaptureExecutor {
         Box::pin(async move { Ok(None) })
     }
 
+    fn fetch_rows<'e>(
+        &'e mut self,
+        _sql: &'e str,
+        _args: PgArguments,
+    ) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
+        Box::pin(async move { Ok(Vec::new()) })
+    }
+
     fn execute<'e>(&'e mut self, _sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         Box::pin(async move { Ok(0) })
     }

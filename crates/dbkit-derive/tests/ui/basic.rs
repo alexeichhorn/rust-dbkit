@@ -73,6 +73,14 @@ fn main() {
             Box::pin(async { unimplemented!() })
         }
 
+        fn fetch_rows<'e>(
+            &'e mut self,
+            _sql: &'e str,
+            _args: dbkit::sqlx::postgres::PgArguments,
+        ) -> dbkit::executor::BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, dbkit::Error>> {
+            Box::pin(async { unimplemented!() })
+        }
+
         fn execute<'e>(
             &'e mut self,
             _sql: &'e str,

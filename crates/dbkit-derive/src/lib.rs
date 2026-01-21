@@ -242,6 +242,30 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         })
         .collect::<Vec<_>>();
 
+    let column_refs = output_fields
+        .iter()
+        .filter(|field| !is_relation_field(field, &relation_fields))
+        .map(|field| {
+            let ident = field.ident.as_ref().expect("field ident");
+            quote!(Self::#ident.as_ref())
+        })
+        .collect::<Vec<_>>();
+
+    let columns_const = quote!(
+        pub const COLUMNS: &'static [::dbkit::ColumnRef] = &[#(#column_refs),*];
+    );
+
+    let primary_key_refs = primary_keys
+        .iter()
+        .map(|(ident, _)| quote!(Self::#ident.as_ref()))
+        .collect::<Vec<_>>();
+
+    let primary_keys_const = if primary_keys.is_empty() {
+        quote!(pub const PRIMARY_KEYS: &'static [::dbkit::ColumnRef] = &[];)
+    } else {
+        quote!(pub const PRIMARY_KEYS: &'static [::dbkit::ColumnRef] = &[#(#primary_key_refs),*];)
+    };
+
     let insert_values = insert_fields.iter().map(|field| {
         let ident = field.ident.as_ref().expect("field ident");
         quote!(insert = insert.value(Self::#ident, values.#ident);)
@@ -567,12 +591,6 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             .expect("primary key length checked");
         let name = ident.to_string();
         Some(quote!(pub const PRIMARY_KEY: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);))
-    } else if primary_keys.len() > 1 {
-        let pk_refs = primary_keys.iter().map(|(ident, _)| {
-            let name = ident.to_string();
-            quote!(::dbkit::ColumnRef::new(Self::TABLE, #name))
-        });
-        Some(quote!(pub const PRIMARY_KEYS: &'static [::dbkit::ColumnRef] = &[#(#pk_refs,)*];))
     } else {
         None
     };
@@ -730,6 +748,83 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
     );
 
+    let joined_from_row_fields = output_fields.iter().map(|field| {
+        let ident = field.ident.as_ref().expect("field ident");
+        if is_relation_field(field, &relation_fields) {
+            quote!(#ident: Default::default())
+        } else {
+            let name = ident.to_string();
+            quote!(
+                #ident: {
+                    let column = format!("{}{}", prefix, #name);
+                    ::dbkit::sqlx::Row::try_get(row, column.as_str())?
+                }
+            )
+        }
+    });
+
+    let joined_pk_checks = if primary_keys.is_empty() {
+        if let Some(first_field) = scalar_fields.first() {
+            let name = first_field.ident.to_string();
+            let ty = option_inner_type(&first_field.ty).unwrap_or_else(|| first_field.ty.clone());
+            quote!(
+                let value: Option<#ty> = {
+                    let column = format!("{}{}", prefix, #name);
+                    ::dbkit::sqlx::Row::try_get(row, column.as_str())?
+                };
+                Ok(value.is_some())
+            )
+        } else {
+            quote!(Ok(false))
+        }
+    } else {
+        let checks = primary_keys.iter().map(|(ident, ty)| {
+            let name = ident.to_string();
+            let ty = option_inner_type(ty).unwrap_or_else(|| ty.clone());
+            quote!(
+                let value: Option<#ty> = {
+                    let column = format!("{}{}", prefix, #name);
+                    ::dbkit::sqlx::Row::try_get(row, column.as_str())?
+                };
+                if value.is_some() {
+                    return Ok(true);
+                }
+            )
+        });
+        quote!(
+            #(#checks)*
+            Ok(false)
+        )
+    };
+
+    let joined_model_impl = quote!(
+        impl #from_row_impl_generics ::dbkit::JoinedModel for #model_ident #struct_type_args {
+            fn joined_columns() -> &'static [::dbkit::ColumnRef] {
+                Self::COLUMNS
+            }
+
+            fn joined_primary_keys() -> &'static [::dbkit::ColumnRef] {
+                Self::PRIMARY_KEYS
+            }
+
+            fn joined_from_row_prefixed(
+                row: &::dbkit::sqlx::postgres::PgRow,
+                prefix: &str,
+            ) -> Result<Self, ::dbkit::sqlx::Error> {
+                Ok(Self {
+                    #(#joined_from_row_fields,)*
+                })
+            }
+
+            fn joined_row_has_pk(
+                row: &::dbkit::sqlx::postgres::PgRow,
+                prefix: &str,
+            ) -> Result<bool, ::dbkit::sqlx::Error> {
+                #joined_pk_checks
+            }
+        }
+    );
+
     let set_relation_impls = relation_fields.iter().map(|rel| {
         let field_ident = rel.field.ident.as_ref().expect("field ident");
         let child_type = &rel.child_type;
@@ -788,6 +883,72 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 fn set_relation(&mut self, _rel: #rel_ty, value: #value_ty) -> Result<(), ::dbkit::Error> {
                     self.#field_ident = value;
                     Ok(())
+                }
+            }
+        )
+    });
+
+    let get_relation_impls = relation_fields.iter().map(|rel| {
+        let field_ident = rel.field.ident.as_ref().expect("field ident");
+        let child_type = &rel.child_type;
+        let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
+        let (value_ty, rel_ty) = match rel.kind {
+            RelationKind::HasMany => (
+                quote!(Vec<#item_ident>),
+                quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
+            ),
+            RelationKind::ManyToMany => {
+                let through = rel
+                    .many_to_many_through
+                    .as_ref()
+                    .expect("many-to-many through");
+                (
+                    quote!(Vec<#item_ident>),
+                    quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>),
+                )
+            }
+            RelationKind::BelongsTo => (
+                quote!(Option<#item_ident>),
+                quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            ),
+        };
+
+        let mut other_params = Vec::new();
+        let mut type_params = Vec::new();
+        for other in &relation_fields {
+            if other.field.ident == rel.field.ident {
+                type_params.push(value_ty.clone());
+            } else {
+                let ident = &other.param_ident;
+                let state_mod = &other.state_mod_ident;
+                other_params.push(quote!(#ident: #state_mod::State));
+                type_params.push(quote!(#ident));
+            }
+        }
+
+        let mut impl_params = Vec::new();
+        impl_params.push(quote!(#item_ident));
+        impl_params.extend(other_params);
+
+        let impl_generics = if impl_params.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#impl_params),*>)
+        };
+        let type_args = if type_params.is_empty() {
+            quote!()
+        } else {
+            quote!(<#(#type_params),*>)
+        };
+
+        quote!(
+            impl #impl_generics ::dbkit::GetRelation<#rel_ty, #value_ty> for #model_ident #type_args {
+                fn get_relation(&self, _rel: #rel_ty) -> Option<&#value_ty> {
+                    Some(&self.#field_ident)
+                }
+
+                fn get_relation_mut(&mut self, _rel: #rel_ty) -> Option<&mut #value_ty> {
+                    Some(&mut self.#field_ident)
                 }
             }
         )
@@ -1143,12 +1304,17 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             } else {
                 quote!(::dbkit::load::Joined<#rel_type, Nested>)
             };
+            let out_bound = if strategy == "SelectIn" {
+                quote!(::dbkit::ModelValue + ::dbkit::SetRelation<#rel_type, #loaded_param>)
+            } else {
+                quote!(::dbkit::GetRelation<#rel_type, #loaded_param>)
+            };
 
             items.push(quote!(
                 impl #apply_generics ::dbkit::runtime::RunLoad<#out_type> for #load_ty
                 where
                     Nested: ::dbkit::load::ApplyLoad<#child_type> + ::dbkit::runtime::RunLoads<#loaded_child> + Sync,
-                    #out_type: ::dbkit::ModelValue + ::dbkit::SetRelation<#rel_type, #loaded_param>,
+                    #out_type: #out_bound,
                     #child_bounds
                 {
                     fn run<'e, E>(
@@ -1184,7 +1350,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         impl #impl_generics #model_ident #struct_type_args {
             pub const TABLE: ::dbkit::Table = #table_expr;
             #(#columns)*
+            #columns_const
             #primary_key_const
+            #primary_keys_const
             #(#relation_consts)*
 
             pub fn query() -> ::dbkit::Select<#struct_ident> {
@@ -1253,7 +1421,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         #(#relation_methods)*
         #model_value_impl
         #from_row_impl
+        #joined_model_impl
         #(#set_relation_impls)*
+        #(#get_relation_impls)*
         #(#load_relation_impls)*
         #(#belongs_to_specs)*
         #(#apply_load_impls)*

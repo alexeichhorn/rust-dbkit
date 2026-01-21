@@ -17,6 +17,8 @@ pub trait Executor {
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e;
 
+    fn fetch_rows<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<PgRow>, Error>>;
+
     fn execute<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>>;
 }
 
@@ -46,6 +48,15 @@ impl Executor for &crate::Database {
                 .fetch_optional(self.pool())
                 .await?;
             Ok(row)
+        })
+    }
+
+    fn fetch_rows<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<PgRow>, Error>> {
+        Box::pin(async move {
+            let rows = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .fetch_all(self.pool())
+                .await?;
+            Ok(rows)
         })
     }
 
@@ -85,6 +96,15 @@ impl Executor for &sqlx::Pool<sqlx::Postgres> {
                 .fetch_optional(*self)
                 .await?;
             Ok(row)
+        })
+    }
+
+    fn fetch_rows<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<PgRow>, Error>> {
+        Box::pin(async move {
+            let rows = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .fetch_all(*self)
+                .await?;
+            Ok(rows)
         })
     }
 
@@ -129,6 +149,16 @@ impl<'c, 't> Executor for &'c mut sqlx::Transaction<'t, sqlx::Postgres> {
         })
     }
 
+    fn fetch_rows<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<PgRow>, Error>> {
+        Box::pin(async move {
+            let conn = (*self).as_mut();
+            let rows = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .fetch_all(conn)
+                .await?;
+            Ok(rows)
+        })
+    }
+
     fn execute<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         Box::pin(async move {
             let conn = (*self).as_mut();
@@ -168,6 +198,16 @@ impl<'t> Executor for sqlx::Transaction<'t, sqlx::Postgres> {
                 .fetch_optional(conn)
                 .await?;
             Ok(row)
+        })
+    }
+
+    fn fetch_rows<'e>(&'e mut self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<PgRow>, Error>> {
+        Box::pin(async move {
+            let conn = self.as_mut();
+            let rows = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .fetch_all(conn)
+                .await?;
+            Ok(rows)
         })
     }
 

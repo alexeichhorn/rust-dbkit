@@ -170,6 +170,11 @@ let users: Vec<UserModel<Vec<Todo>>> = User::query()
     .all(&mut &db)
     .await?;
 
+let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    .with(User::todos.joined())
+    .all(&mut &db)
+    .await?;
+
 let filtered = User::query()
     .join(User::todos)
     .filter(Todo::title.eq("Keep me"))
@@ -177,6 +182,29 @@ let filtered = User::query()
     .all(&mut &db)
     .await?;
 ```
+
+Select-in vs joined eager loading:
+
+```rust
+// selectin = 1 query for parents, then 1 query per relation (per level)
+let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    .limit(10)
+    .with(User::todos.selectin())
+    .all(&mut &db)
+    .await?;
+
+// joined = single SQL query with LEFT JOINs + row decoding
+let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    .with(User::todos.joined())
+    .all(&mut &db)
+    .await?;
+```
+
+Notes:
+- `selectin()` is best when you need stable parent pagination (`LIMIT`/`OFFSET`) or large child fan-out.
+- `joined()` is best when you want a single query and you can tolerate row multiplication.
+- If you filter on joined tables (e.g. `filter(Todo::title.eq("foo"))`), `joined()` will only load
+  the matching child rows because the filter is part of the join query.
 
 Dynamic conditions:
 
@@ -315,7 +343,7 @@ tx.commit().await?;
 
 ## TODOs
 
-- [ ] Implement true joined eager loading (single-query join decoding).
+- [x] Implement true joined eager loading (single-query join decoding).
 - [x] Add aggregation/projection support: `select_only`, `column_as`, `group_by`, `sum`, `count`, and mapping into custom result structs (e.g., `into_model::<T>()` for aggregates).
 - [x] Add SQL function expressions in queries (e.g., `COALESCE`, `DATE_TRUNC`, `UPPER`).
 - [x] Add JSON column support (`serde_json::Value`) for insert/update/filter.

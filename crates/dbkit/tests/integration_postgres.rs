@@ -462,6 +462,165 @@ async fn selectin_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
 }
 
 #[tokio::test]
+async fn joined_has_many_loads_children() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Joined", "joined@db.com").await?;
+    let _todo1 = seed_todo(&mut tx, user.id, "Joined A").await?;
+    let _todo2 = seed_todo(&mut tx, user.id, "Joined B").await?;
+
+    let users: Vec<UserModel<Vec<Todo>>> = User::query()
+        .filter(User::id.eq(user.id))
+        .with(User::todos.joined())
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(users.len(), 1);
+    let mut titles: Vec<String> = users[0]
+        .todos
+        .iter()
+        .map(|todo| todo.title.clone())
+        .collect();
+    titles.sort();
+    assert_eq!(titles, vec!["Joined A", "Joined B"]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn joined_has_many_includes_empty_children() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Empty", "empty@db.com").await?;
+
+    let users: Vec<UserModel<Vec<Todo>>> = User::query()
+        .filter(User::id.eq(user.id))
+        .with(User::todos.joined())
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(users.len(), 1);
+    assert!(users[0].todos.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn joined_has_many_filters_children_when_join_filtered() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Filter", "filter@db.com").await?;
+    let _todo_keep = seed_todo(&mut tx, user.id, "Keep").await?;
+    let _todo_drop = seed_todo(&mut tx, user.id, "Drop").await?;
+
+    let users: Vec<UserModel<Vec<Todo>>> = User::query()
+        .join(User::todos)
+        .filter(Todo::title.eq("Keep"))
+        .distinct()
+        .with(User::todos.joined())
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].todos.len(), 1);
+    assert_eq!(users[0].todos[0].title, "Keep");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn joined_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Joined Parent", "joined-parent@db.com").await?;
+    let todo = seed_todo(&mut tx, user.id, "Joined child").await?;
+
+    let todos: Vec<TodoModel<Option<User>>> = Todo::query()
+        .filter(Todo::id.eq(todo.id))
+        .with(Todo::user.joined())
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(todos.len(), 1);
+    let loaded = todos[0].user.as_ref().expect("loaded user");
+    assert_eq!(loaded.id, user.id);
+    assert_eq!(loaded.email, "joined-parent@db.com");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn joined_nested_filters_children_when_join_filtered() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Nested", "nested@db.com").await?;
+    let todo_keep = seed_todo(&mut tx, user.id, "Keep").await?;
+    let todo_drop = seed_todo(&mut tx, user.id, "Drop").await?;
+
+    let tag_a = seed_tag(&mut tx, "A").await?;
+    let tag_b = seed_tag(&mut tx, "B").await?;
+
+    let _keep_a = seed_todo_tag(&mut tx, todo_keep.id, tag_a.id).await?;
+    let _drop_b = seed_todo_tag(&mut tx, todo_drop.id, tag_b.id).await?;
+
+    let users: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
+        .join(User::todos)
+        .filter(Todo::title.eq("Keep"))
+        .distinct()
+        .with(User::todos.joined().with(Todo::tags.joined()))
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].todos.len(), 1);
+    assert_eq!(users[0].todos[0].title, "Keep");
+    assert_eq!(users[0].todos[0].tags.len(), 1);
+    assert_eq!(users[0].todos[0].tags[0].name, "A");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn joined_many_to_many_filters_children_when_join_filtered() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let mut tx = db.begin().await?;
+    setup_schema(&mut tx).await?;
+
+    let user = seed_user(&mut tx, "Tags", "tags@db.com").await?;
+    let todo = seed_todo(&mut tx, user.id, "Tagged").await?;
+
+    let tag_a = seed_tag(&mut tx, "A").await?;
+    let tag_b = seed_tag(&mut tx, "B").await?;
+
+    let _link_a = seed_todo_tag(&mut tx, todo.id, tag_a.id).await?;
+    let _link_b = seed_todo_tag(&mut tx, todo.id, tag_b.id).await?;
+
+    let todos: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
+        .join(Todo::tags)
+        .filter(Tag::name.eq("A"))
+        .distinct()
+        .with(Todo::tags.joined())
+        .all(&mut tx)
+        .await?;
+
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].tags.len(), 1);
+    assert_eq!(todos[0].tags[0].name, "A");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn nested_selectin_loads() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let mut tx = db.begin().await?;

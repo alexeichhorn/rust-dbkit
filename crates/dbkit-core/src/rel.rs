@@ -71,6 +71,10 @@ pub trait RelationInfo {
     fn relation(&self) -> Relation;
 }
 
+pub trait RelationTarget {
+    type Target;
+}
+
 pub trait BelongsToSpec<Parent> {
     const CHILD_TABLE: Table;
     const PARENT_TABLE: Table;
@@ -129,6 +133,10 @@ impl<Parent, Child> RelationInfo for HasMany<Parent, Child> {
     }
 }
 
+impl<Parent, Child> RelationTarget for HasMany<Parent, Child> {
+    type Target = Child;
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct BelongsTo<Child, Parent> {
     child: Table,
@@ -178,6 +186,10 @@ impl<Child, Parent> RelationInfo for BelongsTo<Child, Parent> {
             join_child_key: None,
         }
     }
+}
+
+impl<Child, Parent> RelationTarget for BelongsTo<Child, Parent> {
+    type Target = Parent;
 }
 
 pub trait ManyToManyThrough {
@@ -242,6 +254,10 @@ impl<Parent, Child, Through> RelationInfo for ManyToMany<Parent, Child, Through>
             join_child_key: Some(self.join_child_key),
         }
     }
+}
+
+impl<Parent, Child, Through> RelationTarget for ManyToMany<Parent, Child, Through> {
+    type Target = Child;
 }
 
 impl<Parent, Child, Through> ManyToManyThrough for ManyToMany<Parent, Child, Through> {

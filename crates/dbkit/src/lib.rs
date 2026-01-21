@@ -9,11 +9,12 @@ pub mod func;
 pub mod model;
 pub mod query_ext;
 pub mod runtime;
+mod joined;
 
 pub use database::Database;
 pub use error::Error;
 pub use executor::Executor;
-pub use model::{LoadRelation, ModelDelete, ModelValue, SetRelation};
+pub use model::{GetRelation, JoinedModel, LoadRelation, ModelDelete, ModelValue, SetRelation};
 pub use query_ext::{DeleteExt, InsertExt, Page, SelectExt, UpdateExt};
 
 pub mod prelude {

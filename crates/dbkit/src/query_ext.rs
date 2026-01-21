@@ -1,4 +1,5 @@
 use crate::executor::{build_arguments, BoxFuture};
+use crate::joined::{JoinOps, JoinedFlag, Ops};
 use crate::runtime::RunLoads;
 use crate::{Delete, Error, Executor, Insert, Select, Update};
 
@@ -30,20 +31,18 @@ pub trait SelectExt<Out, Loads> {
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 }
 
-impl<Out, Loads> SelectExt<Out, Loads> for Select<Out, Loads> {
+impl<Out, Loads> SelectExt<Out, Loads> for Select<Out, Loads>
+where
+    Loads: JoinedFlag,
+    Ops<<Loads as JoinedFlag>::Flag, Out, Loads>: JoinOps<Out = Out, Loads = Loads>,
+{
     fn all<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
         E: Executor + Send + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        let (compiled, loads) = self.into_parts();
-        Box::pin(async move {
-            let args = build_arguments(&compiled.binds)?;
-            let mut rows = ex.fetch_all::<Out>(&compiled.sql, args).await?;
-            loads.run(ex, &mut rows).await?;
-            Ok(rows)
-        })
+        <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::all::<E>(self, ex)
     }
 
     fn one<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Out>, Error>>
@@ -52,17 +51,7 @@ impl<Out, Loads> SelectExt<Out, Loads> for Select<Out, Loads> {
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        let (compiled, loads) = self.limit(1).into_parts();
-        Box::pin(async move {
-            let args = build_arguments(&compiled.binds)?;
-            let row = ex.fetch_optional::<Out>(&compiled.sql, args).await?;
-            let Some(value) = row else {
-                return Ok(None);
-            };
-            let mut rows = vec![value];
-            loads.run(ex, &mut rows).await?;
-            Ok(rows.pop())
-        })
+        <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::one::<E>(self, ex)
     }
 
     fn count<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<i64, Error>>

@@ -101,6 +101,18 @@ impl<Out> Select<Out, NoLoad> {
 }
 
 impl<Out, Loads> Select<Out, Loads> {
+    pub fn table(&self) -> Table {
+        self.table
+    }
+
+    pub fn columns_ref(&self) -> Option<&[SelectItem]> {
+        self.columns.as_deref()
+    }
+
+    pub fn joins(&self) -> &[Join] {
+        &self.joins
+    }
+
     pub fn select_only(mut self) -> Self {
         self.columns = Some(Vec::new());
         self
@@ -273,7 +285,25 @@ impl<Out, Loads> Select<Out, Loads> {
         self.compile_inner(false, false)
     }
 
+    pub fn compile_with_extra(
+        &self,
+        extra_columns: &[SelectItem],
+        extra_joins: &[Join],
+    ) -> CompiledSql {
+        self.compile_inner_with(extra_columns, extra_joins, true, true)
+    }
+
     fn compile_inner(&self, include_order: bool, include_pagination: bool) -> CompiledSql {
+        self.compile_inner_with(&[], &[], include_order, include_pagination)
+    }
+
+    fn compile_inner_with(
+        &self,
+        extra_columns: &[SelectItem],
+        extra_joins: &[Join],
+        include_order: bool,
+        include_pagination: bool,
+    ) -> CompiledSql {
         let mut builder = SqlBuilder::new();
         builder.push_sql("SELECT ");
         if self.distinct {
@@ -291,10 +321,30 @@ impl<Out, Loads> Select<Out, Loads> {
                         builder.push_sql(alias);
                     }
                 }
+                if !extra_columns.is_empty() {
+                    for col in extra_columns {
+                        builder.push_sql(", ");
+                        col.expr.to_sql(&mut builder);
+                        if let Some(alias) = &col.alias {
+                            builder.push_sql(" AS ");
+                            builder.push_sql(alias);
+                        }
+                    }
+                }
             }
             None => {
                 builder.push_sql(self.table.qualifier());
                 builder.push_sql(".*");
+                if !extra_columns.is_empty() {
+                    for col in extra_columns {
+                        builder.push_sql(", ");
+                        col.expr.to_sql(&mut builder);
+                        if let Some(alias) = &col.alias {
+                            builder.push_sql(" AS ");
+                            builder.push_sql(alias);
+                        }
+                    }
+                }
             }
         }
         builder.push_sql(" FROM ");
@@ -304,6 +354,19 @@ impl<Out, Loads> Select<Out, Loads> {
             builder.push_sql(alias);
         }
         for join in &self.joins {
+            builder.push_sql(match join.kind {
+                JoinKind::Inner => " JOIN ",
+                JoinKind::Left => " LEFT JOIN ",
+            });
+            builder.push_sql(&join.table.qualified_name());
+            if let Some(alias) = join.table.alias {
+                builder.push_sql(" ");
+                builder.push_sql(alias);
+            }
+            builder.push_sql(" ON ");
+            join.on.node.to_sql(&mut builder);
+        }
+        for join in extra_joins {
             builder.push_sql(match join.kind {
                 JoinKind::Inner => " JOIN ",
                 JoinKind::Left => " LEFT JOIN ",
@@ -379,6 +442,40 @@ impl<Out, Loads> Select<Out, Loads> {
     pub fn into_parts(self) -> (CompiledSql, Loads) {
         let compiled = self.compile();
         (compiled, self.loads)
+    }
+
+    pub fn into_parts_with_loads(self) -> (Select<Out, NoLoad>, Loads) {
+        let Select {
+            table,
+            columns,
+            joins,
+            filters,
+            group_by,
+            having,
+            order_by,
+            limit,
+            offset,
+            distinct,
+            loads,
+            _marker,
+        } = self;
+
+        let select = Select {
+            table,
+            columns,
+            joins,
+            filters,
+            group_by,
+            having,
+            order_by,
+            limit,
+            offset,
+            distinct,
+            loads: NoLoad,
+            _marker,
+        };
+
+        (select, loads)
     }
 }
 

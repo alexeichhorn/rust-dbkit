@@ -1,6 +1,6 @@
 use crate::executor::BoxFuture;
 use crate::{
-    Executor, ModelValue, Select, SetRelation, Value, SelectExt,
+    Executor, GetRelation, ModelValue, Select, SetRelation, Value, SelectExt,
 };
 use crate::load::{LoadChain, NoLoad};
 use crate::rel::{ManyToManyThrough, RelationInfo};
@@ -195,11 +195,21 @@ pub fn load_joined_has_many<'e, E, Out, Rel, ChildOut, Nested>(
 where
     E: Executor + Send + 'e,
     Rel: RelationInfo + Clone + Send + 'e,
-    Out: ModelValue + SetRelation<Rel, Vec<ChildOut>> + Send,
+    Out: GetRelation<Rel, Vec<ChildOut>> + Send,
     ChildOut: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     Nested: RunLoads<ChildOut> + Sync,
 {
-    Box::pin(async move { load_selectin_has_many(ex, rows, rel, nested).await })
+    Box::pin(async move {
+        for row in rows.iter_mut() {
+            let Some(children) = row.get_relation_mut(rel.clone()) else {
+                return Err(Error::RelationMismatch);
+            };
+            if !children.is_empty() {
+                nested.run(ex, children.as_mut_slice()).await?;
+            }
+        }
+        Ok(())
+    })
 }
 
 pub fn load_selectin_many_to_many<'e, E, Out, Rel, Through, ChildOut, Nested>(
@@ -341,11 +351,21 @@ pub fn load_joined_belongs_to<'e, E, Out, Rel, ParentOut, Nested>(
 where
     E: Executor + Send + 'e,
     Rel: RelationInfo + Clone + Send + 'e,
-    Out: ModelValue + SetRelation<Rel, Option<ParentOut>> + Send,
+    Out: GetRelation<Rel, Option<ParentOut>> + Send,
     ParentOut: ModelValue + Clone + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     Nested: RunLoads<ParentOut> + Sync,
 {
-    Box::pin(async move { load_selectin_belongs_to(ex, rows, rel, nested).await })
+    Box::pin(async move {
+        for row in rows.iter_mut() {
+            let Some(parent) = row.get_relation_mut(rel.clone()) else {
+                return Err(Error::RelationMismatch);
+            };
+            if let Some(parent) = parent.as_mut() {
+                nested.run(ex, std::slice::from_mut(parent)).await?;
+            }
+        }
+        Ok(())
+    })
 }
 
 pub fn load_joined_many_to_many<'e, E, Out, Rel, Through, ChildOut, Nested>(
@@ -357,10 +377,20 @@ pub fn load_joined_many_to_many<'e, E, Out, Rel, Through, ChildOut, Nested>(
 where
     E: Executor + Send + 'e,
     Rel: RelationInfo + ManyToManyThrough<Through = Through> + Clone + Send + 'e,
-    Out: ModelValue + SetRelation<Rel, Vec<ChildOut>> + Send,
+    Out: GetRelation<Rel, Vec<ChildOut>> + Send,
     Through: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     ChildOut: ModelValue + Clone + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     Nested: RunLoads<ChildOut> + Sync,
 {
-    Box::pin(async move { load_selectin_many_to_many(ex, rows, rel, nested).await })
+    Box::pin(async move {
+        for row in rows.iter_mut() {
+            let Some(children) = row.get_relation_mut(rel.clone()) else {
+                return Err(Error::RelationMismatch);
+            };
+            if !children.is_empty() {
+                nested.run(ex, children.as_mut_slice()).await?;
+            }
+        }
+        Ok(())
+    })
 }
