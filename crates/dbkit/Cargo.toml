@@ -3,10 +3,13 @@ name = "dbkit"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Postgres-first async ORM-ish library with type-level loaded/unloaded relations."
+repository = "https://github.com/alexeichhorn/rust-dbkit"
+readme = "../../README.md"
 
 [dependencies]
-dbkit-core = { path = "../dbkit-core" }
-dbkit-derive = { path = "../dbkit-derive" }
+dbkit-core.workspace = true
+dbkit-derive.workspace = true
 thiserror.workspace = true
 sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "macros", "bigdecimal"] }
 serde_json = "1.0.149"
@@ -17,3 +20,4 @@ dotenvy = "0.15"
 serde_json = "1.0.149"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 uuid = "1"
+trybuild = "1"
