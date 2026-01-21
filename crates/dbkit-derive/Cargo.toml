@@ -3,6 +3,8 @@ name = "dbkit-derive"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Proc-macro derives for the dbkit ORM."
+repository = "https://github.com/alexeichhorn/rust-dbkit"
 
 [lib]
 proc-macro = true
@@ -13,5 +15,4 @@ quote = "1"
 syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
-dbkit = { path = "../dbkit", version = "0.1.0" }
 trybuild = "1"

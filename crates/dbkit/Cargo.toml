@@ -3,6 +3,8 @@ name = "dbkit"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Postgres-first async ORM-ish library with type-level loaded/unloaded relations."
+repository = "https://github.com/alexeichhorn/rust-dbkit"
 readme = "../../README.md"
 
 [dependencies]
@@ -18,3 +20,4 @@ dotenvy = "0.15"
 serde_json = "1.0.149"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 uuid = "1"
+trybuild = "1"

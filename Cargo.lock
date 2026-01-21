@@ -218,6 +218,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "trybuild",
  "uuid",
 ]
 
@@ -235,7 +236,6 @@ dependencies = [
 name = "dbkit-derive"
 version = "0.1.0"
 dependencies = [
- "dbkit",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
