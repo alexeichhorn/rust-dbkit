@@ -11,7 +11,7 @@ pub mod query_ext;
 pub mod runtime;
 mod joined;
 
-pub use database::Database;
+pub use database::{Database, DbTransaction};
 pub use error::Error;
 pub use executor::Executor;
 pub use model::{GetRelation, JoinedModel, LoadRelation, ModelDelete, ModelValue, SetRelation};

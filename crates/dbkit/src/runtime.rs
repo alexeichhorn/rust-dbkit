@@ -7,16 +7,16 @@ use crate::rel::{ManyToManyThrough, RelationInfo};
 use crate::{Error, Expr, ExprNode};
 
 pub trait RunLoads<Out> {
-    fn run<'e, E>(&'e self, ex: &'e mut E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, ex: &'e E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: Send + 'e;
 }
 
 impl<Out> RunLoads<Out> for NoLoad {
-    fn run<'e, E>(&'e self, _ex: &'e mut E, _rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, _ex: &'e E, _rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: Send + 'e,
     {
         Box::pin(async { Ok(()) })
@@ -28,9 +28,9 @@ where
     Prev: RunLoads<Out> + Sync,
     L: RunLoad<Out> + Sync,
 {
-    fn run<'e, E>(&'e self, ex: &'e mut E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, ex: &'e E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: Send + 'e,
     {
         Box::pin(async move {
@@ -41,20 +41,20 @@ where
 }
 
 pub trait RunLoad<Out> {
-    fn run<'e, E>(&'e self, ex: &'e mut E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
+    fn run<'e, E>(&'e self, ex: &'e E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: Send + 'e;
 }
 
 pub fn load_selectin_has_many<'e, E, Out, Rel, ChildOut, Nested>(
-    ex: &'e mut E,
+    ex: &'e E,
     rows: &'e mut [Out],
     rel: Rel,
     nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + Send + 'e,
+    E: Executor + Send + Sync + 'e,
     Rel: RelationInfo + Clone + Send + 'e,
     Out: ModelValue + SetRelation<Rel, Vec<ChildOut>> + Send,
     ChildOut: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
@@ -125,13 +125,13 @@ where
 }
 
 pub fn load_selectin_belongs_to<'e, E, Out, Rel, ParentOut, Nested>(
-    ex: &'e mut E,
+    ex: &'e E,
     rows: &'e mut [Out],
     rel: Rel,
     nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + Send + 'e,
+    E: Executor + Send + Sync + 'e,
     Rel: RelationInfo + Clone + Send + 'e,
     Out: ModelValue + SetRelation<Rel, Option<ParentOut>> + Send,
     ParentOut: ModelValue + Clone + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
@@ -187,13 +187,13 @@ where
 }
 
 pub fn load_joined_has_many<'e, E, Out, Rel, ChildOut, Nested>(
-    ex: &'e mut E,
+    ex: &'e E,
     rows: &'e mut [Out],
     rel: Rel,
     nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + Send + 'e,
+    E: Executor + Send + Sync + 'e,
     Rel: RelationInfo + Clone + Send + 'e,
     Out: GetRelation<Rel, Vec<ChildOut>> + Send,
     ChildOut: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
@@ -213,13 +213,13 @@ where
 }
 
 pub fn load_selectin_many_to_many<'e, E, Out, Rel, Through, ChildOut, Nested>(
-    ex: &'e mut E,
+    ex: &'e E,
     rows: &'e mut [Out],
     rel: Rel,
     nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + Send + 'e,
+    E: Executor + Send + Sync + 'e,
     Rel: RelationInfo + ManyToManyThrough<Through = Through> + Clone + Send + 'e,
     Out: ModelValue + SetRelation<Rel, Vec<ChildOut>> + Send,
     Through: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
@@ -343,13 +343,13 @@ where
 }
 
 pub fn load_joined_belongs_to<'e, E, Out, Rel, ParentOut, Nested>(
-    ex: &'e mut E,
+    ex: &'e E,
     rows: &'e mut [Out],
     rel: Rel,
     nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + Send + 'e,
+    E: Executor + Send + Sync + 'e,
     Rel: RelationInfo + Clone + Send + 'e,
     Out: GetRelation<Rel, Option<ParentOut>> + Send,
     ParentOut: ModelValue + Clone + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
@@ -369,13 +369,13 @@ where
 }
 
 pub fn load_joined_many_to_many<'e, E, Out, Rel, Through, ChildOut, Nested>(
-    ex: &'e mut E,
+    ex: &'e E,
     rows: &'e mut [Out],
     rel: Rel,
     nested: &'e Nested,
 ) -> BoxFuture<'e, Result<(), Error>>
 where
-    E: Executor + Send + 'e,
+    E: Executor + Send + Sync + 'e,
     Rel: RelationInfo + ManyToManyThrough<Through = Through> + Clone + Send + 'e,
     Out: GetRelation<Rel, Vec<ChildOut>> + Send,
     Through: ModelValue + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,

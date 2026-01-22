@@ -4,29 +4,29 @@ use crate::runtime::RunLoads;
 use crate::{Delete, Error, Executor, Insert, Select, Update};
 
 pub trait SelectExt<Out, Loads> {
-    fn all<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 
-    fn one<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 
-    fn count<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<i64, Error>>
+    fn count<'e, E>(&self, ex: &'e E) -> BoxFuture<'e, Result<i64, Error>>
     where
-        E: Executor + Send + 'e;
+        E: Executor + Send + Sync + 'e;
 
-    fn exists<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<bool, Error>>
+    fn exists<'e, E>(&self, ex: &'e E) -> BoxFuture<'e, Result<bool, Error>>
     where
-        E: Executor + Send + 'e;
+        E: Executor + Send + Sync + 'e;
 
-    fn paginate<'e, E>(self, page: u64, per_page: u64, ex: &'e mut E) -> BoxFuture<'e, Result<Page<Out>, Error>>
+    fn paginate<'e, E>(self, page: u64, per_page: u64, ex: &'e E) -> BoxFuture<'e, Result<Page<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 }
@@ -36,27 +36,27 @@ where
     Loads: JoinedFlag,
     Ops<<Loads as JoinedFlag>::Flag, Out, Loads>: JoinOps<Out = Out, Loads = Loads>,
 {
-    fn all<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
         <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::all::<E>(self, ex)
     }
 
-    fn one<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
         <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::one::<E>(self, ex)
     }
 
-    fn count<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<i64, Error>>
+    fn count<'e, E>(&self, ex: &'e E) -> BoxFuture<'e, Result<i64, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
     {
         let compiled = self.compile_without_pagination();
         let sql = format!("SELECT COUNT(*) AS count FROM ({}) AS sub", compiled.sql);
@@ -67,9 +67,9 @@ where
         })
     }
 
-    fn exists<'e, E>(&self, ex: &'e mut E) -> BoxFuture<'e, Result<bool, Error>>
+    fn exists<'e, E>(&self, ex: &'e E) -> BoxFuture<'e, Result<bool, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
     {
         let compiled = self.compile_without_pagination();
         let sql = format!("SELECT EXISTS({})", compiled.sql);
@@ -80,9 +80,9 @@ where
         })
     }
 
-    fn paginate<'e, E>(self, page: u64, per_page: u64, ex: &'e mut E) -> BoxFuture<'e, Result<Page<Out>, Error>>
+    fn paginate<'e, E>(self, page: u64, per_page: u64, ex: &'e E) -> BoxFuture<'e, Result<Page<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
@@ -121,20 +121,20 @@ impl<T> Page<T> {
 }
 
 pub trait InsertExt<Out> {
-    fn execute<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<u64, Error>>
+    fn execute<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<u64, Error>>
     where
-        E: Executor + Send + 'e;
+        E: Executor + Send + Sync + 'e;
 
-    fn one<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 }
 
 impl<Out> InsertExt<Out> for Insert<Out> {
-    fn execute<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<u64, Error>>
+    fn execute<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<u64, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
     {
         let compiled = self.compile();
         Box::pin(async move {
@@ -143,9 +143,9 @@ impl<Out> InsertExt<Out> for Insert<Out> {
         })
     }
 
-    fn one<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
         let compiled = self.compile();
@@ -158,20 +158,20 @@ impl<Out> InsertExt<Out> for Insert<Out> {
 }
 
 pub trait UpdateExt<Out> {
-    fn execute<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<u64, Error>>
+    fn execute<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<u64, Error>>
     where
-        E: Executor + Send + 'e;
+        E: Executor + Send + Sync + 'e;
 
-    fn all<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 }
 
 impl<Out> UpdateExt<Out> for Update<Out> {
-    fn execute<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<u64, Error>>
+    fn execute<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<u64, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
     {
         let compiled = self.compile();
         Box::pin(async move {
@@ -180,9 +180,9 @@ impl<Out> UpdateExt<Out> for Update<Out> {
         })
     }
 
-    fn all<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
         let compiled = self.compile();
@@ -195,15 +195,15 @@ impl<Out> UpdateExt<Out> for Update<Out> {
 }
 
 pub trait DeleteExt {
-    fn execute<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<u64, Error>>
+    fn execute<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<u64, Error>>
     where
-        E: Executor + Send + 'e;
+        E: Executor + Send + Sync + 'e;
 }
 
 impl DeleteExt for Delete {
-    fn execute<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<u64, Error>>
+    fn execute<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<u64, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
     {
         let compiled = self.compile();
         Box::pin(async move {

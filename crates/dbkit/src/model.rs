@@ -39,15 +39,15 @@ pub trait GetRelation<Rel, ValueOut> {
 }
 
 pub trait ModelDelete: Sized {
-    fn delete<'e, E>(self, ex: &'e mut E) -> BoxFuture<'e, Result<u64, Error>>
+    fn delete<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<u64, Error>>
     where
-        E: Executor + Send + 'e;
+        E: Executor + Send + Sync + 'e;
 }
 
 pub trait LoadRelation<Rel>: Sized {
     type Out;
 
-    fn load_relation<'e, E>(self, rel: Rel, ex: &'e mut E) -> BoxFuture<'e, Result<Self::Out, Error>>
+    fn load_relation<'e, E>(self, rel: Rel, ex: &'e E) -> BoxFuture<'e, Result<Self::Out, Error>>
     where
-        E: Executor + Send + 'e;
+        E: Executor + Send + Sync + 'e;
 }

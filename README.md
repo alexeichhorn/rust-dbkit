@@ -41,7 +41,7 @@ async fn main() -> Result<(), dbkit::Error> {
     let users = User::query()
         .filter(User::email.eq("a@b.com"))
         .with(User::todos.selectin())
-        .all(&mut &db)
+        .all(&db)
         .await?;
 
     for u in &users {
@@ -50,8 +50,8 @@ async fn main() -> Result<(), dbkit::Error> {
         }
     }
 
-    let user = User::by_id(1).one(&mut &db).await?.unwrap();
-    let user = user.load(User::todos, &mut &db).await?;
+    let user = User::by_id(1).one(&db).await?.unwrap();
+    let user = user.load(User::todos, &db).await?;
     println!("{}", user.todos.len());
 
     Ok(())
@@ -69,22 +69,22 @@ let users = User::query()
     .filter(User::email.ilike("%@example.com"))
     .order_by(dbkit::Order::asc(User::name.as_ref()))
     .limit(20)
-    .all(&mut &db)
+    .all(&db)
     .await?;
 ```
 
 Count / exists / pagination:
 
 ```rust
-let total = User::query().count(&mut &db).await?;
+let total = User::query().count(&db).await?;
 let exists = User::query()
     .filter(User::email.eq("a@b.com"))
-    .exists(&mut &db)
+    .exists(&db)
     .await?;
 
 let page = User::query()
     .order_by(dbkit::Order::asc(User::id.as_ref()))
-    .paginate(1, 20, &mut &db)
+    .paginate(1, 20, &db)
     .await?;
 println!("page {} of {}", page.page, page.total_pages());
 ```
@@ -97,7 +97,7 @@ let created = User::insert(UserInsert {
     email: "a@b.com".to_string(),
 })
 .returning_all()
-.one(&mut &db)
+.one(&db)
 .await?
 .expect("inserted");
 
@@ -105,12 +105,12 @@ let updated = User::update()
     .set(User::name, "Updated")
     .filter(User::id.eq(created.id))
     .returning_all()
-    .all(&mut &db)
+    .all(&db)
     .await?;
 
 let deleted = User::delete()
     .filter(User::id.eq(created.id))
-    .execute(&mut &db)
+    .execute(&db)
     .await?;
 ```
 
@@ -127,7 +127,7 @@ let inserted = User::insert_many(vec![
         email: "beta@db.com".to_string(),
     },
 ])
-.execute(&mut &db)
+.execute(&db)
 .await?;
 assert_eq!(inserted, 2);
 ```
@@ -139,11 +139,11 @@ let mut active = User::new_active();
 active.name = "Active".into();
 active.email = "active@db.com".into();
 
-let created = active.insert(&mut &db).await?;
+let created = active.insert(&db).await?;
 
 let mut active = created.into_active();
 active.name = "Updated".into();
-let updated = active.update(&mut &db).await?;
+let updated = active.update(&db).await?;
 ```
 
 Note: `into_active()` marks fields as unchanged. Updates only include fields you explicitly set
@@ -155,11 +155,11 @@ Active model save (insert vs update):
 let mut active = User::new_active();
 active.name = "Saved".into();
 active.email = "saved@db.com".into();
-let created = active.save(&mut &db).await?;
+let created = active.save(&db).await?;
 
 let mut active = created.into_active();
 active.name = "Renamed".into();
-let updated = active.save(&mut &db).await?;
+let updated = active.save(&db).await?;
 ```
 
 Eager loading and join filtering:
@@ -167,19 +167,19 @@ Eager loading and join filtering:
 ```rust
 let users: Vec<UserModel<Vec<Todo>>> = User::query()
     .with(User::todos.selectin())
-    .all(&mut &db)
+    .all(&db)
     .await?;
 
 let users: Vec<UserModel<Vec<Todo>>> = User::query()
     .with(User::todos.joined())
-    .all(&mut &db)
+    .all(&db)
     .await?;
 
 let filtered = User::query()
     .join(User::todos)
     .filter(Todo::title.eq("Keep me"))
     .distinct()
-    .all(&mut &db)
+    .all(&db)
     .await?;
 ```
 
@@ -190,13 +190,13 @@ Select-in vs joined eager loading:
 let users: Vec<UserModel<Vec<Todo>>> = User::query()
     .limit(10)
     .with(User::todos.selectin())
-    .all(&mut &db)
+    .all(&db)
     .await?;
 
 // joined = single SQL query with LEFT JOINs + row decoding
 let users: Vec<UserModel<Vec<Todo>>> = User::query()
     .with(User::todos.joined())
-    .all(&mut &db)
+    .all(&db)
     .await?;
 ```
 
@@ -245,8 +245,8 @@ fn needs_loaded(user: &UserModel<Vec<Todo>>) {
 Lazy loading:
 
 ```rust
-let user = User::by_id(1).one(&mut &db).await?.unwrap();
-let user = user.load(User::todos, &mut &db).await?;
+let user = User::by_id(1).one(&db).await?.unwrap();
+let user = user.load(User::todos, &db).await?;
 println!("todos: {}", user.todos.len());
 ```
 
@@ -268,7 +268,7 @@ let totals: Vec<RegionTotal> = Sale::query()
     .group_by(Sale::region)
     .having(dbkit::func::sum(Sale::amount).gt(0_i64))
     .into_model()
-    .all(&mut &db)
+    .all(&db)
     .await?;
 ```
 
@@ -287,7 +287,7 @@ let buckets: Vec<BucketTotal> = Sale::query()
     .column_as(dbkit::func::sum(Sale::amount), "total")
     .group_by(dbkit::func::date_trunc("day", Sale::created_at))
     .into_model()
-    .all(&mut &db)
+    .all(&db)
     .await?;
 ```
 
@@ -308,7 +308,7 @@ let rows: Vec<UserTodoAgg> = User::query()
     .group_by(User::name)
     .order_by(dbkit::Order::desc(User::name.as_ref()))
     .into_model()
-    .all(&mut &db)
+    .all(&db)
     .await?;
 ```
 
@@ -324,20 +324,20 @@ NULL handling with `Option<T>`:
 // assuming `NullableRow { note: Option<String> }`
 let row = NullableRow::insert(NullableRowInsert { note: None })
     .returning_all()
-    .one(&mut &db)
+    .one(&db)
     .await?;
 
 let rows = NullableRow::query()
     .filter(NullableRow::note.eq(None))
-    .all(&mut &db)
+    .all(&db)
     .await?;
 ```
 
 Transactions:
 
 ```rust
-let mut tx = db.begin().await?;
-let users = User::query().all(&mut tx).await?;
+let tx = db.begin().await?;
+let users = User::query().all(&tx).await?;
 tx.commit().await?;
 ```
 
@@ -359,5 +359,5 @@ tx.commit().await?;
 
 ## Deviations from spec
 
-- `load(...)` requires an executor argument: `user.load(User::todos, &mut ex)`.
+- `load(...)` requires an executor argument: `user.load(User::todos, &ex)`.
 - Relation state sealing is looser than spec (any `Vec<T>` / `Option<T>` satisfies the state trait).

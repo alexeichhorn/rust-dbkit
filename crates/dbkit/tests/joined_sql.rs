@@ -41,61 +41,64 @@ struct TodoTag {
 }
 
 struct CaptureExecutor {
-    sqls: Vec<String>,
+    sqls: std::sync::Mutex<Vec<String>>,
 }
 
 impl CaptureExecutor {
     fn new() -> Self {
-        Self { sqls: Vec::new() }
+        Self {
+            sqls: std::sync::Mutex::new(Vec::new()),
+        }
     }
 }
 
 impl Executor for CaptureExecutor {
     fn fetch_all<'e, T>(
-        &'e mut self,
+        &'e self,
         sql: &'e str,
         _args: PgArguments,
     ) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        self.sqls.push(sql.to_string());
+        self.sqls.lock().expect("lock").push(sql.to_string());
         Box::pin(async move { Ok(Vec::new()) })
     }
 
     fn fetch_optional<'e, T>(
-        &'e mut self,
+        &'e self,
         sql: &'e str,
         _args: PgArguments,
     ) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        self.sqls.push(sql.to_string());
+        self.sqls.lock().expect("lock").push(sql.to_string());
         Box::pin(async move { Ok(None) })
     }
 
-    fn fetch_rows<'e>(&'e mut self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
-        self.sqls.push(sql.to_string());
+    fn fetch_rows<'e>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
+        self.sqls.lock().expect("lock").push(sql.to_string());
         Box::pin(async move { Ok(Vec::new()) })
     }
 
-    fn execute<'e>(&'e mut self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
-        self.sqls.push(sql.to_string());
+    fn execute<'e>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
+        self.sqls.lock().expect("lock").push(sql.to_string());
         Box::pin(async move { Ok(0) })
     }
 }
 
 #[tokio::test]
 async fn joined_has_many_uses_single_join_query() -> Result<(), dbkit::Error> {
-    let mut ex = CaptureExecutor::new();
+    let ex = CaptureExecutor::new();
     let _rows: Vec<UserModel<Vec<Todo>>> = User::query()
         .with(User::todos.joined())
-        .all(&mut ex)
+        .all(&ex)
         .await?;
 
-    assert_eq!(ex.sqls.len(), 1);
-    let sql = &ex.sqls[0];
+    let sqls = ex.sqls.lock().expect("lock");
+    assert_eq!(sqls.len(), 1);
+    let sql = &sqls[0];
     assert!(sql.contains("JOIN"), "sql missing JOIN: {sql}");
     assert!(sql.contains("todos"), "sql missing todos join: {sql}");
 
@@ -104,14 +107,15 @@ async fn joined_has_many_uses_single_join_query() -> Result<(), dbkit::Error> {
 
 #[tokio::test]
 async fn joined_belongs_to_uses_single_join_query() -> Result<(), dbkit::Error> {
-    let mut ex = CaptureExecutor::new();
+    let ex = CaptureExecutor::new();
     let _rows: Vec<TodoModel<Option<User>>> = Todo::query()
         .with(Todo::user.joined())
-        .all(&mut ex)
+        .all(&ex)
         .await?;
 
-    assert_eq!(ex.sqls.len(), 1);
-    let sql = &ex.sqls[0];
+    let sqls = ex.sqls.lock().expect("lock");
+    assert_eq!(sqls.len(), 1);
+    let sql = &sqls[0];
     assert!(sql.contains("JOIN"), "sql missing JOIN: {sql}");
     assert!(sql.contains("users"), "sql missing users join: {sql}");
 
@@ -120,14 +124,15 @@ async fn joined_belongs_to_uses_single_join_query() -> Result<(), dbkit::Error> 
 
 #[tokio::test]
 async fn joined_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error> {
-    let mut ex = CaptureExecutor::new();
+    let ex = CaptureExecutor::new();
     let _rows: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
         .with(Todo::tags.joined())
-        .all(&mut ex)
+        .all(&ex)
         .await?;
 
-    assert_eq!(ex.sqls.len(), 1);
-    let sql = &ex.sqls[0];
+    let sqls = ex.sqls.lock().expect("lock");
+    assert_eq!(sqls.len(), 1);
+    let sql = &sqls[0];
     assert!(sql.contains("JOIN"), "sql missing JOIN: {sql}");
     assert!(sql.contains("todo_tags"), "sql missing join table: {sql}");
     assert!(sql.contains("tags"), "sql missing tags join: {sql}");
@@ -137,14 +142,15 @@ async fn joined_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error
 
 #[tokio::test]
 async fn joined_nested_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error> {
-    let mut ex = CaptureExecutor::new();
+    let ex = CaptureExecutor::new();
     let _rows: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
         .with(User::todos.joined().with(Todo::tags.joined()))
-        .all(&mut ex)
+        .all(&ex)
         .await?;
 
-    assert_eq!(ex.sqls.len(), 1);
-    let sql = &ex.sqls[0];
+    let sqls = ex.sqls.lock().expect("lock");
+    assert_eq!(sqls.len(), 1);
+    let sql = &sqls[0];
     assert!(sql.contains("JOIN"), "sql missing JOIN: {sql}");
     assert!(sql.contains("todos"), "sql missing todos join: {sql}");
     assert!(sql.contains("todo_tags"), "sql missing join table: {sql}");

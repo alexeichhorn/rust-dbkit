@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use tokio::sync::Mutex;
 
 use crate::Error;
 
@@ -17,7 +20,42 @@ impl Database {
         &self.pool
     }
 
-    pub async fn begin(&self) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, Error> {
-        Ok(self.pool.begin().await?)
+    pub async fn begin(&self) -> Result<DbTransaction<'_>, Error> {
+        let tx = self.pool.begin().await?;
+        Ok(DbTransaction::new(tx))
+    }
+}
+
+pub struct DbTransaction<'t> {
+    pub(crate) inner: Arc<Mutex<Option<sqlx::Transaction<'t, sqlx::Postgres>>>>,
+}
+
+impl<'t> DbTransaction<'t> {
+    pub(crate) fn new(tx: sqlx::Transaction<'t, sqlx::Postgres>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Some(tx))),
+        }
+    }
+
+    pub async fn commit(self) -> Result<(), Error> {
+        let tx = {
+            let mut guard = self.inner.lock().await;
+            guard
+                .take()
+                .ok_or_else(|| Error::Decode("transaction already completed".to_string()))?
+        };
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn rollback(self) -> Result<(), Error> {
+        let tx = {
+            let mut guard = self.inner.lock().await;
+            guard
+                .take()
+                .ok_or_else(|| Error::Decode("transaction already completed".to_string()))?
+        };
+        tx.rollback().await?;
+        Ok(())
     }
 }

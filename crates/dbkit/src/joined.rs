@@ -62,15 +62,15 @@ pub(crate) trait JoinOps {
     type Out;
     type Loads;
 
-    fn all<'e, E>(select: Select<Self::Out, Self::Loads>, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Self::Out>, Error>>
+    fn all<'e, E>(select: Select<Self::Out, Self::Loads>, ex: &'e E) -> BoxFuture<'e, Result<Vec<Self::Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Self::Out: 'e,
         Self::Loads: 'e;
 
-    fn one<'e, E>(select: Select<Self::Out, Self::Loads>, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Self::Out>, Error>>
+    fn one<'e, E>(select: Select<Self::Out, Self::Loads>, ex: &'e E) -> BoxFuture<'e, Result<Option<Self::Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Self::Out: 'e,
         Self::Loads: 'e;
 }
@@ -83,9 +83,9 @@ where
     type Out = Out;
     type Loads = Loads;
 
-    fn all<'e, E>(select: Select<Out, Loads>, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: 'e,
         Loads: 'e,
     {
@@ -98,9 +98,9 @@ where
         })
     }
 
-    fn one<'e, E>(select: Select<Out, Loads>, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: 'e,
         Loads: 'e,
     {
@@ -126,9 +126,9 @@ where
     type Out = Out;
     type Loads = Loads;
 
-    fn all<'e, E>(select: Select<Out, Loads>, ex: &'e mut E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: 'e,
         Loads: 'e,
     {
@@ -151,9 +151,9 @@ where
         })
     }
 
-    fn one<'e, E>(select: Select<Out, Loads>, ex: &'e mut E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
-        E: Executor + Send + 'e,
+        E: Executor + Send + Sync + 'e,
         Out: 'e,
         Loads: 'e,
     {

@@ -2,7 +2,8 @@
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
-use dbkit::{model, Database};
+use dbkit::{model, Database, Executor};
+use dbkit::sqlx::postgres::PgArguments;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -119,57 +120,30 @@ fn db_url() -> String {
         .expect("DB_URL or DATABASE_URL must be set for integration tests")
 }
 
-async fn setup_schema(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
-) -> Result<(), dbkit::Error> {
-    dbkit::sqlx::query(
+async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
+    let statements = [
         "CREATE TEMP TABLE users (\
             id BIGSERIAL PRIMARY KEY,\
             name TEXT NOT NULL,\
             email TEXT NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE todos (\
             id BIGSERIAL PRIMARY KEY,\
             user_id BIGINT NOT NULL,\
             title TEXT NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE tags (\
             id BIGSERIAL PRIMARY KEY,\
             name TEXT NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE profiles (\
             id BIGSERIAL PRIMARY KEY,\
             tags TEXT[] NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE json_rows (\
             id BIGSERIAL PRIMARY KEY,\
             data JSONB NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE func_rows (\
             id BIGSERIAL PRIMARY KEY,\
             email TEXT,\
@@ -177,32 +151,17 @@ async fn setup_schema(
             region TEXT,\
             starts_at TIMESTAMP NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE sales (\
             id BIGSERIAL PRIMARY KEY,\
             region TEXT NOT NULL,\
             amount BIGINT NOT NULL,\
             created_at TIMESTAMP NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE todo_tags (\
             todo_id BIGINT NOT NULL,\
             tag_id BIGINT NOT NULL,\
             PRIMARY KEY (todo_id, tag_id)\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE events (\
             id UUID PRIMARY KEY,\
             name TEXT NOT NULL,\
@@ -210,94 +169,71 @@ async fn setup_schema(
             day DATE NOT NULL,\
             starts_at_time TIME NOT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE nullable_rows (\
             id BIGSERIAL PRIMARY KEY,\
             note TEXT NULL\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
-
-    dbkit::sqlx::query(
         "CREATE TEMP TABLE order_lines (\
             order_id BIGINT NOT NULL,\
             line_id BIGINT NOT NULL,\
             note TEXT NOT NULL,\
             PRIMARY KEY (order_id, line_id)\
         )",
-    )
-    .execute(tx.as_mut())
-    .await?;
+    ];
+
+    for statement in statements {
+        ex.execute(statement, PgArguments::default()).await?;
+    }
 
     Ok(())
 }
 
-async fn seed_user(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
-    name: &str,
-    email: &str,
-) -> Result<User, dbkit::Error> {
+async fn seed_user<E: Executor + Send + Sync>(ex: &E, name: &str, email: &str) -> Result<User, dbkit::Error> {
     let user = User::insert(UserInsert {
         name: name.to_string(),
         email: email.to_string(),
     })
     .returning_all()
-    .one(&mut *tx)
+    .one(ex)
     .await?
     .expect("inserted user");
     Ok(user)
 }
 
-async fn seed_todo(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
-    user_id: i64,
-    title: &str,
-) -> Result<Todo, dbkit::Error> {
+async fn seed_todo<E: Executor + Send + Sync>(ex: &E, user_id: i64, title: &str) -> Result<Todo, dbkit::Error> {
     let todo = Todo::insert(TodoInsert {
         user_id,
         title: title.to_string(),
     })
     .returning_all()
-    .one(&mut *tx)
+    .one(ex)
     .await?
     .expect("inserted todo");
     Ok(todo)
 }
 
-async fn seed_tag(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
-    name: &str,
-) -> Result<Tag, dbkit::Error> {
+async fn seed_tag<E: Executor + Send + Sync>(ex: &E, name: &str) -> Result<Tag, dbkit::Error> {
     let tag = Tag::insert(TagInsert {
         name: name.to_string(),
     })
     .returning_all()
-    .one(&mut *tx)
+    .one(ex)
     .await?
     .expect("inserted tag");
     Ok(tag)
 }
 
-async fn seed_todo_tag(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
-    todo_id: i64,
-    tag_id: i64,
-) -> Result<TodoTag, dbkit::Error> {
+async fn seed_todo_tag<E: Executor + Send + Sync>(ex: &E, todo_id: i64, tag_id: i64) -> Result<TodoTag, dbkit::Error> {
     let row = TodoTag::insert(TodoTagInsert { todo_id, tag_id })
         .returning_all()
-        .one(&mut *tx)
+        .one(ex)
         .await?
         .expect("inserted todo_tag");
     Ok(row)
 }
 
-async fn seed_event(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
+async fn seed_event<E: Executor + Send + Sync>(
+    ex: &E,
     id: Uuid,
     name: &str,
     starts_at: NaiveDateTime,
@@ -312,26 +248,23 @@ async fn seed_event(
         starts_at_time,
     })
     .returning_all()
-    .one(&mut *tx)
+    .one(ex)
     .await?
     .expect("inserted event");
     Ok(event)
 }
 
-async fn seed_nullable_row(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
-    note: Option<String>,
-) -> Result<NullableRow, dbkit::Error> {
+async fn seed_nullable_row<E: Executor + Send + Sync>(ex: &E, note: Option<String>) -> Result<NullableRow, dbkit::Error> {
     let row = NullableRow::insert(NullableRowInsert { note })
         .returning_all()
-        .one(&mut *tx)
+        .one(ex)
         .await?
         .expect("inserted nullable row");
     Ok(row)
 }
 
-async fn seed_order_line(
-    tx: &mut dbkit::sqlx::Transaction<'_, dbkit::sqlx::Postgres>,
+async fn seed_order_line<E: Executor + Send + Sync>(
+    ex: &E,
     order_id: i64,
     line_id: i64,
     note: &str,
@@ -342,7 +275,7 @@ async fn seed_order_line(
         note: note.to_string(),
     })
     .returning_all()
-    .one(&mut *tx)
+    .one(ex)
     .await?
     .expect("inserted order line");
     Ok(row)
@@ -351,10 +284,10 @@ async fn seed_order_line(
 #[tokio::test]
 async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Alex", "a@b.com").await?;
+    let user = seed_user(&tx, "Alex", "a@b.com").await?;
     assert!(user.id > 0);
     assert_eq!(user.name, "Alex");
 
@@ -362,18 +295,18 @@ async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
         .set(User::name, "Updated")
         .filter(User::id.eq(user.id))
         .returning_all()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(updated.len(), 1);
     assert_eq!(updated[0].name, "Updated");
 
     let deleted = User::delete()
         .filter(User::id.eq(user.id))
-        .execute(&mut tx)
+        .execute(&tx)
         .await?;
     assert_eq!(deleted, 1);
 
-    let remaining = User::query().all(&mut tx).await?;
+    let remaining = User::query().all(&tx).await?;
     assert!(remaining.is_empty());
 
     Ok(())
@@ -382,8 +315,8 @@ async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn insert_many_inserts_multiple_rows() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let inserted = User::insert_many(vec![
         UserInsert {
@@ -395,13 +328,13 @@ async fn insert_many_inserts_multiple_rows() -> Result<(), dbkit::Error> {
             email: "beta@db.com".to_string(),
         },
     ])
-    .execute(&mut tx)
+    .execute(&tx)
     .await?;
     assert_eq!(inserted, 2);
 
     let users = User::query()
         .order_by(dbkit::Order::asc(User::id.as_ref()))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alpha");
@@ -413,17 +346,17 @@ async fn insert_many_inserts_multiple_rows() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn selectin_has_many_loads_children() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Riley", "r@b.com").await?;
-    let _todo1 = seed_todo(&mut tx, user.id, "Write tests").await?;
-    let _todo2 = seed_todo(&mut tx, user.id, "Ship code").await?;
+    let user = seed_user(&tx, "Riley", "r@b.com").await?;
+    let _todo1 = seed_todo(&tx, user.id, "Write tests").await?;
+    let _todo2 = seed_todo(&tx, user.id, "Ship code").await?;
 
     let users: Vec<UserModel<Vec<Todo>>> = User::query()
         .filter(User::id.eq(user.id))
         .with(User::todos.selectin())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(users.len(), 1);
@@ -441,16 +374,16 @@ async fn selectin_has_many_loads_children() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn selectin_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Dana", "d@b.com").await?;
-    let todo = seed_todo(&mut tx, user.id, "Map relations").await?;
+    let user = seed_user(&tx, "Dana", "d@b.com").await?;
+    let todo = seed_todo(&tx, user.id, "Map relations").await?;
 
     let todos: Vec<TodoModel<Option<User>>> = Todo::query()
         .filter(Todo::id.eq(todo.id))
         .with(Todo::user.selectin())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(todos.len(), 1);
@@ -464,17 +397,17 @@ async fn selectin_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn joined_has_many_loads_children() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Joined", "joined@db.com").await?;
-    let _todo1 = seed_todo(&mut tx, user.id, "Joined A").await?;
-    let _todo2 = seed_todo(&mut tx, user.id, "Joined B").await?;
+    let user = seed_user(&tx, "Joined", "joined@db.com").await?;
+    let _todo1 = seed_todo(&tx, user.id, "Joined A").await?;
+    let _todo2 = seed_todo(&tx, user.id, "Joined B").await?;
 
     let users: Vec<UserModel<Vec<Todo>>> = User::query()
         .filter(User::id.eq(user.id))
         .with(User::todos.joined())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(users.len(), 1);
@@ -492,15 +425,15 @@ async fn joined_has_many_loads_children() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn joined_has_many_includes_empty_children() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Empty", "empty@db.com").await?;
+    let user = seed_user(&tx, "Empty", "empty@db.com").await?;
 
     let users: Vec<UserModel<Vec<Todo>>> = User::query()
         .filter(User::id.eq(user.id))
         .with(User::todos.joined())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(users.len(), 1);
@@ -512,19 +445,19 @@ async fn joined_has_many_includes_empty_children() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn joined_has_many_filters_children_when_join_filtered() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Filter", "filter@db.com").await?;
-    let _todo_keep = seed_todo(&mut tx, user.id, "Keep").await?;
-    let _todo_drop = seed_todo(&mut tx, user.id, "Drop").await?;
+    let user = seed_user(&tx, "Filter", "filter@db.com").await?;
+    let _todo_keep = seed_todo(&tx, user.id, "Keep").await?;
+    let _todo_drop = seed_todo(&tx, user.id, "Drop").await?;
 
     let users: Vec<UserModel<Vec<Todo>>> = User::query()
         .join(User::todos)
         .filter(Todo::title.eq("Keep"))
         .distinct()
         .with(User::todos.joined())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(users.len(), 1);
@@ -537,16 +470,16 @@ async fn joined_has_many_filters_children_when_join_filtered() -> Result<(), dbk
 #[tokio::test]
 async fn joined_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Joined Parent", "joined-parent@db.com").await?;
-    let todo = seed_todo(&mut tx, user.id, "Joined child").await?;
+    let user = seed_user(&tx, "Joined Parent", "joined-parent@db.com").await?;
+    let todo = seed_todo(&tx, user.id, "Joined child").await?;
 
     let todos: Vec<TodoModel<Option<User>>> = Todo::query()
         .filter(Todo::id.eq(todo.id))
         .with(Todo::user.joined())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(todos.len(), 1);
@@ -560,25 +493,25 @@ async fn joined_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn joined_nested_filters_children_when_join_filtered() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Nested", "nested@db.com").await?;
-    let todo_keep = seed_todo(&mut tx, user.id, "Keep").await?;
-    let todo_drop = seed_todo(&mut tx, user.id, "Drop").await?;
+    let user = seed_user(&tx, "Nested", "nested@db.com").await?;
+    let todo_keep = seed_todo(&tx, user.id, "Keep").await?;
+    let todo_drop = seed_todo(&tx, user.id, "Drop").await?;
 
-    let tag_a = seed_tag(&mut tx, "A").await?;
-    let tag_b = seed_tag(&mut tx, "B").await?;
+    let tag_a = seed_tag(&tx, "A").await?;
+    let tag_b = seed_tag(&tx, "B").await?;
 
-    let _keep_a = seed_todo_tag(&mut tx, todo_keep.id, tag_a.id).await?;
-    let _drop_b = seed_todo_tag(&mut tx, todo_drop.id, tag_b.id).await?;
+    let _keep_a = seed_todo_tag(&tx, todo_keep.id, tag_a.id).await?;
+    let _drop_b = seed_todo_tag(&tx, todo_drop.id, tag_b.id).await?;
 
     let users: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
         .join(User::todos)
         .filter(Todo::title.eq("Keep"))
         .distinct()
         .with(User::todos.joined().with(Todo::tags.joined()))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(users.len(), 1);
@@ -593,24 +526,24 @@ async fn joined_nested_filters_children_when_join_filtered() -> Result<(), dbkit
 #[tokio::test]
 async fn joined_many_to_many_filters_children_when_join_filtered() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Tags", "tags@db.com").await?;
-    let todo = seed_todo(&mut tx, user.id, "Tagged").await?;
+    let user = seed_user(&tx, "Tags", "tags@db.com").await?;
+    let todo = seed_todo(&tx, user.id, "Tagged").await?;
 
-    let tag_a = seed_tag(&mut tx, "A").await?;
-    let tag_b = seed_tag(&mut tx, "B").await?;
+    let tag_a = seed_tag(&tx, "A").await?;
+    let tag_b = seed_tag(&tx, "B").await?;
 
-    let _link_a = seed_todo_tag(&mut tx, todo.id, tag_a.id).await?;
-    let _link_b = seed_todo_tag(&mut tx, todo.id, tag_b.id).await?;
+    let _link_a = seed_todo_tag(&tx, todo.id, tag_a.id).await?;
+    let _link_b = seed_todo_tag(&tx, todo.id, tag_b.id).await?;
 
     let todos: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
         .join(Todo::tags)
         .filter(Tag::name.eq("A"))
         .distinct()
         .with(Todo::tags.joined())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(todos.len(), 1);
@@ -623,16 +556,16 @@ async fn joined_many_to_many_filters_children_when_join_filtered() -> Result<(),
 #[tokio::test]
 async fn nested_selectin_loads() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Jo", "jo@b.com").await?;
-    let _todo = seed_todo(&mut tx, user.id, "Chain loads").await?;
+    let user = seed_user(&tx, "Jo", "jo@b.com").await?;
+    let _todo = seed_todo(&tx, user.id, "Chain loads").await?;
 
     let users = User::query()  // should be Vec<UserModel<Vec<TodoModel<Option<User>>>>>
         .filter(User::id.eq(user.id))
         .with(User::todos.selectin().with(Todo::user.selectin()))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(users.len(), 1);
@@ -646,13 +579,13 @@ async fn nested_selectin_loads() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn lazy_load_relation() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Ari", "ari@b.com").await?;
-    let _todo = seed_todo(&mut tx, user.id, "Lazy load").await?;
+    let user = seed_user(&tx, "Ari", "ari@b.com").await?;
+    let _todo = seed_todo(&tx, user.id, "Lazy load").await?;
 
-    let loaded = user.load(User::todos, &mut tx).await?;
+    let loaded = user.load(User::todos, &tx).await?;
     assert_eq!(loaded.todos.len(), 1);
     assert_eq!(loaded.todos[0].title, "Lazy load");
 
@@ -662,20 +595,20 @@ async fn lazy_load_relation() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn join_filter_on_child_table() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user_keep = seed_user(&mut tx, "Keep", "keep@db.com").await?;
-    let user_drop = seed_user(&mut tx, "Drop", "drop@db.com").await?;
-    let _todo_keep = seed_todo(&mut tx, user_keep.id, "Keep me").await?;
-    let _todo_other = seed_todo(&mut tx, user_keep.id, "Also me").await?;
-    let _todo_drop = seed_todo(&mut tx, user_drop.id, "Ignore me").await?;
+    let user_keep = seed_user(&tx, "Keep", "keep@db.com").await?;
+    let user_drop = seed_user(&tx, "Drop", "drop@db.com").await?;
+    let _todo_keep = seed_todo(&tx, user_keep.id, "Keep me").await?;
+    let _todo_other = seed_todo(&tx, user_keep.id, "Also me").await?;
+    let _todo_drop = seed_todo(&tx, user_drop.id, "Ignore me").await?;
 
     let users = User::query()
         .join(User::todos)
         .filter(Todo::title.eq("Keep me"))
         .distinct()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(users.len(), 1);
@@ -687,15 +620,15 @@ async fn join_filter_on_child_table() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn uuid_date_time_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let date = NaiveDate::from_ymd_opt(2024, 1, 2).expect("date");
     let time = NaiveTime::from_hms_opt(3, 4, 5).expect("time");
     let starts_at = NaiveDateTime::new(date, time);
     let id = Uuid::nil();
 
-    let inserted = seed_event(&mut tx, id, "Launch", starts_at, date, time).await?;
+    let inserted = seed_event(&tx, id, "Launch", starts_at, date, time).await?;
     assert_eq!(inserted.id, id);
     assert_eq!(inserted.starts_at, starts_at);
     assert_eq!(inserted.day, date);
@@ -706,7 +639,7 @@ async fn uuid_date_time_roundtrip() -> Result<(), dbkit::Error> {
         .filter(Event::day.eq(date))
         .filter(Event::starts_at.eq(starts_at))
         .filter(Event::starts_at_time.eq(time))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("event");
 
@@ -722,27 +655,27 @@ async fn uuid_date_time_roundtrip() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let inserted = seed_nullable_row(&mut tx, None).await?;
+    let inserted = seed_nullable_row(&tx, None).await?;
     assert!(inserted.note.is_none());
 
-    let some_row = seed_nullable_row(&mut tx, Some("hello".to_string())).await?;
+    let some_row = seed_nullable_row(&tx, Some("hello".to_string())).await?;
     assert_eq!(some_row.note.as_deref(), Some("hello"));
 
     let updated = NullableRow::update()
         .set(NullableRow::note, None)
         .filter(NullableRow::id.eq(some_row.id))
         .returning_all()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(updated.len(), 1);
     assert!(updated[0].note.is_none());
 
     let null_rows = NullableRow::query()
         .filter(NullableRow::note.eq(None))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(null_rows.len(), 2);
     assert!(null_rows.iter().all(|row| row.note.is_none()));
@@ -753,20 +686,20 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn array_column_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let tags = vec!["alpha".to_string(), "beta".to_string()];
     let inserted = Profile::insert(ProfileInsert { tags: tags.clone() })
         .returning_all()
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("inserted profile");
     assert_eq!(inserted.tags, tags);
 
     let matched = Profile::query()
         .filter(Profile::tags.eq(tags.clone()))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(matched.len(), 1);
     assert_eq!(matched[0].id, inserted.id);
@@ -774,11 +707,11 @@ async fn array_column_roundtrip() -> Result<(), dbkit::Error> {
     let updated_tags = vec!["gamma".to_string(), "delta".to_string()];
     let mut active = inserted.into_active();
     active.tags = updated_tags.clone().into();
-    let updated = active.update(&mut tx).await?;
+    let updated = active.update(&tx).await?;
     assert_eq!(updated.tags, updated_tags);
 
     let fetched = Profile::by_id(updated.id)
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("updated profile");
     assert_eq!(fetched.tags, updated_tags);
@@ -789,20 +722,20 @@ async fn array_column_roundtrip() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn json_column_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let payload = json!({"name": "alpha", "active": true});
     let inserted = JsonRow::insert(JsonRowInsert { data: payload.clone() })
         .returning_all()
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("inserted json row");
     assert_eq!(inserted.data, payload);
 
     let matched = JsonRow::query()
         .filter(JsonRow::data.eq(payload.clone()))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(matched.len(), 1);
     assert_eq!(matched[0].id, inserted.id);
@@ -810,11 +743,11 @@ async fn json_column_roundtrip() -> Result<(), dbkit::Error> {
     let updated_payload = json!({"name": "beta", "active": false});
     let mut active = inserted.into_active();
     active.data = updated_payload.clone().into();
-    let updated = active.update(&mut tx).await?;
+    let updated = active.update(&tx).await?;
     assert_eq!(updated.data, updated_payload);
 
     let fetched = JsonRow::by_id(updated.id)
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("updated json row");
     assert_eq!(fetched.data, updated_payload);
@@ -825,8 +758,8 @@ async fn json_column_roundtrip() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let day = NaiveDate::from_ymd_opt(2024, 1, 2).expect("day");
     let day_start = NaiveDateTime::new(day, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
@@ -841,7 +774,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
         starts_at: NaiveDateTime::new(day, NaiveTime::from_hms_opt(10, 0, 0).expect("time")),
     })
     .returning_all()
-    .one(&mut tx)
+    .one(&tx)
     .await?
     .expect("row1");
 
@@ -852,7 +785,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
         starts_at: NaiveDateTime::new(day, NaiveTime::from_hms_opt(12, 0, 0).expect("time")),
     })
     .returning_all()
-    .one(&mut tx)
+    .one(&tx)
     .await?
     .expect("row2");
 
@@ -863,7 +796,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
         starts_at: NaiveDateTime::new(later_day, NaiveTime::from_hms_opt(9, 0, 0).expect("time")),
     })
     .returning_all()
-    .one(&mut tx)
+    .one(&tx)
     .await?
     .expect("row3");
 
@@ -874,7 +807,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
         starts_at: NaiveDateTime::new(later_day, NaiveTime::from_hms_opt(15, 0, 0).expect("time")),
     })
     .returning_all()
-    .one(&mut tx)
+    .one(&tx)
     .await?
     .expect("row4");
 
@@ -884,14 +817,14 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
             FuncRow::backup_email,
         ))
         .eq("BETA@EX.COM"))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(upper_match.len(), 1);
     assert_eq!(upper_match[0].id, row2.id);
 
     let fallback_match = FuncRow::query()
         .filter(dbkit::func::coalesce(FuncRow::email, "fallback").eq("fallback"))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     let mut fallback_ids: Vec<i64> = fallback_match.iter().map(|row| row.id).collect();
     fallback_ids.sort();
@@ -905,14 +838,14 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
             )
             .eq("none"),
         )
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(nested_match.len(), 1);
     assert_eq!(nested_match[0].id, row3.id);
 
     let truncated_match = FuncRow::query()
         .filter(dbkit::func::date_trunc("day", FuncRow::starts_at).eq(day_start))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     let mut day_ids: Vec<i64> = truncated_match.iter().map(|row| row.id).collect();
     day_ids.sort();
@@ -923,7 +856,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
             dbkit::func::upper(dbkit::func::coalesce(FuncRow::region, "unknown"))
                 .eq("UNKNOWN"),
         )
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(region_match.len(), 1);
     assert_eq!(region_match[0].id, row4.id);
@@ -937,7 +870,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
             .eq("ALPHA@EX.COM"),
         )
         .filter(dbkit::func::date_trunc("day", FuncRow::starts_at).eq(day_start))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(combined_match.len(), 1);
     assert_eq!(combined_match[0].id, row1.id);
@@ -969,8 +902,8 @@ struct UserTodoAgg {
 #[tokio::test]
 async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let day1 = NaiveDate::from_ymd_opt(2024, 2, 1).expect("day");
     let day2 = NaiveDate::from_ymd_opt(2024, 2, 2).expect("day");
@@ -999,7 +932,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
             created_at: NaiveDateTime::new(day2, NaiveTime::from_hms_opt(9, 0, 0).expect("time")),
         },
     ])
-    .execute(&mut tx)
+    .execute(&tx)
     .await?;
     assert_eq!(inserted, 4);
 
@@ -1007,7 +940,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
 
     let mut amount_between = Sale::query()
         .filter(Sale::amount.between(40_i64, 70_i64))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     amount_between.sort_by(|a, b| a.amount.cmp(&b.amount));
     assert_eq!(amount_between.len(), 2);
@@ -1016,7 +949,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
 
     let day1_sales = Sale::query()
         .filter(Sale::created_at.between(day1_start, day1_end))
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(day1_sales.len(), 3);
 
@@ -1029,7 +962,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
         .order_by(dbkit::Order::asc(Sale::region.as_ref()))
         .having(dbkit::func::sum(Sale::amount).gt(100_i64))
         .into_model()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     region_rows.sort_by(|a, b| a.region.cmp(&b.region));
     assert_eq!(region_rows.len(), 2);
@@ -1046,7 +979,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
         .column_as(dbkit::func::sum(Sale::amount), "total")
         .group_by(dbkit::func::date_trunc("day", Sale::created_at))
         .into_model()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     bucket_rows.sort_by(|a, b| a.bucket.cmp(&b.bucket));
     assert_eq!(bucket_rows.len(), 2);
@@ -1065,7 +998,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
             Sale::created_at,
         )))
         .into_model()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(ordered_buckets.len(), 2);
     assert_eq!(ordered_buckets[0].bucket, day2_start);
@@ -1081,7 +1014,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
         .group_by(Sale::region)
         .order_by(dbkit::Order::desc_alias("total"))
         .into_model()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(ordered_regions.len(), 3);
     assert_eq!(ordered_regions[0].region, "apac");
@@ -1091,9 +1024,9 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(ordered_regions[2].region, "eu");
     assert_eq!(ordered_regions[2].total.to_string(), "30");
 
-    let user = seed_user(&mut tx, "AggUser", "agg@db.com").await?;
-    let _todo1 = seed_todo(&mut tx, user.id, "Alpha").await?;
-    let _todo2 = seed_todo(&mut tx, user.id, "Beta").await?;
+    let user = seed_user(&tx, "AggUser", "agg@db.com").await?;
+    let _todo1 = seed_todo(&tx, user.id, "Alpha").await?;
+    let _todo2 = seed_todo(&tx, user.id, "Beta").await?;
 
     let joined_rows: Vec<UserTodoAgg> = User::query()
         .select_only()
@@ -1103,7 +1036,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
         .group_by(User::name)
         .order_by(dbkit::Order::desc(User::name.as_ref()))
         .into_model()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
     assert_eq!(joined_rows.len(), 1);
     assert_eq!(joined_rows[0].name, "AggUser");
@@ -1115,43 +1048,43 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn query_helpers_count_exists_first_paginate() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user1 = seed_user(&mut tx, "PageOne", "page1@db.com").await?;
-    let user2 = seed_user(&mut tx, "PageTwo", "page2@db.com").await?;
-    let user3 = seed_user(&mut tx, "PageThree", "page3@db.com").await?;
+    let user1 = seed_user(&tx, "PageOne", "page1@db.com").await?;
+    let user2 = seed_user(&tx, "PageTwo", "page2@db.com").await?;
+    let user3 = seed_user(&tx, "PageThree", "page3@db.com").await?;
 
-    let total = User::query().count(&mut tx).await?;
+    let total = User::query().count(&tx).await?;
     assert_eq!(total, 3);
 
     let filtered_total = User::query()
         .filter(User::email.eq("page2@db.com"))
-        .count(&mut tx)
+        .count(&tx)
         .await?;
     assert_eq!(filtered_total, 1);
 
     let exists = User::query()
         .filter(User::email.eq("page2@db.com"))
-        .exists(&mut tx)
+        .exists(&tx)
         .await?;
     assert!(exists);
 
     let missing = User::query()
         .filter(User::email.eq("missing@db.com"))
-        .exists(&mut tx)
+        .exists(&tx)
         .await?;
     assert!(!missing);
 
     let first = User::query()
         .order_by(dbkit::Order::asc(User::id.as_ref()))
-        .one(&mut tx)
+        .one(&tx)
         .await?;
     assert_eq!(first.expect("first").id, user1.id);
 
     let page1 = User::query()
         .order_by(dbkit::Order::asc(User::id.as_ref()))
-        .paginate(1, 2, &mut tx)
+        .paginate(1, 2, &tx)
         .await?;
     assert_eq!(page1.items.len(), 2);
     assert_eq!(page1.items[0].id, user1.id);
@@ -1163,7 +1096,7 @@ async fn query_helpers_count_exists_first_paginate() -> Result<(), dbkit::Error>
 
     let page2 = User::query()
         .order_by(dbkit::Order::asc(User::id.as_ref()))
-        .paginate(2, 2, &mut tx)
+        .paginate(2, 2, &tx)
         .await?;
     assert_eq!(page2.items.len(), 1);
     assert_eq!(page2.items[0].id, user3.id);
@@ -1178,24 +1111,24 @@ async fn query_helpers_count_exists_first_paginate() -> Result<(), dbkit::Error>
 #[tokio::test]
 async fn many_to_many_selectin_loads_children() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Tagger", "tagger@db.com").await?;
-    let todo1 = seed_todo(&mut tx, user.id, "First").await?;
-    let todo2 = seed_todo(&mut tx, user.id, "Second").await?;
+    let user = seed_user(&tx, "Tagger", "tagger@db.com").await?;
+    let todo1 = seed_todo(&tx, user.id, "First").await?;
+    let todo2 = seed_todo(&tx, user.id, "Second").await?;
 
-    let tag_a = seed_tag(&mut tx, "A").await?;
-    let tag_b = seed_tag(&mut tx, "B").await?;
+    let tag_a = seed_tag(&tx, "A").await?;
+    let tag_b = seed_tag(&tx, "B").await?;
 
-    let _t1a = seed_todo_tag(&mut tx, todo1.id, tag_a.id).await?;
-    let _t1b = seed_todo_tag(&mut tx, todo1.id, tag_b.id).await?;
-    let _t2b = seed_todo_tag(&mut tx, todo2.id, tag_b.id).await?;
+    let _t1a = seed_todo_tag(&tx, todo1.id, tag_a.id).await?;
+    let _t1b = seed_todo_tag(&tx, todo1.id, tag_b.id).await?;
+    let _t2b = seed_todo_tag(&tx, todo2.id, tag_b.id).await?;
 
     let todos: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
         .filter(Todo::user_id.eq(user.id))
         .with(Todo::tags.selectin())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(todos.len(), 2);
@@ -1227,23 +1160,23 @@ async fn many_to_many_selectin_loads_children() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn many_to_many_selectin_reverse_loads_parents() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Tagger", "tagger2@db.com").await?;
-    let todo1 = seed_todo(&mut tx, user.id, "First").await?;
-    let todo2 = seed_todo(&mut tx, user.id, "Second").await?;
+    let user = seed_user(&tx, "Tagger", "tagger2@db.com").await?;
+    let todo1 = seed_todo(&tx, user.id, "First").await?;
+    let todo2 = seed_todo(&tx, user.id, "Second").await?;
 
-    let tag_a = seed_tag(&mut tx, "A").await?;
-    let tag_b = seed_tag(&mut tx, "B").await?;
+    let tag_a = seed_tag(&tx, "A").await?;
+    let tag_b = seed_tag(&tx, "B").await?;
 
-    let _t1a = seed_todo_tag(&mut tx, todo1.id, tag_a.id).await?;
-    let _t1b = seed_todo_tag(&mut tx, todo1.id, tag_b.id).await?;
-    let _t2b = seed_todo_tag(&mut tx, todo2.id, tag_b.id).await?;
+    let _t1a = seed_todo_tag(&tx, todo1.id, tag_a.id).await?;
+    let _t1b = seed_todo_tag(&tx, todo1.id, tag_b.id).await?;
+    let _t2b = seed_todo_tag(&tx, todo2.id, tag_b.id).await?;
 
     let tags: Vec<TagModel<Vec<Todo>>> = Tag::query()
         .with(Tag::todos.selectin())
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     let tag_a_loaded = tags.iter().find(|tag| tag.id == tag_a.id).expect("tag a");
@@ -1270,24 +1203,24 @@ async fn many_to_many_selectin_reverse_loads_parents() -> Result<(), dbkit::Erro
 #[tokio::test]
 async fn many_to_many_join_filter() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Joiner", "joiner@db.com").await?;
-    let todo1 = seed_todo(&mut tx, user.id, "First").await?;
-    let todo2 = seed_todo(&mut tx, user.id, "Second").await?;
+    let user = seed_user(&tx, "Joiner", "joiner@db.com").await?;
+    let todo1 = seed_todo(&tx, user.id, "First").await?;
+    let todo2 = seed_todo(&tx, user.id, "Second").await?;
 
-    let tag_a = seed_tag(&mut tx, "A").await?;
-    let tag_b = seed_tag(&mut tx, "B").await?;
+    let tag_a = seed_tag(&tx, "A").await?;
+    let tag_b = seed_tag(&tx, "B").await?;
 
-    let _t1a = seed_todo_tag(&mut tx, todo1.id, tag_a.id).await?;
-    let _t2b = seed_todo_tag(&mut tx, todo2.id, tag_b.id).await?;
+    let _t1a = seed_todo_tag(&tx, todo1.id, tag_a.id).await?;
+    let _t2b = seed_todo_tag(&tx, todo2.id, tag_b.id).await?;
 
     let todos = Todo::query()
         .join(Todo::tags)
         .filter(Tag::name.eq("B"))
         .distinct()
-        .all(&mut tx)
+        .all(&tx)
         .await?;
 
     assert_eq!(todos.len(), 1);
@@ -1299,15 +1232,15 @@ async fn many_to_many_join_filter() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn many_to_many_lazy_load() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Lazy", "lazy@db.com").await?;
-    let todo = seed_todo(&mut tx, user.id, "First").await?;
-    let tag = seed_tag(&mut tx, "A").await?;
-    let _link = seed_todo_tag(&mut tx, todo.id, tag.id).await?;
+    let user = seed_user(&tx, "Lazy", "lazy@db.com").await?;
+    let todo = seed_todo(&tx, user.id, "First").await?;
+    let tag = seed_tag(&tx, "A").await?;
+    let _link = seed_todo_tag(&tx, todo.id, tag.id).await?;
 
-    let loaded = todo.load(Todo::tags, &mut tx).await?;
+    let loaded = todo.load(Todo::tags, &tx).await?;
     assert_eq!(loaded.tags.len(), 1);
     assert_eq!(loaded.tags[0].name, "A");
 
@@ -1316,14 +1249,14 @@ async fn many_to_many_lazy_load() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn active_insert_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut active = User::new_active();
     active.name = "Active".into();
     active.email = "active@db.com".into();
 
-    let inserted = active.insert(&mut tx).await?;
+    let inserted = active.insert(&tx).await?;
     let _: User = inserted.clone();
     assert!(inserted.id > 0);
     assert_eq!(inserted.name, "Active");
@@ -1335,13 +1268,13 @@ async fn active_insert_roundtrip() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn active_insert_missing_required_field_errors() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut active = UserActive::new();
     active.name = "Missing email".into();
 
-    let result = active.insert(&mut tx).await;
+    let result = active.insert(&tx).await;
     assert!(result.is_err());
 
     Ok(())
@@ -1350,15 +1283,15 @@ async fn active_insert_missing_required_field_errors() -> Result<(), dbkit::Erro
 #[tokio::test]
 async fn active_save_inserts_new_active_even_with_primary_key_set() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut active = OrderLine::new_active();
     active.order_id = 7.into();
     active.line_id = 8.into();
     active.note = "Saved".into();
 
-    let inserted = active.save(&mut tx).await?;
+    let inserted = active.save(&tx).await?;
     assert_eq!(inserted.order_id, 7);
     assert_eq!(inserted.line_id, 8);
     assert_eq!(inserted.note, "Saved");
@@ -1366,7 +1299,7 @@ async fn active_save_inserts_new_active_even_with_primary_key_set() -> Result<()
     let fetched = OrderLine::query()
         .filter(OrderLine::order_id.eq(7))
         .filter(OrderLine::line_id.eq(8))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("order line");
     assert_eq!(fetched.note, "Saved");
@@ -1377,21 +1310,21 @@ async fn active_save_inserts_new_active_even_with_primary_key_set() -> Result<()
 #[tokio::test]
 async fn active_save_updates_loaded_models() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Before Save", "before-save@db.com").await?;
+    let user = seed_user(&tx, "Before Save", "before-save@db.com").await?;
     let user_id = user.id;
     let user_email = user.email.clone();
     let mut active = user.into_active();
     active.name = "After Save".into();
 
-    let saved = active.save(&mut tx).await?;
+    let saved = active.save(&tx).await?;
     assert_eq!(saved.id, user_id);
     assert_eq!(saved.name, "After Save");
     assert_eq!(saved.email, user_email);
 
-    let fetched = User::by_id(user_id).one(&mut tx).await?.expect("user");
+    let fetched = User::by_id(user_id).one(&tx).await?.expect("user");
     assert_eq!(fetched.name, "After Save");
     assert_eq!(fetched.email, user_email);
 
@@ -1401,20 +1334,20 @@ async fn active_save_updates_loaded_models() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn active_save_loaded_without_changes_is_noop() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "No Change", "no-change@db.com").await?;
+    let user = seed_user(&tx, "No Change", "no-change@db.com").await?;
     let user_id = user.id;
     let user_email = user.email.clone();
     let active = user.into_active();
 
-    let saved = active.save(&mut tx).await?;
+    let saved = active.save(&tx).await?;
     assert_eq!(saved.id, user_id);
     assert_eq!(saved.name, "No Change");
     assert_eq!(saved.email, user_email);
 
-    let fetched = User::by_id(user_id).one(&mut tx).await?.expect("user");
+    let fetched = User::by_id(user_id).one(&tx).await?.expect("user");
     assert_eq!(fetched.name, "No Change");
     assert_eq!(fetched.email, user_email);
 
@@ -1424,13 +1357,13 @@ async fn active_save_loaded_without_changes_is_noop() -> Result<(), dbkit::Error
 #[tokio::test]
 async fn active_save_missing_required_fields_errors_on_insert() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut active = User::new_active();
     active.name = "Missing email".into();
 
-    let result = active.save(&mut tx).await;
+    let result = active.save(&tx).await;
     assert!(result.is_err());
 
     Ok(())
@@ -1439,21 +1372,21 @@ async fn active_save_missing_required_fields_errors_on_insert() -> Result<(), db
 #[tokio::test]
 async fn active_save_composite_changing_key_returns_not_found() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let row = seed_order_line(&mut tx, 5, 5, "Orig").await?;
+    let row = seed_order_line(&tx, 5, 5, "Orig").await?;
     let mut active = row.into_active();
     active.line_id = 9.into();
     active.note = "Changed".into();
 
-    let result = active.save(&mut tx).await;
+    let result = active.save(&tx).await;
     assert!(result.is_err());
 
     let fetched = OrderLine::query()
         .filter(OrderLine::order_id.eq(5))
         .filter(OrderLine::line_id.eq(5))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("row");
     assert_eq!(fetched.note, "Orig");
@@ -1464,16 +1397,16 @@ async fn active_save_composite_changing_key_returns_not_found() -> Result<(), db
 #[tokio::test]
 async fn active_update_from_loaded() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Before", "before@db.com").await?;
+    let user = seed_user(&tx, "Before", "before@db.com").await?;
     let user_id = user.id;
     let user_email = user.email.clone();
     let mut active = user.into_active();
     active.name = "After".into();
 
-    let updated = active.update(&mut tx).await?;
+    let updated = active.update(&tx).await?;
     let _: User = updated.clone();
     assert_eq!(updated.id, user_id);
     assert_eq!(updated.name, "After");
@@ -1485,24 +1418,24 @@ async fn active_update_from_loaded() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn active_update_does_not_overwrite_other_fields() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     // This test simulates a concurrent update to a different column and ensures
     // ActiveModel updates only changed fields (no stale-field overwrite).
-    let user = seed_user(&mut tx, "Before", "before@db.com").await?;
+    let user = seed_user(&tx, "Before", "before@db.com").await?;
     let mut active = user.clone().into_active();
 
     User::update()
         .set(User::email, "updated@db.com")
         .filter(User::id.eq(user.id))
-        .execute(&mut tx)
+        .execute(&tx)
         .await?;
 
     active.name = "After".into();
-    let _ = active.update(&mut tx).await?;
+    let _ = active.update(&tx).await?;
 
-    let fetched = User::by_id(user.id).one(&mut tx).await?.expect("user");
+    let fetched = User::by_id(user.id).one(&tx).await?.expect("user");
     assert_eq!(fetched.name, "After");
     assert_eq!(fetched.email, "updated@db.com");
 
@@ -1512,15 +1445,15 @@ async fn active_update_does_not_overwrite_other_fields() -> Result<(), dbkit::Er
 #[tokio::test]
 async fn active_update_set_null() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let row = seed_nullable_row(&mut tx, Some("note".to_string())).await?;
+    let row = seed_nullable_row(&tx, Some("note".to_string())).await?;
     let row_id = row.id;
     let mut active = row.into_active();
     active.note = None.into();
 
-    let updated = active.update(&mut tx).await?;
+    let updated = active.update(&tx).await?;
     let _: NullableRow = updated.clone();
     assert_eq!(updated.id, row_id);
     assert!(updated.note.is_none());
@@ -1531,14 +1464,14 @@ async fn active_update_set_null() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn active_update_requires_primary_key() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut active = UserActive::new();
     active.name = "No PK".into();
     active.email = "no-pk@db.com".into();
 
-    let result = active.update(&mut tx).await;
+    let result = active.update(&tx).await;
     assert!(result.is_err());
 
     Ok(())
@@ -1547,26 +1480,26 @@ async fn active_update_requires_primary_key() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn active_update_uses_only_primary_key_filter() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Before", "before@db.com").await?;
-    let untouched = seed_user(&mut tx, "Other", "other@db.com").await?;
+    let user = seed_user(&tx, "Before", "before@db.com").await?;
+    let untouched = seed_user(&tx, "Other", "other@db.com").await?;
     let user_id = user.id;
     let mut active = user.into_active();
     active.name = "After".into();
     active.email = "after@db.com".into();
 
-    let updated = active.update(&mut tx).await?;
+    let updated = active.update(&tx).await?;
     assert_eq!(updated.id, user_id);
     assert_eq!(updated.name, "After");
     assert_eq!(updated.email, "after@db.com");
 
-    let fetched = User::by_id(user_id).one(&mut tx).await?.expect("user");
+    let fetched = User::by_id(user_id).one(&tx).await?.expect("user");
     assert_eq!(fetched.name, "After");
     assert_eq!(fetched.email, "after@db.com");
 
-    let other = User::by_id(untouched.id).one(&mut tx).await?.expect("other");
+    let other = User::by_id(untouched.id).one(&tx).await?.expect("other");
     assert_eq!(other.name, "Other");
     assert_eq!(other.email, "other@db.com");
 
@@ -1576,16 +1509,16 @@ async fn active_update_uses_only_primary_key_filter() -> Result<(), dbkit::Error
 #[tokio::test]
 async fn composite_primary_key_active_update_uses_both_keys() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let first = seed_order_line(&mut tx, 1, 1, "A").await?;
-    let _same_order = seed_order_line(&mut tx, 1, 2, "B").await?;
-    let _same_line = seed_order_line(&mut tx, 2, 1, "C").await?;
+    let first = seed_order_line(&tx, 1, 1, "A").await?;
+    let _same_order = seed_order_line(&tx, 1, 2, "B").await?;
+    let _same_line = seed_order_line(&tx, 2, 1, "C").await?;
 
     let mut active = first.into_active();
     active.note = "A1".into();
-    let updated = active.update(&mut tx).await?;
+    let updated = active.update(&tx).await?;
     assert_eq!(updated.order_id, 1);
     assert_eq!(updated.line_id, 1);
     assert_eq!(updated.note, "A1");
@@ -1593,7 +1526,7 @@ async fn composite_primary_key_active_update_uses_both_keys() -> Result<(), dbki
     let fetched = OrderLine::query()
         .filter(OrderLine::order_id.eq(1))
         .filter(OrderLine::line_id.eq(1))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("updated");
     assert_eq!(fetched.note, "A1");
@@ -1601,7 +1534,7 @@ async fn composite_primary_key_active_update_uses_both_keys() -> Result<(), dbki
     let same_order = OrderLine::query()
         .filter(OrderLine::order_id.eq(1))
         .filter(OrderLine::line_id.eq(2))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("same order");
     assert_eq!(same_order.note, "B");
@@ -1609,7 +1542,7 @@ async fn composite_primary_key_active_update_uses_both_keys() -> Result<(), dbki
     let same_line = OrderLine::query()
         .filter(OrderLine::order_id.eq(2))
         .filter(OrderLine::line_id.eq(1))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("same line");
     assert_eq!(same_line.note, "C");
@@ -1620,18 +1553,18 @@ async fn composite_primary_key_active_update_uses_both_keys() -> Result<(), dbki
 #[tokio::test]
 async fn composite_primary_key_active_update_requires_all_keys() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut missing_line = OrderLine::new_active();
     missing_line.order_id = 1.into();
     missing_line.note = "Missing line".into();
-    assert!(missing_line.update(&mut tx).await.is_err());
+    assert!(missing_line.update(&tx).await.is_err());
 
     let mut missing_order = OrderLine::new_active();
     missing_order.line_id = 1.into();
     missing_order.note = "Missing order".into();
-    assert!(missing_order.update(&mut tx).await.is_err());
+    assert!(missing_order.update(&tx).await.is_err());
 
     Ok(())
 }
@@ -1639,18 +1572,18 @@ async fn composite_primary_key_active_update_requires_all_keys() -> Result<(), d
 #[tokio::test]
 async fn composite_primary_key_active_insert_requires_all_keys() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut missing_line = OrderLine::new_active();
     missing_line.order_id = 1.into();
     missing_line.note = "Missing line".into();
-    assert!(missing_line.insert(&mut tx).await.is_err());
+    assert!(missing_line.insert(&tx).await.is_err());
 
     let mut missing_order = OrderLine::new_active();
     missing_order.line_id = 1.into();
     missing_order.note = "Missing order".into();
-    assert!(missing_order.insert(&mut tx).await.is_err());
+    assert!(missing_order.insert(&tx).await.is_err());
 
     Ok(())
 }
@@ -1658,21 +1591,21 @@ async fn composite_primary_key_active_insert_requires_all_keys() -> Result<(), d
 #[tokio::test]
 async fn active_delete_removes_only_target() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Delete", "delete@db.com").await?;
+    let user = seed_user(&tx, "Delete", "delete@db.com").await?;
     let user_id = user.id;
-    let other = seed_user(&mut tx, "Keep", "keep@db.com").await?;
+    let other = seed_user(&tx, "Keep", "keep@db.com").await?;
 
     let active = user.into_active();
-    let deleted = active.delete(&mut tx).await?;
+    let deleted = active.delete(&tx).await?;
     assert_eq!(deleted, 1);
 
-    let removed = User::by_id(user_id).one(&mut tx).await?;
+    let removed = User::by_id(user_id).one(&tx).await?;
     assert!(removed.is_none());
 
-    let remaining = User::by_id(other.id).one(&mut tx).await?.expect("other");
+    let remaining = User::by_id(other.id).one(&tx).await?.expect("other");
     assert_eq!(remaining.email, "keep@db.com");
 
     Ok(())
@@ -1681,14 +1614,14 @@ async fn active_delete_removes_only_target() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn active_delete_requires_primary_key() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut active = User::new_active();
     active.name = "No PK".into();
     active.email = "no-pk@db.com".into();
 
-    let result = active.delete(&mut tx).await;
+    let result = active.delete(&tx).await;
     assert!(result.is_err());
 
     Ok(())
@@ -1697,15 +1630,15 @@ async fn active_delete_requires_primary_key() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn model_delete_removes_row() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let user = seed_user(&mut tx, "Delete", "delete2@db.com").await?;
+    let user = seed_user(&tx, "Delete", "delete2@db.com").await?;
     let user_id = user.id;
-    let deleted = user.delete(&mut tx).await?;
+    let deleted = user.delete(&tx).await?;
     assert_eq!(deleted, 1);
 
-    let removed = User::by_id(user_id).one(&mut tx).await?;
+    let removed = User::by_id(user_id).one(&tx).await?;
     assert!(removed.is_none());
 
     Ok(())
@@ -1714,27 +1647,27 @@ async fn model_delete_removes_row() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn composite_primary_key_active_delete_uses_both_keys() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let target = seed_order_line(&mut tx, 1, 1, "A").await?;
-    let _same_order = seed_order_line(&mut tx, 1, 2, "B").await?;
-    let _same_line = seed_order_line(&mut tx, 2, 1, "C").await?;
+    let target = seed_order_line(&tx, 1, 1, "A").await?;
+    let _same_order = seed_order_line(&tx, 1, 2, "B").await?;
+    let _same_line = seed_order_line(&tx, 2, 1, "C").await?;
 
-    let deleted = target.into_active().delete(&mut tx).await?;
+    let deleted = target.into_active().delete(&tx).await?;
     assert_eq!(deleted, 1);
 
     let removed = OrderLine::query()
         .filter(OrderLine::order_id.eq(1))
         .filter(OrderLine::line_id.eq(1))
-        .one(&mut tx)
+        .one(&tx)
         .await?;
     assert!(removed.is_none());
 
     let same_order = OrderLine::query()
         .filter(OrderLine::order_id.eq(1))
         .filter(OrderLine::line_id.eq(2))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("same order");
     assert_eq!(same_order.note, "B");
@@ -1742,7 +1675,7 @@ async fn composite_primary_key_active_delete_uses_both_keys() -> Result<(), dbki
     let same_line = OrderLine::query()
         .filter(OrderLine::order_id.eq(2))
         .filter(OrderLine::line_id.eq(1))
-        .one(&mut tx)
+        .one(&tx)
         .await?
         .expect("same line");
     assert_eq!(same_line.note, "C");
@@ -1753,18 +1686,18 @@ async fn composite_primary_key_active_delete_uses_both_keys() -> Result<(), dbki
 #[tokio::test]
 async fn composite_primary_key_active_delete_requires_all_keys() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
     let mut missing_line = OrderLine::new_active();
     missing_line.order_id = 1.into();
     missing_line.note = "Missing line".into();
-    assert!(missing_line.delete(&mut tx).await.is_err());
+    assert!(missing_line.delete(&tx).await.is_err());
 
     let mut missing_order = OrderLine::new_active();
     missing_order.line_id = 1.into();
     missing_order.note = "Missing order".into();
-    assert!(missing_order.delete(&mut tx).await.is_err());
+    assert!(missing_order.delete(&tx).await.is_err());
 
     Ok(())
 }
@@ -1772,19 +1705,19 @@ async fn composite_primary_key_active_delete_requires_all_keys() -> Result<(), d
 #[tokio::test]
 async fn composite_primary_key_model_delete_removes_row() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
-    let mut tx = db.begin().await?;
-    setup_schema(&mut tx).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
 
-    let target = seed_order_line(&mut tx, 9, 9, "Z").await?;
+    let target = seed_order_line(&tx, 9, 9, "Z").await?;
     let order_id = target.order_id;
     let line_id = target.line_id;
-    let deleted = target.delete(&mut tx).await?;
+    let deleted = target.delete(&tx).await?;
     assert_eq!(deleted, 1);
 
     let removed = OrderLine::query()
         .filter(OrderLine::order_id.eq(order_id))
         .filter(OrderLine::line_id.eq(line_id))
-        .one(&mut tx)
+        .one(&tx)
         .await?;
     assert!(removed.is_none());
 

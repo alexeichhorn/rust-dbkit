@@ -9,18 +9,20 @@ struct User {
 }
 
 struct CaptureExecutor {
-    last_sql: Option<String>,
+    last_sql: std::sync::Mutex<Option<String>>,
 }
 
 impl CaptureExecutor {
     fn new() -> Self {
-        Self { last_sql: None }
+        Self {
+            last_sql: std::sync::Mutex::new(None),
+        }
     }
 }
 
 impl Executor for CaptureExecutor {
     fn fetch_all<'e, T>(
-        &'e mut self,
+        &'e self,
         _sql: &'e str,
         _args: PgArguments,
     ) -> BoxFuture<'e, Result<Vec<T>, Error>>
@@ -31,35 +33,35 @@ impl Executor for CaptureExecutor {
     }
 
     fn fetch_optional<'e, T>(
-        &'e mut self,
+        &'e self,
         sql: &'e str,
         _args: PgArguments,
     ) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        self.last_sql = Some(sql.to_string());
+        *self.last_sql.lock().expect("lock") = Some(sql.to_string());
         Box::pin(async move { Ok(None) })
     }
 
     fn fetch_rows<'e>(
-        &'e mut self,
+        &'e self,
         _sql: &'e str,
         _args: PgArguments,
     ) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
         Box::pin(async move { Ok(Vec::new()) })
     }
 
-    fn execute<'e>(&'e mut self, _sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
+    fn execute<'e>(&'e self, _sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         Box::pin(async move { Ok(0) })
     }
 }
 
 #[tokio::test]
 async fn one_applies_limit_one() -> Result<(), dbkit::Error> {
-    let mut ex = CaptureExecutor::new();
-    let _ = User::query().one(&mut ex).await?;
-    let sql = ex.last_sql.expect("sql");
+    let ex = CaptureExecutor::new();
+    let _ = User::query().one(&ex).await?;
+    let sql = ex.last_sql.lock().expect("lock").clone().expect("sql");
     assert!(sql.contains("LIMIT 1"), "sql missing LIMIT 1: {sql}");
     Ok(())
 }

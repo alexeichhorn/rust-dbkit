@@ -333,7 +333,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let active_insert_fn = quote!(
         pub async fn insert(
             self,
-            ex: &mut (impl ::dbkit::Executor + Send),
+            ex: &(impl ::dbkit::Executor + Send + Sync),
         ) -> Result<#struct_ident, ::dbkit::Error> {
             let Self { #(#active_destructure,)* } = self;
             let mut insert = ::dbkit::Insert::new(#struct_ident::TABLE);
@@ -402,7 +402,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         quote!(
             pub async fn update(
                 self,
-                ex: &mut (impl ::dbkit::Executor + Send),
+                ex: &(impl ::dbkit::Executor + Send + Sync),
             ) -> Result<#struct_ident, ::dbkit::Error> {
                 let Self { #(#active_destructure,)* } = self;
                 #(#pk_extracts)*
@@ -454,7 +454,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         quote!(
             pub async fn delete(
                 self,
-                ex: &mut (impl ::dbkit::Executor + Send),
+                ex: &(impl ::dbkit::Executor + Send + Sync),
             ) -> Result<u64, ::dbkit::Error> {
                 let Self { #(#pk_idents,)* .. } = self;
                 #(#pk_extracts)*
@@ -533,7 +533,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let active_save_fn = quote!(
         pub async fn save(
             self,
-            ex: &mut (impl ::dbkit::Executor + Send),
+            ex: &(impl ::dbkit::Executor + Send + Sync),
         ) -> Result<#struct_ident, ::dbkit::Error> {
             let Self { #(#active_destructure,)* } = self;
             let mut any_loaded = false;
@@ -561,9 +561,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         });
         quote!(
             impl #impl_generics ::dbkit::ModelDelete for #model_ident #struct_type_args {
-                fn delete<'e, E>(self, ex: &'e mut E) -> ::dbkit::executor::BoxFuture<'e, Result<u64, ::dbkit::Error>>
+                fn delete<'e, E>(self, ex: &'e E) -> ::dbkit::executor::BoxFuture<'e, Result<u64, ::dbkit::Error>>
                 where
-                    E: ::dbkit::Executor + Send + 'e,
+                    E: ::dbkit::Executor + Send + Sync + 'e,
                 {
                     let Self { #(#pk_idents,)* .. } = self;
                     let mut delete = ::dbkit::Delete::new(Self::TABLE);
@@ -958,7 +958,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         pub async fn load<Rel>(
             self,
             rel: Rel,
-            ex: &mut (impl ::dbkit::Executor + Send),
+            ex: &(impl ::dbkit::Executor + Send + Sync),
         ) -> Result<<Self as ::dbkit::LoadRelation<Rel>>::Out, ::dbkit::Error>
         where
             Self: ::dbkit::LoadRelation<Rel>,
@@ -1053,10 +1053,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 fn load_relation<'e, E>(
                     self,
                     rel: #rel_type,
-                    ex: &'e mut E,
+                    ex: &'e E,
                 ) -> ::dbkit::executor::BoxFuture<'e, Result<Self::Out, ::dbkit::Error>>
                 where
-                    E: ::dbkit::Executor + Send + 'e,
+                    E: ::dbkit::Executor + Send + Sync + 'e,
                 {
                     Box::pin(async move {
                         let Self { #(#destructure_fields,)* } = self;
@@ -1319,11 +1319,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 {
                     fn run<'e, E>(
                         &'e self,
-                        ex: &'e mut E,
+                        ex: &'e E,
                         rows: &'e mut [#out_type],
                     ) -> ::dbkit::executor::BoxFuture<'e, Result<(), ::dbkit::Error>>
                     where
-                        E: ::dbkit::Executor + Send + 'e,
+                        E: ::dbkit::Executor + Send + Sync + 'e,
                     {
                         #loader(ex, rows, self.rel.clone(), &self.nested)
                     }

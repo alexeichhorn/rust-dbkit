@@ -52,7 +52,7 @@ fn main() {
     struct Dummy;
     impl Executor for Dummy {
         fn fetch_all<'e, T>(
-            &'e mut self,
+            &'e self,
             _sql: &'e str,
             _args: dbkit::sqlx::postgres::PgArguments,
         ) -> dbkit::executor::BoxFuture<'e, Result<Vec<T>, dbkit::Error>>
@@ -63,7 +63,7 @@ fn main() {
         }
 
         fn fetch_optional<'e, T>(
-            &'e mut self,
+            &'e self,
             _sql: &'e str,
             _args: dbkit::sqlx::postgres::PgArguments,
         ) -> dbkit::executor::BoxFuture<'e, Result<Option<T>, dbkit::Error>>
@@ -74,7 +74,7 @@ fn main() {
         }
 
         fn fetch_rows<'e>(
-            &'e mut self,
+            &'e self,
             _sql: &'e str,
             _args: dbkit::sqlx::postgres::PgArguments,
         ) -> dbkit::executor::BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, dbkit::Error>> {
@@ -82,7 +82,7 @@ fn main() {
         }
 
         fn execute<'e>(
-            &'e mut self,
+            &'e self,
             _sql: &'e str,
             _args: dbkit::sqlx::postgres::PgArguments,
         ) -> dbkit::executor::BoxFuture<'e, Result<u64, dbkit::Error>> {
@@ -96,8 +96,8 @@ fn main() {
         email: "a@b.com".to_string(),
         todos: dbkit::NotLoaded,
     };
-    let mut dummy = Dummy;
-    let _future = unloaded.load(User::todos, &mut dummy);
+    let dummy = Dummy;
+    let _future = unloaded.load(User::todos, &dummy);
 
     let _insert_struct = UserInsert {
         name: "Alex".to_string(),
