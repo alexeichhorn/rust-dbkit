@@ -9,9 +9,9 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-version = "0.1.0"
+version = "0.1.1"
 
 [workspace.dependencies]
-dbkit-core = { path = "crates/dbkit-core", version = "0.1.0" }
-dbkit-derive = { path = "crates/dbkit-derive", version = "0.1.0" }
+dbkit-core = { path = "crates/dbkit-core", version = "0.1.1" }
+dbkit-derive = { path = "crates/dbkit-derive", version = "0.1.1" }
 thiserror = "1"
