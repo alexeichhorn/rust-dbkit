@@ -378,6 +378,27 @@ let rows = NullableRow::query()
     .await?;
 ```
 
+## Supported types
+
+Built-in typed query/insert/update bindings currently support:
+
+- `bool`
+- `i16`, `i32`, `i64`
+- `f32`, `f64`
+- `String` (and `&str` where string expressions are accepted)
+- `uuid::Uuid`
+- `chrono::NaiveDateTime` (`TIMESTAMP`)
+- `chrono::DateTime<chrono::Utc>` (`TIMESTAMPTZ`)
+- `chrono::NaiveDate` (`DATE`)
+- `chrono::NaiveTime` (`TIME`)
+- `serde_json::Value` (`JSON` / `JSONB`)
+- `Vec<String>` (`TEXT[]`)
+- `Option<T>` for nullable columns, where `T` is one of the above
+
+Notes:
+- `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
+- For types outside this list, use raw `sqlx` queries or add explicit dbkit support first.
+
 Transactions:
 
 ```rust
@@ -393,6 +414,7 @@ tx.commit().await?;
 - [x] Add SQL function expressions in queries (e.g., `COALESCE`, `DATE_TRUNC`, `UPPER`).
 - [x] Add JSON column support (`serde_json::Value`) for insert/update/filter.
 - [x] Add Postgres array column support (e.g., `Vec<String>`) for insert/update/filter.
+- [ ] Generalize Postgres array support beyond `Vec<String>` (e.g., `Vec<i64>`, `Vec<uuid::Uuid>`, `Vec<bool>`).
 - [x] Add bulk insert support (multi-row `insert_many`).
 - [x] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
 - [x] Allow `order_by` on expressions or aliases (e.g., `date_trunc(...)`, `total`).

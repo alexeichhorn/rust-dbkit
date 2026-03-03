@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use dbkit_core::{Column, Select, Table, Value};
 use serde_json::json;
 use uuid::Uuid;
@@ -18,6 +18,16 @@ fn value_from_datetime_date_time() {
     assert_eq!(Value::from(datetime), Value::DateTime(datetime));
     assert_eq!(Value::from(date), Value::Date(date));
     assert_eq!(Value::from(time), Value::Time(time));
+}
+
+#[test]
+fn value_from_utc_datetime() {
+    let datetime: DateTime<Utc> = Utc
+        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
+        .single()
+        .expect("utc datetime");
+
+    assert_eq!(Value::from(datetime), Value::DateTimeUtc(datetime));
 }
 
 #[test]
@@ -49,6 +59,44 @@ fn select_binds_uuid_datetime_date_time() {
             Value::Date(date),
             Value::Time(time),
         ]
+    );
+}
+
+#[test]
+fn select_binds_utc_datetime() {
+    let table = Table::new("events_tz");
+    let starts_at_col: Column<(), DateTime<Utc>> = Column::new(table, "starts_at");
+    let datetime = Utc
+        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
+        .single()
+        .expect("utc datetime");
+
+    let compiled = Select::<()>::new(table)
+        .filter(starts_at_col.eq(datetime))
+        .compile();
+
+    assert_eq!(compiled.binds, vec![Value::DateTimeUtc(datetime)]);
+}
+
+#[test]
+fn select_supports_utc_datetime_between_and_null_filters() {
+    let table = Table::new("events_tz");
+    let starts_at_col: Column<(), DateTime<Utc>> = Column::new(table, "starts_at");
+    let low = Utc
+        .with_ymd_and_hms(2024, 1, 2, 3, 0, 0)
+        .single()
+        .expect("utc low");
+    let high = low + Duration::minutes(30);
+
+    let compiled = Select::<()>::new(table)
+        .filter(starts_at_col.eq(None::<DateTime<Utc>>))
+        .filter(starts_at_col.between(low, high))
+        .compile();
+
+    assert!(compiled.sql.contains("IS NULL"));
+    assert_eq!(
+        compiled.binds,
+        vec![Value::DateTimeUtc(low), Value::DateTimeUtc(high)]
     );
 }
 

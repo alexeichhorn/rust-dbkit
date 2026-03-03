@@ -16,6 +16,7 @@ pub enum Value {
     Json(serde_json::Value),
     Uuid(uuid::Uuid),
     DateTime(chrono::NaiveDateTime),
+    DateTimeUtc(chrono::DateTime<chrono::Utc>),
     Date(chrono::NaiveDate),
     Time(chrono::NaiveTime),
 }
@@ -126,6 +127,12 @@ impl From<uuid::Uuid> for Value {
 impl From<chrono::NaiveDateTime> for Value {
     fn from(value: chrono::NaiveDateTime) -> Self {
         Self::DateTime(value)
+    }
+}
+
+impl From<chrono::DateTime<chrono::Utc>> for Value {
+    fn from(value: chrono::DateTime<chrono::Utc>) -> Self {
+        Self::DateTimeUtc(value)
     }
 }
 
@@ -299,6 +306,12 @@ impl IntoExpr<uuid::Uuid> for uuid::Uuid {
 impl IntoExpr<chrono::NaiveDateTime> for chrono::NaiveDateTime {
     fn into_expr(self) -> Expr<chrono::NaiveDateTime> {
         Expr::new(ExprNode::Value(Value::DateTime(self)))
+    }
+}
+
+impl IntoExpr<chrono::DateTime<chrono::Utc>> for chrono::DateTime<chrono::Utc> {
+    fn into_expr(self) -> Expr<chrono::DateTime<chrono::Utc>> {
+        Expr::new(ExprNode::Value(Value::DateTimeUtc(self)))
     }
 }
 
