@@ -216,6 +216,7 @@ pub fn build_arguments(binds: &[crate::Value]) -> Result<PgArguments, Error> {
             crate::Value::Json(value) => args.add(value.clone()),
             crate::Value::Uuid(value) => args.add(*value),
             crate::Value::DateTime(value) => args.add(value.clone()),
+            crate::Value::DateTimeUtc(value) => args.add(value.clone()),
             crate::Value::Date(value) => args.add(value.clone()),
             crate::Value::Time(value) => args.add(value.clone()),
         }
