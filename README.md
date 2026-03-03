@@ -378,6 +378,27 @@ let rows = NullableRow::query()
     .await?;
 ```
 
+## Supported types
+
+Built-in typed query/insert/update bindings currently support:
+
+- `bool`
+- `i16`, `i32`, `i64`
+- `f32`, `f64`
+- `String` (and `&str` where string expressions are accepted)
+- `uuid::Uuid`
+- `chrono::NaiveDateTime` (`TIMESTAMP`)
+- `chrono::DateTime<chrono::Utc>` (`TIMESTAMPTZ`)
+- `chrono::NaiveDate` (`DATE`)
+- `chrono::NaiveTime` (`TIME`)
+- `serde_json::Value` (`JSON` / `JSONB`)
+- `Vec<String>` (`TEXT[]`)
+- `Option<T>` for nullable columns, where `T` is one of the above
+
+Notes:
+- `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
+- For types outside this list, use raw `sqlx` queries or add explicit dbkit support first.
+
 Transactions:
 
 ```rust
