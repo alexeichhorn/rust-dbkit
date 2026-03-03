@@ -75,6 +75,14 @@ let users = User::query()
     .await?;
 ```
 
+Row locking:
+
+```rust
+let rows = User::query().for_update().all(&tx).await?;
+let rows = User::query().for_update().skip_locked().all(&tx).await?;
+let rows = User::query().for_update().nowait().all(&tx).await?;
+```
+
 Migrations (optional, via `sqlx`):
 
 ```toml
