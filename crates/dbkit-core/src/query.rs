@@ -481,6 +481,13 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
         if include_locking {
             if let Some(wait) = self.row_lock_wait {
                 builder.push_sql(" FOR UPDATE");
+                if extra_joins
+                    .iter()
+                    .any(|join| matches!(join.kind, JoinKind::Left))
+                {
+                    builder.push_sql(" OF ");
+                    builder.push_sql(self.table.qualifier());
+                }
                 match wait {
                     RowLockWait::Wait => {}
                     RowLockWait::SkipLocked => builder.push_sql(" SKIP LOCKED"),
