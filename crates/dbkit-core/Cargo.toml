@@ -6,10 +6,15 @@ license.workspace = true
 description = "Core types and SQL building blocks for the dbkit ORM."
 repository = "https://github.com/alexeichhorn/rust-dbkit"
 
+[features]
+default = ["sqlx"]
+sqlx = ["dep:sqlx"]
+
 [dependencies]
 chrono = "0.4"
 serde_json = "1.0.149"
 uuid = "1"
+sqlx = { version = "0.7", default-features = false, features = ["postgres"], optional = true }
 
 [dev-dependencies]
 chrono = "0.4"
