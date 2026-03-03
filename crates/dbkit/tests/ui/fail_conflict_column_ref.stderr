@@ -1,0 +1,19 @@
+error[E0277]: the trait bound `(ColumnRef, ColumnRef): ConflictColumns<_>` is not satisfied
+  --> tests/ui/fail_conflict_column_ref.rs:22:29
+   |
+22 |     .on_conflict_do_nothing((RunPayload::target_id.as_ref(), RunPayload::run_id.as_ref()));
+   |      ---------------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `ConflictColumns<_>` is not implemented for `(ColumnRef, ColumnRef)`
+   |      |
+   |      required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `ConflictColumns<M>`:
+             (dbkit::Column<M, T1>, dbkit::Column<M, T2>)
+             (dbkit::Column<M, T1>, dbkit::Column<M, T2>, dbkit::Column<M, T3>)
+note: required by a bound in `Insert::<Out>::on_conflict_do_nothing`
+  --> $WORKSPACE/crates/dbkit-core/src/mutation.rs
+   |
+   |     pub fn on_conflict_do_nothing<M, C>(mut self, target: C) -> Self
+   |            ---------------------- required by a bound in this associated function
+   |     where
+   |         C: ConflictColumns<M>,
+   |            ^^^^^^^^^^^^^^^^^^ required by this bound in `Insert::<Out>::on_conflict_do_nothing`

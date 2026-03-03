@@ -113,6 +113,17 @@ pub struct OrderLine {
     pub note: String,
 }
 
+#[model(table = "run_payloads")]
+pub struct RunPayload {
+    #[key]
+    pub target_id: i64,
+    #[key]
+    pub run_id: i64,
+    pub payload: String,
+    pub source: String,
+    pub version: i64,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -178,6 +189,14 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
             line_id BIGINT NOT NULL,\
             note TEXT NOT NULL,\
             PRIMARY KEY (order_id, line_id)\
+        )",
+        "CREATE TEMP TABLE run_payloads (\
+            target_id BIGINT NOT NULL,\
+            run_id BIGINT NOT NULL,\
+            payload TEXT NOT NULL,\
+            source TEXT NOT NULL,\
+            version BIGINT NOT NULL,\
+            PRIMARY KEY (target_id, run_id)\
         )",
     ];
 
@@ -281,6 +300,28 @@ async fn seed_order_line<E: Executor + Send + Sync>(
     Ok(row)
 }
 
+async fn seed_run_payload<E: Executor + Send + Sync>(
+    ex: &E,
+    target_id: i64,
+    run_id: i64,
+    payload: &str,
+    source: &str,
+    version: i64,
+) -> Result<RunPayload, dbkit::Error> {
+    let row = RunPayload::insert(RunPayloadInsert {
+        target_id,
+        run_id,
+        payload: payload.to_string(),
+        source: source.to_string(),
+        version,
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted run payload");
+    Ok(row)
+}
+
 #[tokio::test]
 async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
@@ -339,6 +380,135 @@ async fn insert_many_inserts_multiple_rows() -> Result<(), dbkit::Error> {
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alpha");
     assert_eq!(users[1].name, "Beta");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn on_conflict_do_nothing_ignores_duplicate_composite_key() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let original = seed_run_payload(&tx, 100, 200, "payload-v1", "ingest-a", 1).await?;
+    assert_eq!(original.payload, "payload-v1");
+
+    let affected = RunPayload::insert(RunPayloadInsert {
+        target_id: 100,
+        run_id: 200,
+        payload: "payload-v2".to_string(),
+        source: "ingest-b".to_string(),
+        version: 2,
+    })
+    .on_conflict_do_nothing((RunPayload::target_id, RunPayload::run_id))
+    .execute(&tx)
+    .await?;
+    assert_eq!(affected, 0);
+
+    let rows = RunPayload::query()
+        .filter(RunPayload::target_id.eq(100))
+        .filter(RunPayload::run_id.eq(200))
+        .all(&tx)
+        .await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].payload, "payload-v1");
+    assert_eq!(rows[0].source, "ingest-a");
+    assert_eq!(rows[0].version, 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn on_conflict_do_nothing_with_returning_all_returns_none_on_conflict() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let _original = seed_run_payload(&tx, 10, 20, "payload-v1", "ingest-a", 1).await?;
+
+    let row: Option<RunPayload> = RunPayload::insert(RunPayloadInsert {
+        target_id: 10,
+        run_id: 20,
+        payload: "payload-v2".to_string(),
+        source: "ingest-b".to_string(),
+        version: 2,
+    })
+    .on_conflict_do_nothing((RunPayload::target_id, RunPayload::run_id))
+    .returning_all()
+    .one(&tx)
+    .await?;
+
+    assert!(row.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn on_conflict_do_update_updates_only_selected_columns_on_conflict() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let _original = seed_run_payload(&tx, 500, 600, "payload-v1", "ingest-a", 1).await?;
+
+    let affected = RunPayload::insert(RunPayloadInsert {
+        target_id: 500,
+        run_id: 600,
+        payload: "payload-v2".to_string(),
+        source: "ingest-b".to_string(),
+        version: 2,
+    })
+    .on_conflict_do_update(
+        (RunPayload::target_id, RunPayload::run_id),
+        (RunPayload::payload, RunPayload::version),
+    )
+    .execute(&tx)
+    .await?;
+    assert_eq!(affected, 1);
+
+    let rows = RunPayload::query()
+        .filter(RunPayload::target_id.eq(500))
+        .filter(RunPayload::run_id.eq(600))
+        .all(&tx)
+        .await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].payload, "payload-v2");
+    assert_eq!(rows[0].version, 2);
+    assert_eq!(rows[0].source, "ingest-a");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn on_conflict_do_update_inserts_when_no_conflict_exists() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let affected = RunPayload::insert(RunPayloadInsert {
+        target_id: 700,
+        run_id: 800,
+        payload: "payload-v1".to_string(),
+        source: "ingest-a".to_string(),
+        version: 1,
+    })
+    .on_conflict_do_update(
+        (RunPayload::target_id, RunPayload::run_id),
+        (RunPayload::payload, RunPayload::version),
+    )
+    .execute(&tx)
+    .await?;
+    assert_eq!(affected, 1);
+
+    let rows = RunPayload::query()
+        .filter(RunPayload::target_id.eq(700))
+        .filter(RunPayload::run_id.eq(800))
+        .all(&tx)
+        .await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].payload, "payload-v1");
+    assert_eq!(rows[0].source, "ingest-a");
+    assert_eq!(rows[0].version, 1);
 
     Ok(())
 }

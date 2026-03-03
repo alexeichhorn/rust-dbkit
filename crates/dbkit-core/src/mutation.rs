@@ -11,6 +11,7 @@ pub struct Insert<Out> {
     values: Vec<Value>,
     row_count: usize,
     mode: InsertMode,
+    conflict: Option<InsertConflict>,
     returning: Option<Vec<ColumnRef>>,
     returning_all: bool,
     _marker: PhantomData<Out>,
@@ -23,6 +24,46 @@ enum InsertMode {
     Rows,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InsertConflict {
+    DoNothing { target: Vec<ColumnRef> },
+    DoUpdate {
+        target: Vec<ColumnRef>,
+        updates: Vec<ColumnRef>,
+    },
+}
+
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait ConflictColumns<M>: private::Sealed {
+    fn into_columns(self) -> Vec<ColumnRef>;
+}
+
+impl<M, T> ConflictColumns<M> for Column<M, T> {
+    fn into_columns(self) -> Vec<ColumnRef> {
+        vec![self.as_ref()]
+    }
+}
+impl<M, T> private::Sealed for Column<M, T> {}
+
+impl<M, T1, T2> ConflictColumns<M> for (Column<M, T1>, Column<M, T2>) {
+    fn into_columns(self) -> Vec<ColumnRef> {
+        let (a, b) = self;
+        vec![a.as_ref(), b.as_ref()]
+    }
+}
+impl<M, T1, T2> private::Sealed for (Column<M, T1>, Column<M, T2>) {}
+
+impl<M, T1, T2, T3> ConflictColumns<M> for (Column<M, T1>, Column<M, T2>, Column<M, T3>) {
+    fn into_columns(self) -> Vec<ColumnRef> {
+        let (a, b, c) = self;
+        vec![a.as_ref(), b.as_ref(), c.as_ref()]
+    }
+}
+impl<M, T1, T2, T3> private::Sealed for (Column<M, T1>, Column<M, T2>, Column<M, T3>) {}
+
 impl<Out> Insert<Out> {
     pub fn new(table: Table) -> Self {
         Self {
@@ -31,6 +72,7 @@ impl<Out> Insert<Out> {
             values: Vec::new(),
             row_count: 0,
             mode: InsertMode::Unset,
+            conflict: None,
             returning: None,
             returning_all: false,
             _marker: PhantomData,
@@ -103,6 +145,28 @@ impl<Out> Insert<Out> {
         self
     }
 
+    pub fn on_conflict_do_nothing<M, C>(mut self, target: C) -> Self
+    where
+        C: ConflictColumns<M>,
+    {
+        self.conflict = Some(InsertConflict::DoNothing {
+            target: target.into_columns(),
+        });
+        self
+    }
+
+    pub fn on_conflict_do_update<M, C, U>(mut self, target: C, updates: U) -> Self
+    where
+        C: ConflictColumns<M>,
+        U: ConflictColumns<M>,
+    {
+        self.conflict = Some(InsertConflict::DoUpdate {
+            target: target.into_columns(),
+            updates: updates.into_columns(),
+        });
+        self
+    }
+
     pub fn compile(&self) -> CompiledSql {
         let mut builder = SqlBuilder::new();
         builder.push_sql("INSERT INTO ");
@@ -136,6 +200,37 @@ impl<Out> Insert<Out> {
                     builder.push_value(value);
                 }
                 builder.push_sql(")");
+            }
+        }
+        if let Some(conflict) = &self.conflict {
+            let target = match conflict {
+                InsertConflict::DoNothing { target } => target,
+                InsertConflict::DoUpdate { target, .. } => target,
+            };
+            builder.push_sql(" ON CONFLICT (");
+            for (idx, col) in target.iter().enumerate() {
+                if idx > 0 {
+                    builder.push_sql(", ");
+                }
+                builder.push_sql(col.name);
+            }
+            builder.push_sql(")");
+
+            match conflict {
+                InsertConflict::DoNothing { .. } => {
+                    builder.push_sql(" DO NOTHING");
+                }
+                InsertConflict::DoUpdate { updates, .. } => {
+                    builder.push_sql(" DO UPDATE SET ");
+                    for (idx, col) in updates.iter().enumerate() {
+                        if idx > 0 {
+                            builder.push_sql(", ");
+                        }
+                        builder.push_sql(col.name);
+                        builder.push_sql(" = EXCLUDED.");
+                        builder.push_sql(col.name);
+                    }
+                }
             }
         }
         if self.returning_all {

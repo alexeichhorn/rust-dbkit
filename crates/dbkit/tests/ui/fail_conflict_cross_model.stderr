@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `(dbkit::Column<RunPayloadModel, std::string::String>, dbkit::Column<OtherRowModel, std::string::String>): ConflictColumns<RunPayloadModel>` is not satisfied
+  --> tests/ui/fail_conflict_cross_model.rs:31:9
+   |
+29 |     .on_conflict_do_update(
+   |      --------------------- required by a bound introduced by this call
+30 |         (RunPayload::target_id, RunPayload::run_id),
+31 |         (RunPayload::payload, OtherRow::value),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+   = help: the trait `ConflictColumns<RunPayloadModel>` is not implemented for `(dbkit::Column<RunPayloadModel, std::string::String>, dbkit::Column<OtherRowModel, std::string::String>)`
+   = help: the following other types implement trait `ConflictColumns<M>`:
+             (dbkit::Column<M, T1>, dbkit::Column<M, T2>)
+             (dbkit::Column<M, T1>, dbkit::Column<M, T2>, dbkit::Column<M, T3>)
+note: required by a bound in `Insert::<Out>::on_conflict_do_update`
+  --> $WORKSPACE/crates/dbkit-core/src/mutation.rs
+   |
+   |     pub fn on_conflict_do_update<M, C, U>(mut self, target: C, updates: U) -> Self
+   |            --------------------- required by a bound in this associated function
+...
+   |         U: ConflictColumns<M>,
+   |            ^^^^^^^^^^^^^^^^^^ required by this bound in `Insert::<Out>::on_conflict_do_update`
