@@ -1,4 +1,4 @@
-use dbkit_core::{expr::Value, Column, Order, Select, Table};
+use dbkit_core::{expr::{ExprNode, Value}, Column, Join, JoinKind, Order, Select, SelectItem, Table};
 
 #[derive(Debug)]
 struct User;
@@ -32,7 +32,7 @@ fn todo_title() -> Column<Todo, String> {
 
 #[test]
 fn compiles_for_update_clause() {
-    let query: Select<User> = Select::new(user_table()).for_update();
+    let query = Select::<User>::new(user_table()).for_update();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.* FROM users FOR UPDATE");
@@ -41,7 +41,7 @@ fn compiles_for_update_clause() {
 
 #[test]
 fn compiles_for_update_skip_locked_clause() {
-    let query: Select<User> = Select::new(user_table()).for_update().skip_locked();
+    let query = Select::<User>::new(user_table()).for_update().skip_locked();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.* FROM users FOR UPDATE SKIP LOCKED");
@@ -50,7 +50,7 @@ fn compiles_for_update_skip_locked_clause() {
 
 #[test]
 fn compiles_for_update_nowait_clause() {
-    let query: Select<User> = Select::new(user_table()).for_update().nowait();
+    let query = Select::<User>::new(user_table()).for_update().nowait();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.* FROM users FOR UPDATE NOWAIT");
@@ -59,7 +59,7 @@ fn compiles_for_update_nowait_clause() {
 
 #[test]
 fn compiles_locking_after_order_limit_offset() {
-    let query: Select<User> = Select::new(user_table())
+    let query = Select::<User>::new(user_table())
         .filter(user_email().ilike("%@example.com"))
         .order_by(Order::asc(user_id()))
         .limit(20)
@@ -77,7 +77,7 @@ fn compiles_locking_after_order_limit_offset() {
 
 #[test]
 fn compiles_locking_when_for_update_called_before_other_clauses() {
-    let query: Select<User> = Select::new(user_table())
+    let query = Select::<User>::new(user_table())
         .for_update()
         .filter(user_email().ilike("%@example.com"))
         .order_by(Order::desc(user_id()))
@@ -95,7 +95,7 @@ fn compiles_locking_when_for_update_called_before_other_clauses() {
 
 #[test]
 fn compiles_locking_with_join_filter_distinct() {
-    let query: Select<User> = Select::new(user_table())
+    let query = Select::<User>::new(user_table())
         .join_on(todo_table(), user_id().eq_col(todo_user_id()))
         .filter(todo_title().eq("Senior Rust Engineer"))
         .distinct()
@@ -115,7 +115,7 @@ fn compiles_locking_with_join_filter_distinct() {
 
 #[test]
 fn compiles_select_only_with_locking_clause() {
-    let query: Select<User> = Select::new(user_table())
+    let query = Select::<User>::new(user_table())
         .select_only()
         .column(user_id())
         .for_update();
@@ -127,7 +127,7 @@ fn compiles_select_only_with_locking_clause() {
 
 #[test]
 fn for_update_is_idempotent() {
-    let query: Select<User> = Select::new(user_table()).for_update().for_update();
+    let query = Select::<User>::new(user_table()).for_update().for_update();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.* FROM users FOR UPDATE");
@@ -136,7 +136,7 @@ fn for_update_is_idempotent() {
 
 #[test]
 fn skip_locked_is_idempotent() {
-    let query: Select<User> = Select::new(user_table())
+    let query = Select::<User>::new(user_table())
         .for_update()
         .skip_locked()
         .skip_locked();
@@ -148,9 +148,55 @@ fn skip_locked_is_idempotent() {
 
 #[test]
 fn nowait_is_idempotent() {
-    let query: Select<User> = Select::new(user_table()).for_update().nowait().nowait();
+    let query = Select::<User>::new(user_table())
+        .for_update()
+        .nowait()
+        .nowait();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.* FROM users FOR UPDATE NOWAIT");
     assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compile_without_pagination_omits_locking_for_count_exists_subqueries() {
+    let query = Select::<User>::new(user_table())
+        .filter(user_email().eq("worker@example.com"))
+        .order_by(Order::desc(user_id()))
+        .limit(5)
+        .offset(10)
+        .for_update()
+        .skip_locked();
+
+    let sql = query.compile_without_pagination();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users WHERE (users.email = $1)"
+    );
+    assert_eq!(sql.binds, vec![Value::String("worker@example.com".to_string())]);
+}
+
+#[test]
+fn compile_with_extra_preserves_locking_clause() {
+    let query = Select::<User>::new(user_table())
+        .filter(user_id().eq(42))
+        .for_update()
+        .nowait();
+
+    let extra_columns = vec![SelectItem {
+        expr: ExprNode::Column(todo_title().as_ref()),
+        alias: Some("todo_title".to_string()),
+    }];
+    let extra_joins = vec![Join {
+        table: todo_table(),
+        on: user_id().eq_col(todo_user_id()),
+        kind: JoinKind::Inner,
+    }];
+
+    let sql = query.compile_with_extra(&extra_columns, &extra_joins);
+    assert_eq!(
+        sql.sql,
+        "SELECT users.*, todos.title AS todo_title FROM users JOIN todos ON (users.id = todos.user_id) WHERE (users.id = $1) FOR UPDATE NOWAIT"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(42)]);
 }
