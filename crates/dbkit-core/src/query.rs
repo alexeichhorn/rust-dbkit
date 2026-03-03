@@ -71,6 +71,12 @@ pub struct NoRowLock;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ForUpdateRowLock;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NotDistinct;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DistinctSelected;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RowLockWait {
     Wait,
@@ -79,7 +85,7 @@ enum RowLockWait {
 }
 
 #[derive(Debug, Clone)]
-pub struct Select<Out, Loads = NoLoad, Lock = NoRowLock> {
+pub struct Select<Out, Loads = NoLoad, Lock = NoRowLock, DistinctState = NotDistinct> {
     table: Table,
     columns: Option<Vec<SelectItem>>,
     joins: Vec<Join>,
@@ -94,9 +100,10 @@ pub struct Select<Out, Loads = NoLoad, Lock = NoRowLock> {
     loads: Loads,
     _marker: PhantomData<Out>,
     _lock_marker: PhantomData<Lock>,
+    _distinct_marker: PhantomData<DistinctState>,
 }
 
-impl<Out> Select<Out, NoLoad, NoRowLock> {
+impl<Out> Select<Out, NoLoad, NoRowLock, NotDistinct> {
     pub fn new(table: Table) -> Self {
         Self {
             table,
@@ -113,11 +120,12 @@ impl<Out> Select<Out, NoLoad, NoRowLock> {
             loads: NoLoad,
             _marker: PhantomData,
             _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
         }
     }
 }
 
-impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
+impl<Out, Loads, Lock, DistinctState> Select<Out, Loads, Lock, DistinctState> {
     pub fn table(&self) -> Table {
         self.table
     }
@@ -232,11 +240,6 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
         self
     }
 
-    pub fn distinct(mut self) -> Self {
-        self.distinct = true;
-        self
-    }
-
     pub fn order_by(mut self, order: Order) -> Self {
         self.order_by.push(order);
         self
@@ -254,7 +257,7 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
         self
     }
 
-    pub fn into_model<T>(self) -> Select<T, Loads, Lock> {
+    pub fn into_model<T>(self) -> Select<T, Loads, Lock, DistinctState> {
         Select {
             table: self.table,
             columns: self.columns,
@@ -270,10 +273,11 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
             loads: self.loads,
             _marker: PhantomData,
             _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
         }
     }
 
-    pub fn with<L>(self, load: L) -> Select<L::Out2, LoadChain<Loads, L>, Lock>
+    pub fn with<L>(self, load: L) -> Select<L::Out2, LoadChain<Loads, L>, Lock, DistinctState>
     where
         L: ApplyLoad<Out>,
     {
@@ -295,25 +299,7 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
             },
             _marker: PhantomData,
             _lock_marker: PhantomData,
-        }
-    }
-
-    pub fn for_update(self) -> Select<Out, Loads, ForUpdateRowLock> {
-        Select {
-            table: self.table,
-            columns: self.columns,
-            joins: self.joins,
-            filters: self.filters,
-            group_by: self.group_by,
-            having: self.having,
-            order_by: self.order_by,
-            limit: self.limit,
-            offset: self.offset,
-            distinct: self.distinct,
-            row_lock_wait: Some(self.row_lock_wait.unwrap_or(RowLockWait::Wait)),
-            loads: self.loads,
-            _marker: PhantomData,
-            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
         }
     }
 
@@ -507,7 +493,7 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
         (compiled, self.loads)
     }
 
-    pub fn into_parts_with_loads(self) -> (Select<Out, NoLoad, Lock>, Loads) {
+    pub fn into_parts_with_loads(self) -> (Select<Out, NoLoad, Lock, DistinctState>, Loads) {
         let Select {
             table,
             columns,
@@ -523,6 +509,7 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
             loads,
             _marker,
             _lock_marker,
+            _distinct_marker,
         } = self;
 
         let select = Select {
@@ -540,13 +527,67 @@ impl<Out, Loads, Lock> Select<Out, Loads, Lock> {
             loads: NoLoad,
             _marker,
             _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
         };
 
         (select, loads)
     }
 }
 
-impl<Out, Loads> Select<Out, Loads, ForUpdateRowLock> {
+impl<Out, Loads> Select<Out, Loads, NoRowLock, NotDistinct> {
+    pub fn distinct(mut self) -> Select<Out, Loads, NoRowLock, DistinctSelected> {
+        self.distinct = true;
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
+            loads: self.loads,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+        }
+    }
+
+    pub fn for_update(self) -> Select<Out, Loads, ForUpdateRowLock, NotDistinct> {
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: Some(self.row_lock_wait.unwrap_or(RowLockWait::Wait)),
+            loads: self.loads,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+        }
+    }
+}
+
+impl<Out, Loads> Select<Out, Loads, NoRowLock, DistinctSelected> {
+    pub fn distinct(self) -> Self {
+        self
+    }
+}
+
+impl<Out, Loads> Select<Out, Loads, ForUpdateRowLock, NotDistinct> {
+    pub fn for_update(self) -> Self {
+        self
+    }
+
     pub fn skip_locked(mut self) -> Self {
         self.row_lock_wait = Some(RowLockWait::SkipLocked);
         self

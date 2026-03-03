@@ -94,18 +94,17 @@ fn compiles_locking_when_for_update_called_before_other_clauses() {
 }
 
 #[test]
-fn compiles_locking_with_join_filter_distinct() {
+fn compiles_locking_with_join_filter() {
     let query = Select::<User>::new(user_table())
         .join_on(todo_table(), user_id().eq_col(todo_user_id()))
         .filter(todo_title().eq("Senior Rust Engineer"))
-        .distinct()
         .for_update()
         .nowait();
 
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT DISTINCT users.* FROM users JOIN todos ON (users.id = todos.user_id) WHERE (todos.title = $1) FOR UPDATE NOWAIT"
+        "SELECT users.* FROM users JOIN todos ON (users.id = todos.user_id) WHERE (todos.title = $1) FOR UPDATE NOWAIT"
     );
     assert_eq!(
         sql.binds,
