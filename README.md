@@ -132,6 +132,31 @@ let inserted = User::insert_many(vec![
 assert_eq!(inserted, 2);
 ```
 
+Insert conflict handling (`ON CONFLICT`):
+
+```rust
+let ignored = User::insert(UserInsert {
+    name: "Alex".to_string(),
+    email: "a@b.com".to_string(),
+})
+.on_conflict_do_nothing(User::email)
+.execute(&db)
+.await?;
+
+let updated = OrderLine::insert(OrderLineInsert {
+    order_id: 7,
+    line_id: 8,
+    note: "Updated via upsert".to_string(),
+})
+.on_conflict_do_update(
+    (OrderLine::order_id, OrderLine::line_id),
+    OrderLine::note,
+)
+.returning_all()
+.one(&db)
+.await?;
+```
+
 Active model insert / update (change-tracked):
 
 ```rust
@@ -354,6 +379,7 @@ tx.commit().await?;
 - [x] Add `between(a, b)` convenience for columns/expressions.
 - [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
+- [x] Add typed conflict helpers: `on_conflict_do_nothing`, `on_conflict_do_update`.
 - [x] Add ActiveModel `save()` that chooses insert vs update.
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
