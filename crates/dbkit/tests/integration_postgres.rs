@@ -5,6 +5,9 @@ use dbkit::prelude::*;
 use dbkit::{model, Database, Executor};
 use dbkit::sqlx::postgres::PgArguments;
 use serde_json::json;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 #[model(table = "users")]
@@ -124,6 +127,15 @@ pub struct RunPayload {
     pub version: i64,
 }
 
+#[model(table = "dbkit_lock_rows")]
+pub struct LockRow {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub token: Uuid,
+    pub note: String,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -205,6 +217,62 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
     }
 
     Ok(())
+}
+
+async fn setup_locking_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
+    ex.execute(
+        "CREATE TABLE IF NOT EXISTS dbkit_lock_rows (\
+            id BIGSERIAL PRIMARY KEY,\
+            token UUID NOT NULL,\
+            note TEXT NOT NULL\
+        )",
+        PgArguments::default(),
+    )
+    .await?;
+    ex.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dbkit_lock_rows_token ON dbkit_lock_rows(token)",
+        PgArguments::default(),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn seed_lock_row<E: Executor + Send + Sync>(ex: &E, token: Uuid, note: &str) -> Result<LockRow, dbkit::Error> {
+    let row = LockRow::insert(LockRowInsert {
+        token,
+        note: note.to_string(),
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted lock row");
+    Ok(row)
+}
+
+async fn cleanup_lock_rows<E: Executor + Send + Sync>(ex: &E, token: Uuid) -> Result<(), dbkit::Error> {
+    LockRow::delete()
+        .filter(LockRow::token.eq(token))
+        .execute(ex)
+        .await?;
+    Ok(())
+}
+
+fn is_lock_not_available(err: &dbkit::Error) -> bool {
+    match err {
+        dbkit::Error::Sqlx(sqlx_err) => sqlx_err
+            .as_database_error()
+            .and_then(|db_err| db_err.code())
+            .map(|code| code.as_ref() == "55P03")
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn unique_lock_token() -> Uuid {
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+    let pid = std::process::id() as u128;
+    Uuid::from_u128((pid << 64) | seq)
 }
 
 async fn seed_user<E: Executor + Send + Sync>(ex: &E, name: &str, email: &str) -> Result<User, dbkit::Error> {
@@ -1891,5 +1959,196 @@ async fn composite_primary_key_model_delete_removes_row() -> Result<(), dbkit::E
         .await?;
     assert!(removed.is_none());
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn locking_for_update_blocks_until_first_transaction_releases_lock() -> Result<(), dbkit::Error> {
+    let db_a = Database::connect(&db_url()).await?;
+    let db_b = Database::connect(&db_url()).await?;
+    setup_locking_schema(&db_a).await?;
+
+    let token = unique_lock_token();
+    let row = seed_lock_row(&db_a, token, "row-1").await?;
+
+    let tx1 = db_a.begin().await?;
+    let locked = LockRow::query()
+        .filter(LockRow::id.eq(row.id))
+        .for_update()
+        .one(&tx1)
+        .await?;
+    assert!(locked.is_some());
+
+    let row_id = row.id;
+    let handle = tokio::spawn(async move {
+        let tx2 = db_b.begin().await?;
+        let row = LockRow::query()
+            .filter(LockRow::id.eq(row_id))
+            .for_update()
+            .one(&tx2)
+            .await?;
+        tx2.rollback().await?;
+        Ok::<Option<LockRow>, dbkit::Error>(row)
+    });
+
+    sleep(Duration::from_millis(150)).await;
+    assert!(
+        !handle.is_finished(),
+        "second transaction acquired lock before first released it"
+    );
+
+    tx1.commit().await?;
+
+    let locked_after_release = timeout(Duration::from_secs(2), handle)
+        .await
+        .expect("second transaction should complete once lock is released")
+        .expect("join should succeed")?;
+    assert!(locked_after_release.is_some());
+
+    cleanup_lock_rows(&db_a, token).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn locking_skip_locked_skips_rows_locked_by_another_transaction() -> Result<(), dbkit::Error> {
+    let db_a = Database::connect(&db_url()).await?;
+    let db_b = Database::connect(&db_url()).await?;
+    setup_locking_schema(&db_a).await?;
+
+    let token = unique_lock_token();
+    let first = seed_lock_row(&db_a, token, "first").await?;
+    let second = seed_lock_row(&db_a, token, "second").await?;
+
+    let tx1 = db_a.begin().await?;
+    let locked_first = LockRow::query()
+        .filter(LockRow::id.eq(first.id))
+        .for_update()
+        .one(&tx1)
+        .await?;
+    assert!(locked_first.is_some());
+
+    let tx2 = db_b.begin().await?;
+    let rows = LockRow::query()
+        .filter(LockRow::token.eq(token))
+        .order_by(dbkit::Order::asc(LockRow::id))
+        .for_update()
+        .skip_locked()
+        .all(&tx2)
+        .await?;
+    tx2.rollback().await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, second.id);
+
+    tx1.rollback().await?;
+    cleanup_lock_rows(&db_a, token).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn locking_nowait_errors_immediately_when_row_is_locked() -> Result<(), dbkit::Error> {
+    let db_a = Database::connect(&db_url()).await?;
+    let db_b = Database::connect(&db_url()).await?;
+    setup_locking_schema(&db_a).await?;
+
+    let token = unique_lock_token();
+    let row = seed_lock_row(&db_a, token, "locked").await?;
+
+    let tx1 = db_a.begin().await?;
+    let _locked = LockRow::query()
+        .filter(LockRow::id.eq(row.id))
+        .for_update()
+        .one(&tx1)
+        .await?;
+
+    let tx2 = db_b.begin().await?;
+    let err = LockRow::query()
+        .filter(LockRow::id.eq(row.id))
+        .for_update()
+        .nowait()
+        .one(&tx2)
+        .await
+        .expect_err("NOWAIT should fail when the row is already locked");
+    assert!(
+        is_lock_not_available(&err),
+        "expected postgres lock_not_available (55P03), got: {err:?}"
+    );
+    tx2.rollback().await?;
+
+    tx1.rollback().await?;
+    cleanup_lock_rows(&db_a, token).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn locking_nowait_succeeds_without_lock_contention() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    setup_locking_schema(&db).await?;
+
+    let token = unique_lock_token();
+    let row = seed_lock_row(&db, token, "free").await?;
+
+    let tx = db.begin().await?;
+    let selected = LockRow::query()
+        .filter(LockRow::id.eq(row.id))
+        .for_update()
+        .nowait()
+        .one(&tx)
+        .await?;
+    tx.rollback().await?;
+
+    let selected = selected.expect("row should be selected");
+    assert_eq!(selected.id, row.id);
+
+    cleanup_lock_rows(&db, token).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn locking_for_update_with_limit_locks_only_selected_rows() -> Result<(), dbkit::Error> {
+    let db_a = Database::connect(&db_url()).await?;
+    let db_b = Database::connect(&db_url()).await?;
+    setup_locking_schema(&db_a).await?;
+
+    let token = unique_lock_token();
+    let first = seed_lock_row(&db_a, token, "first").await?;
+    let second = seed_lock_row(&db_a, token, "second").await?;
+
+    let tx1 = db_a.begin().await?;
+    let selected = LockRow::query()
+        .filter(LockRow::token.eq(token))
+        .order_by(dbkit::Order::asc(LockRow::id))
+        .limit(1)
+        .for_update()
+        .all(&tx1)
+        .await?;
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].id, first.id);
+
+    let tx2 = db_b.begin().await?;
+    let second_row = LockRow::query()
+        .filter(LockRow::id.eq(second.id))
+        .for_update()
+        .nowait()
+        .one(&tx2)
+        .await?;
+    let second_row = second_row.expect("second row should not be locked by tx1");
+    assert_eq!(second_row.id, second.id);
+
+    let first_lock_err = LockRow::query()
+        .filter(LockRow::id.eq(first.id))
+        .for_update()
+        .nowait()
+        .one(&tx2)
+        .await
+        .expect_err("first row should be locked by tx1");
+    assert!(
+        is_lock_not_available(&first_lock_err),
+        "expected postgres lock_not_available (55P03), got: {first_lock_err:?}"
+    );
+
+    tx2.rollback().await?;
+    tx1.rollback().await?;
+    cleanup_lock_rows(&db_a, token).await?;
     Ok(())
 }
