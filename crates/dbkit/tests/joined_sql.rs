@@ -158,3 +158,24 @@ async fn joined_nested_many_to_many_uses_single_join_query() -> Result<(), dbkit
 
     Ok(())
 }
+
+#[tokio::test]
+async fn joined_for_update_scopes_lock_to_base_table() -> Result<(), dbkit::Error> {
+    let ex = CaptureExecutor::new();
+    let _rows: Vec<UserModel<Vec<Todo>>> = User::query()
+        .with(User::todos.joined())
+        .for_update()
+        .nowait()
+        .all(&ex)
+        .await?;
+
+    let sqls = ex.sqls.lock().expect("lock");
+    assert_eq!(sqls.len(), 1);
+    let sql = &sqls[0];
+    assert!(
+        sql.contains("FOR UPDATE OF users NOWAIT"),
+        "sql should scope lock to base table: {sql}"
+    );
+
+    Ok(())
+}

@@ -200,3 +200,28 @@ fn compile_with_extra_preserves_locking_clause() {
     );
     assert_eq!(sql.binds, vec![Value::I64(42)]);
 }
+
+#[test]
+fn compile_with_extra_left_join_scopes_lock_to_base_table() {
+    let query = Select::<User>::new(user_table())
+        .filter(user_id().eq(7))
+        .for_update()
+        .nowait();
+
+    let extra_columns = vec![SelectItem {
+        expr: ExprNode::Column(todo_title().as_ref()),
+        alias: Some("todo_title".to_string()),
+    }];
+    let extra_joins = vec![Join {
+        table: todo_table(),
+        on: user_id().eq_col(todo_user_id()),
+        kind: JoinKind::Left,
+    }];
+
+    let sql = query.compile_with_extra(&extra_columns, &extra_joins);
+    assert_eq!(
+        sql.sql,
+        "SELECT users.*, todos.title AS todo_title FROM users LEFT JOIN todos ON (users.id = todos.user_id) WHERE (users.id = $1) FOR UPDATE OF users NOWAIT"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(7)]);
+}
