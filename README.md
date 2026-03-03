@@ -414,6 +414,7 @@ tx.commit().await?;
 - [x] Add SQL function expressions in queries (e.g., `COALESCE`, `DATE_TRUNC`, `UPPER`).
 - [x] Add JSON column support (`serde_json::Value`) for insert/update/filter.
 - [x] Add Postgres array column support (e.g., `Vec<String>`) for insert/update/filter.
+- [ ] Generalize Postgres array support beyond `Vec<String>` (e.g., `Vec<i64>`, `Vec<uuid::Uuid>`, `Vec<bool>`).
 - [x] Add bulk insert support (multi-row `insert_many`).
 - [x] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
 - [x] Allow `order_by` on expressions or aliases (e.g., `date_trunc(...)`, `total`).
