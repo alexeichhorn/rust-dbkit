@@ -6,9 +6,14 @@ error[E0277]: the trait bound `(ColumnRef, ColumnRef): ConflictColumns<_>` is no
    |      |
    |      required by a bound introduced by this call
    |
-   = help: the following other types implement trait `ConflictColumns<M>`:
-             (dbkit::Column<M, T1>, dbkit::Column<M, T2>)
-             (dbkit::Column<M, T1>, dbkit::Column<M, T2>, dbkit::Column<M, T3>)
+help: the following other types implement trait `ConflictColumns<M>`
+  --> $WORKSPACE/crates/dbkit-core/src/mutation.rs
+   |
+   | impl<M, T1, T2> ConflictColumns<M> for (Column<M, T1>, Column<M, T2>) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `(dbkit::Column<M, T1>, dbkit::Column<M, T2>)`
+...
+   | impl<M, T1, T2, T3> ConflictColumns<M> for (Column<M, T1>, Column<M, T2>, Column<M, T3>) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `(dbkit::Column<M, T1>, dbkit::Column<M, T2>, dbkit::Column<M, T3>)`
 note: required by a bound in `Insert::<Out>::on_conflict_do_nothing`
   --> $WORKSPACE/crates/dbkit-core/src/mutation.rs
    |
