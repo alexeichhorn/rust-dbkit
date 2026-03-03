@@ -21,9 +21,12 @@ fn main() -> ui_test::color_eyre::Result<()> {
     config.filter_files = vec![
         "basic.rs".into(),
         "pass_datetime_utc.rs".into(),
+        "pass_locking_api.rs".into(),
         "fail_unloaded.rs".into(),
         "fail_conflict_cross_model.rs".into(),
         "fail_conflict_column_ref.rs".into(),
+        "fail_skip_locked_without_for_update.rs".into(),
+        "fail_nowait_without_for_update.rs".into(),
     ];
     ui_test::run_tests(config)
 }
