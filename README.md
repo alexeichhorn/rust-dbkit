@@ -177,6 +177,57 @@ let updated = OrderLine::insert(OrderLineInsert {
 .await?;
 ```
 
+`pgvector` embeddings:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+```rust
+#[model(table = "embedding_rows")]
+#[derive(Debug)]
+struct EmbeddingRow {
+    #[key]
+    id: i64,
+    label: String,
+    embedding: dbkit::PgVector<3>,
+    embedding_optional: Option<dbkit::PgVector<3>>,
+}
+
+let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0])?;
+
+let nearest = EmbeddingRow::query()
+    .filter(EmbeddingRow::embedding_optional.is_not_null())
+    .order_by(dbkit::Order::desc(dbkit::func::inner_product(
+        EmbeddingRow::embedding_optional,
+        query.clone(),
+    )))
+    .limit(5)
+    .all(&db)
+    .await?;
+
+let high_similarity = EmbeddingRow::query()
+    .filter(dbkit::func::cosine_distance(EmbeddingRow::embedding, query.clone()).lt(0.1_f32))
+    .order_by(dbkit::Order::asc(dbkit::func::cosine_distance(
+        EmbeddingRow::embedding,
+        query,
+    )))
+    .all(&db)
+    .await?;
+```
+
+Available vector distance/similarity functions:
+- `dbkit::func::l2_distance`
+- `dbkit::func::cosine_distance`
+- `dbkit::func::inner_product`
+- `dbkit::func::l1_distance`
+
+Notes:
+- Dimension is part of the Rust type (`PgVector<3>`, `PgVector<1536>`, etc.).
+- Optional embeddings are supported via `Option<PgVector<N>>`.
+- `cosine_distance` is a distance metric (lower means more similar), so use `.lt(...)` thresholds.
+- For CI, use a Postgres image with pgvector installed (for example `pgvector/pgvector:pg16`).
+
 Active model insert / update (change-tracked):
 
 ```rust
@@ -393,6 +444,7 @@ Built-in typed query/insert/update bindings currently support:
 - `chrono::NaiveTime` (`TIME`)
 - `serde_json::Value` (`JSON` / `JSONB`)
 - `Vec<String>` (`TEXT[]`)
+- `dbkit::PgVector<const N: usize>` (`vector`)
 - `Option<T>` for nullable columns, where `T` is one of the above
 
 Notes:
