@@ -1,6 +1,6 @@
 use dbkit::{model, BelongsTo, HasMany};
 
-#[model(table = "users")]
+#[model(table = "users")] //~ E0599
 pub struct User {
     #[key]
     pub id: i64,

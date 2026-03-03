@@ -28,6 +28,6 @@ fn main() {
     })
     .on_conflict_do_update(
         (RunPayload::target_id, RunPayload::run_id),
-        (RunPayload::payload, OtherRow::value),
+        (RunPayload::payload, OtherRow::value), //~ E0277
     );
 }

@@ -1,3 +1,4 @@
+//@check-pass
 use dbkit::{model, BelongsTo, Executor, HasMany};
 
 #[model(table = "users")]

@@ -19,5 +19,5 @@ fn main() {
         source: "s".to_string(),
         version: 1,
     })
-    .on_conflict_do_nothing((RunPayload::target_id.as_ref(), RunPayload::run_id.as_ref()));
+    .on_conflict_do_nothing((RunPayload::target_id.as_ref(), RunPayload::run_id.as_ref())); //~ E0277
 }
