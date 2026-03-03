@@ -27,6 +27,12 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_conflict_column_ref.rs".into(),
         "fail_skip_locked_without_for_update.rs".into(),
         "fail_nowait_without_for_update.rs".into(),
+        "fail_for_update_after_distinct.rs".into(),
+        "fail_distinct_after_for_update.rs".into(),
+        "fail_for_update_skip_locked_after_distinct.rs".into(),
+        "fail_for_update_nowait_after_distinct.rs".into(),
+        "fail_distinct_after_for_update_skip_locked.rs".into(),
+        "fail_distinct_after_for_update_nowait.rs".into(),
     ];
     ui_test::run_tests(config)
 }
