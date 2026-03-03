@@ -1,0 +1,12 @@
+[package]
+name = "dbkit-ui-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+dbkit = { path = "../.." }
+chrono = "0.4"
+uuid = "1"
