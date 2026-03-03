@@ -37,6 +37,8 @@ struct Todo {
 #[tokio::main]
 async fn main() -> Result<(), dbkit::Error> {
     let db = Database::connect("postgres://...").await?;
+    // Optional: customize sqlx pool size when needed.
+    let _db_tuned = Database::connect_with_max_connections("postgres://...", 20).await?;
 
     let users = User::query()
         .filter(User::email.eq("a@b.com"))
