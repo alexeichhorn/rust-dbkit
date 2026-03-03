@@ -40,10 +40,10 @@ fn query_with_pgvector_distance_functions_has_expected_sql_shape() {
         )))
         .debug_sql();
 
-    assert!(sql.contains("L2_DISTANCE(embedding_rows.embedding, $1)"));
-    assert!(sql.contains("COSINE_DISTANCE(embedding_rows.embedding, $3)"));
-    assert!(sql.contains("ORDER BY L2_DISTANCE(embedding_rows.embedding, $5) ASC"));
-    assert!(sql.contains("COSINE_DISTANCE(embedding_rows.embedding, $6) ASC"));
+    assert!(sql.contains("L2_DISTANCE(embedding_rows.embedding, $1::vector)"));
+    assert!(sql.contains("COSINE_DISTANCE(embedding_rows.embedding, $1::vector)"));
+    assert!(sql.contains("ORDER BY L2_DISTANCE(embedding_rows.embedding, $1::vector) ASC"));
+    assert!(sql.contains("COSINE_DISTANCE(embedding_rows.embedding, $1::vector) ASC"));
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn insert_and_update_builders_accept_pgvector_and_optional_pgvector() {
 
     assert!(insert_sql.contains("INSERT INTO embedding_rows"));
     assert!(update_sql.contains("UPDATE embedding_rows SET embedding = $1"));
-    assert!(clear_optional_sql.contains("embedding_optional = $1"));
+    assert!(clear_optional_sql.contains("embedding_optional = NULL"));
 }
 
 #[test]
