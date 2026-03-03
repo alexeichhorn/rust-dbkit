@@ -73,6 +73,24 @@ let users = User::query()
     .await?;
 ```
 
+Migrations (optional, via `sqlx`):
+
+```toml
+# Cargo.toml
+dbkit = { version = "0.1", features = ["migrations"] }
+```
+
+```rust
+use dbkit::{Database, migrate::Migrator};
+
+static MIGRATOR: Migrator = dbkit::sqlx::migrate!("./migrations");
+
+let db = Database::connect("postgres://...").await?;
+db.migrate(&MIGRATOR).await?;
+```
+
+`dbkit` keeps migration execution thin and delegates migration file parsing/running to `sqlx`.
+
 Count / exists / pagination:
 
 ```rust

@@ -24,6 +24,12 @@ impl Database {
         let tx = self.pool.begin().await?;
         Ok(DbTransaction::new(tx))
     }
+
+    #[cfg(feature = "migrations")]
+    pub async fn migrate(&self, migrator: &sqlx::migrate::Migrator) -> Result<(), Error> {
+        migrator.run(&self.pool).await?;
+        Ok(())
+    }
 }
 
 pub struct DbTransaction<'t> {

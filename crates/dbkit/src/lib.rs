@@ -1,6 +1,8 @@
 pub use dbkit_core::*;
 pub use dbkit_derive::{model, Model};
 pub use sqlx;
+#[cfg(feature = "migrations")]
+pub use sqlx::migrate;
 
 pub mod database;
 pub mod error;

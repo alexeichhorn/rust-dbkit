@@ -7,6 +7,10 @@ description = "Postgres-first async ORM-ish library with type-level loaded/unloa
 repository = "https://github.com/alexeichhorn/rust-dbkit"
 readme = "../../README.md"
 
+[features]
+default = []
+migrations = ["sqlx/migrate"]
+
 [dependencies]
 dbkit-core.workspace = true
 dbkit-derive.workspace = true
