@@ -74,9 +74,7 @@ async fn connect_db() -> Database {
 }
 
 async fn make_test_migrator(path: &Path) -> Migrator {
-    let mut migrator = Migrator::new(path)
-        .await
-        .expect("failed to create sqlx migrator");
+    let mut migrator = Migrator::new(path).await.expect("failed to create sqlx migrator");
     migrator.set_ignore_missing(true);
     migrator
 }
@@ -147,24 +145,16 @@ async fn migrate_is_idempotent_when_no_new_migrations_exist() {
 
     let migrator = make_test_migrator(dir.path()).await;
 
-    db.migrate(&migrator)
-        .await
-        .expect("first migration run should apply");
-    db.migrate(&migrator)
-        .await
-        .expect("second migration run should be a no-op");
+    db.migrate(&migrator).await.expect("first migration run should apply");
+    db.migrate(&migrator).await.expect("second migration run should be a no-op");
 
-    let applied_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM _sqlx_migrations WHERE version = $1")
-            .bind(version)
-            .fetch_one(db.pool())
-            .await
-            .expect("failed to query migration ledger");
+    let applied_count: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM _sqlx_migrations WHERE version = $1")
+        .bind(version)
+        .fetch_one(db.pool())
+        .await
+        .expect("failed to query migration ledger");
 
-    assert_eq!(
-        applied_count, 1,
-        "migration should be recorded exactly once"
-    );
+    assert_eq!(applied_count, 1, "migration should be recorded exactly once");
 }
 
 #[tokio::test]
@@ -186,9 +176,7 @@ async fn migrate_respects_migration_order_by_version() {
 
     let migrator = make_test_migrator(dir.path()).await;
 
-    db.migrate(&migrator)
-        .await
-        .expect("migrations should apply in order");
+    db.migrate(&migrator).await.expect("migrations should apply in order");
 
     assert!(
         column_exists(&db, &table, "after_create").await,
@@ -208,21 +196,13 @@ async fn migrate_applies_reversible_up_down_migrations() {
         &format!("{version}_create_{table}.up.sql"),
         &format!("CREATE TABLE {table} (id BIGSERIAL PRIMARY KEY);"),
     );
-    dir.write(
-        &format!("{version}_create_{table}.down.sql"),
-        &format!("DROP TABLE {table};"),
-    );
+    dir.write(&format!("{version}_create_{table}.down.sql"), &format!("DROP TABLE {table};"));
 
     let migrator = make_test_migrator(dir.path()).await;
 
-    db.migrate(&migrator)
-        .await
-        .expect("reversible migration should apply");
+    db.migrate(&migrator).await.expect("reversible migration should apply");
 
-    assert!(
-        table_exists(&db, &table).await,
-        "table was not created by .up.sql migration"
-    );
+    assert!(table_exists(&db, &table).await, "table was not created by .up.sql migration");
 }
 
 #[tokio::test]
@@ -236,10 +216,7 @@ async fn migrate_maps_invalid_sql_to_migration_error_variant() {
 
     let migrator = make_test_migrator(dir.path()).await;
 
-    let err = db
-        .migrate(&migrator)
-        .await
-        .expect_err("invalid SQL migration should fail");
+    let err = db.migrate(&migrator).await.expect_err("invalid SQL migration should fail");
 
     assert!(
         matches!(err, Error::Migrate(_)),

@@ -63,10 +63,7 @@ async fn timestamptz_roundtrip_filters_and_between_window() -> Result<(), dbkit:
     setup_schema(&tx).await?;
 
     let offset = FixedOffset::east_opt(5 * 3600).expect("offset");
-    let starts_at_local = offset
-        .with_ymd_and_hms(2024, 3, 14, 10, 15, 0)
-        .single()
-        .expect("offset datetime");
+    let starts_at_local = offset.with_ymd_and_hms(2024, 3, 14, 10, 15, 0).single().expect("offset datetime");
     let starts_at = starts_at_local.with_timezone(&Utc);
     let ends_at = Some(starts_at + Duration::hours(8));
     let id = Uuid::from_u128(1);
@@ -89,10 +86,7 @@ async fn timestamptz_roundtrip_filters_and_between_window() -> Result<(), dbkit:
 
     let low = starts_at - Duration::minutes(1);
     let high = starts_at + Duration::minutes(1);
-    let between = EventTz::query()
-        .filter(EventTz::starts_at.between(low, high))
-        .all(&tx)
-        .await?;
+    let between = EventTz::query().filter(EventTz::starts_at.between(low, high)).all(&tx).await?;
     assert_eq!(between.len(), 1);
     assert_eq!(between[0].id, id);
 
@@ -105,19 +99,13 @@ async fn timestamptz_null_filter_and_active_update_roundtrip() -> Result<(), dbk
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
 
-    let starts_at = Utc
-        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
-        .single()
-        .expect("utc datetime");
+    let starts_at = Utc.with_ymd_and_hms(2024, 1, 2, 3, 4, 5).single().expect("utc datetime");
     let id = Uuid::from_u128(2);
 
     let inserted = seed_event_tz(&tx, id, "Nullable end", starts_at, None).await?;
     assert!(inserted.ends_at.is_none());
 
-    let pending = EventTz::query()
-        .filter(EventTz::ends_at.eq(None::<DateTime<Utc>>))
-        .all(&tx)
-        .await?;
+    let pending = EventTz::query().filter(EventTz::ends_at.eq(None::<DateTime<Utc>>)).all(&tx).await?;
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].id, id);
 
@@ -135,11 +123,7 @@ async fn timestamptz_null_filter_and_active_update_roundtrip() -> Result<(), dbk
     let cleared = active.update(&tx).await?;
     assert!(cleared.ends_at.is_none());
 
-    let fetched = EventTz::query()
-        .filter(EventTz::id.eq(id))
-        .one(&tx)
-        .await?
-        .expect("fetched event");
+    let fetched = EventTz::query().filter(EventTz::id.eq(id)).one(&tx).await?.expect("fetched event");
     assert_eq!(fetched.starts_at, rescheduled_start);
     assert!(fetched.ends_at.is_none());
 

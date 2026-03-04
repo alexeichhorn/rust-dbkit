@@ -13,10 +13,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
             ..DependencyBuilder::default()
         },
     );
-    config
-        .comment_defaults
-        .base()
-        .set_custom("rustfix", RustfixMode::Disabled);
+    config.comment_defaults.base().set_custom("rustfix", RustfixMode::Disabled);
     config.output_conflict_handling = ui_test::ignore_output_conflict;
     config.filter_files = vec![
         "basic.rs".into(),

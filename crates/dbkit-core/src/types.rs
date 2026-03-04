@@ -58,13 +58,10 @@ impl<const N: usize> PgVector<N> {
             });
         }
         Self::validate_finite(&values)?;
-        let values: [f32; N] =
-            values
-                .try_into()
-                .map_err(|v: Vec<f32>| PgVectorError::DimensionMismatch {
-                    expected: N,
-                    actual: v.len(),
-                })?;
+        let values: [f32; N] = values.try_into().map_err(|v: Vec<f32>| PgVectorError::DimensionMismatch {
+            expected: N,
+            actual: v.len(),
+        })?;
         Ok(Self { values })
     }
 
@@ -119,12 +116,7 @@ impl<const N: usize> PgVector<N> {
         let mut values = Vec::with_capacity(dims);
         for idx in 0..dims {
             let start = 4 + (idx * 4);
-            let bits = u32::from_be_bytes([
-                bytes[start],
-                bytes[start + 1],
-                bytes[start + 2],
-                bytes[start + 3],
-            ]);
+            let bits = u32::from_be_bytes([bytes[start], bytes[start + 1], bytes[start + 2], bytes[start + 3]]);
             values.push(f32::from_bits(bits));
         }
 
@@ -170,18 +162,10 @@ impl<const N: usize> std::fmt::Display for PgVector<N> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PgVectorError {
-    DimensionMismatch {
-        expected: usize,
-        actual: usize,
-    },
-    NonFinite {
-        index: usize,
-    },
+    DimensionMismatch { expected: usize, actual: usize },
+    NonFinite { index: usize },
     InvalidTextFormat(String),
-    InvalidBinaryLength {
-        expected_at_least: usize,
-        actual: usize,
-    },
+    InvalidBinaryLength { expected_at_least: usize, actual: usize },
 }
 
 impl std::fmt::Display for PgVectorError {
@@ -192,10 +176,7 @@ impl std::fmt::Display for PgVectorError {
             }
             Self::NonFinite { index } => write!(f, "pgvector contains non-finite value at index {index}"),
             Self::InvalidTextFormat(value) => write!(f, "invalid pgvector text format: {value}"),
-            Self::InvalidBinaryLength {
-                expected_at_least,
-                actual,
-            } => write!(
+            Self::InvalidBinaryLength { expected_at_least, actual } => write!(
                 f,
                 "invalid pgvector binary length: expected at least {expected_at_least} bytes, got {actual}"
             ),
@@ -225,8 +206,7 @@ impl<const N: usize> sqlx::Type<sqlx::Postgres> for PgVector<N> {
     }
 
     fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
-        *ty == sqlx::postgres::PgTypeInfo::with_name("vector")
-            || <&str as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+        *ty == sqlx::postgres::PgTypeInfo::with_name("vector") || <&str as sqlx::Type<sqlx::Postgres>>::compatible(ty)
     }
 }
 

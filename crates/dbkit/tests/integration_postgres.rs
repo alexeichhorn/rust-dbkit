@@ -2,8 +2,8 @@
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
-use dbkit::{model, Database, Executor};
 use dbkit::sqlx::postgres::PgArguments;
+use dbkit::{model, Database, Executor};
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -222,11 +222,8 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
 async fn setup_locking_schema(db: &Database) -> Result<(), dbkit::Error> {
     // Serialize DDL across parallel test workers to avoid Postgres catalog races on CREATE TABLE IF NOT EXISTS.
     let tx = db.begin().await?;
-    tx.execute(
-        "SELECT pg_advisory_xact_lock(816726, 1)",
-        PgArguments::default(),
-    )
-    .await?;
+    tx.execute("SELECT pg_advisory_xact_lock(816726, 1)", PgArguments::default())
+        .await?;
     tx.execute(
         "CREATE TABLE IF NOT EXISTS dbkit_lock_rows (\
             id BIGSERIAL PRIMARY KEY,\
@@ -258,10 +255,7 @@ async fn seed_lock_row<E: Executor + Send + Sync>(ex: &E, token: Uuid, note: &st
 }
 
 async fn cleanup_lock_rows<E: Executor + Send + Sync>(ex: &E, token: Uuid) -> Result<(), dbkit::Error> {
-    LockRow::delete()
-        .filter(LockRow::token.eq(token))
-        .execute(ex)
-        .await?;
+    LockRow::delete().filter(LockRow::token.eq(token)).execute(ex).await?;
     Ok(())
 }
 
@@ -308,13 +302,11 @@ async fn seed_todo<E: Executor + Send + Sync>(ex: &E, user_id: i64, title: &str)
 }
 
 async fn seed_tag<E: Executor + Send + Sync>(ex: &E, name: &str) -> Result<Tag, dbkit::Error> {
-    let tag = Tag::insert(TagInsert {
-        name: name.to_string(),
-    })
-    .returning_all()
-    .one(ex)
-    .await?
-    .expect("inserted tag");
+    let tag = Tag::insert(TagInsert { name: name.to_string() })
+        .returning_all()
+        .one(ex)
+        .await?
+        .expect("inserted tag");
     Ok(tag)
 }
 
@@ -358,12 +350,7 @@ async fn seed_nullable_row<E: Executor + Send + Sync>(ex: &E, note: Option<Strin
     Ok(row)
 }
 
-async fn seed_order_line<E: Executor + Send + Sync>(
-    ex: &E,
-    order_id: i64,
-    line_id: i64,
-    note: &str,
-) -> Result<OrderLine, dbkit::Error> {
+async fn seed_order_line<E: Executor + Send + Sync>(ex: &E, order_id: i64, line_id: i64, note: &str) -> Result<OrderLine, dbkit::Error> {
     let row = OrderLine::insert(OrderLineInsert {
         order_id,
         line_id,
@@ -417,10 +404,7 @@ async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(updated.len(), 1);
     assert_eq!(updated[0].name, "Updated");
 
-    let deleted = User::delete()
-        .filter(User::id.eq(user.id))
-        .execute(&tx)
-        .await?;
+    let deleted = User::delete().filter(User::id.eq(user.id)).execute(&tx).await?;
     assert_eq!(deleted, 1);
 
     let remaining = User::query().all(&tx).await?;
@@ -449,10 +433,7 @@ async fn insert_many_inserts_multiple_rows() -> Result<(), dbkit::Error> {
     .await?;
     assert_eq!(inserted, 2);
 
-    let users = User::query()
-        .order_by(dbkit::Order::asc(User::id.as_ref()))
-        .all(&tx)
-        .await?;
+    let users = User::query().order_by(dbkit::Order::asc(User::id.as_ref())).all(&tx).await?;
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alpha");
     assert_eq!(users[1].name, "Beta");
@@ -606,11 +587,7 @@ async fn selectin_has_many_loads_children() -> Result<(), dbkit::Error> {
         .await?;
 
     assert_eq!(users.len(), 1);
-    let mut titles: Vec<String> = users[0]
-        .todos
-        .iter()
-        .map(|todo| todo.title.clone())
-        .collect();
+    let mut titles: Vec<String> = users[0].todos.iter().map(|todo| todo.title.clone()).collect();
     titles.sort();
     assert_eq!(titles, vec!["Ship code", "Write tests"]);
 
@@ -657,11 +634,7 @@ async fn joined_has_many_loads_children() -> Result<(), dbkit::Error> {
         .await?;
 
     assert_eq!(users.len(), 1);
-    let mut titles: Vec<String> = users[0]
-        .todos
-        .iter()
-        .map(|todo| todo.title.clone())
-        .collect();
+    let mut titles: Vec<String> = users[0].todos.iter().map(|todo| todo.title.clone()).collect();
     titles.sort();
     assert_eq!(titles, vec!["Joined A", "Joined B"]);
 
@@ -808,7 +781,7 @@ async fn nested_selectin_loads() -> Result<(), dbkit::Error> {
     let user = seed_user(&tx, "Jo", "jo@b.com").await?;
     let _todo = seed_todo(&tx, user.id, "Chain loads").await?;
 
-    let users = User::query()  // should be Vec<UserModel<Vec<TodoModel<Option<User>>>>>
+    let users = User::query() // should be Vec<UserModel<Vec<TodoModel<Option<User>>>>>
         .filter(User::id.eq(user.id))
         .with(User::todos.selectin().with(Todo::user.selectin()))
         .all(&tx)
@@ -919,10 +892,7 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     assert_eq!(updated.len(), 1);
     assert!(updated[0].note.is_none());
 
-    let null_rows = NullableRow::query()
-        .filter(NullableRow::note.eq(None))
-        .all(&tx)
-        .await?;
+    let null_rows = NullableRow::query().filter(NullableRow::note.eq(None)).all(&tx).await?;
     assert_eq!(null_rows.len(), 2);
     assert!(null_rows.iter().all(|row| row.note.is_none()));
 
@@ -943,10 +913,7 @@ async fn array_column_roundtrip() -> Result<(), dbkit::Error> {
         .expect("inserted profile");
     assert_eq!(inserted.tags, tags);
 
-    let matched = Profile::query()
-        .filter(Profile::tags.eq(tags.clone()))
-        .all(&tx)
-        .await?;
+    let matched = Profile::query().filter(Profile::tags.eq(tags.clone())).all(&tx).await?;
     assert_eq!(matched.len(), 1);
     assert_eq!(matched[0].id, inserted.id);
 
@@ -956,10 +923,7 @@ async fn array_column_roundtrip() -> Result<(), dbkit::Error> {
     let updated = active.update(&tx).await?;
     assert_eq!(updated.tags, updated_tags);
 
-    let fetched = Profile::by_id(updated.id)
-        .one(&tx)
-        .await?
-        .expect("updated profile");
+    let fetched = Profile::by_id(updated.id).one(&tx).await?.expect("updated profile");
     assert_eq!(fetched.tags, updated_tags);
 
     Ok(())
@@ -979,10 +943,7 @@ async fn json_column_roundtrip() -> Result<(), dbkit::Error> {
         .expect("inserted json row");
     assert_eq!(inserted.data, payload);
 
-    let matched = JsonRow::query()
-        .filter(JsonRow::data.eq(payload.clone()))
-        .all(&tx)
-        .await?;
+    let matched = JsonRow::query().filter(JsonRow::data.eq(payload.clone())).all(&tx).await?;
     assert_eq!(matched.len(), 1);
     assert_eq!(matched[0].id, inserted.id);
 
@@ -992,10 +953,7 @@ async fn json_column_roundtrip() -> Result<(), dbkit::Error> {
     let updated = active.update(&tx).await?;
     assert_eq!(updated.data, updated_payload);
 
-    let fetched = JsonRow::by_id(updated.id)
-        .one(&tx)
-        .await?
-        .expect("updated json row");
+    let fetched = JsonRow::by_id(updated.id).one(&tx).await?.expect("updated json row");
     assert_eq!(fetched.data, updated_payload);
 
     Ok(())
@@ -1010,8 +968,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     let day = NaiveDate::from_ymd_opt(2024, 1, 2).expect("day");
     let day_start = NaiveDateTime::new(day, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
     let later_day = NaiveDate::from_ymd_opt(2024, 1, 3).expect("day");
-    let later_start =
-        NaiveDateTime::new(later_day, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
+    let later_start = NaiveDateTime::new(later_day, NaiveTime::from_hms_opt(0, 0, 0).expect("time"));
 
     let row1 = FuncRow::insert(FuncRowInsert {
         email: Some("alpha@ex.com".to_string()),
@@ -1058,11 +1015,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     .expect("row4");
 
     let upper_match = FuncRow::query()
-        .filter(dbkit::func::upper(dbkit::func::coalesce(
-            FuncRow::email,
-            FuncRow::backup_email,
-        ))
-        .eq("BETA@EX.COM"))
+        .filter(dbkit::func::upper(dbkit::func::coalesce(FuncRow::email, FuncRow::backup_email)).eq("BETA@EX.COM"))
         .all(&tx)
         .await?;
     assert_eq!(upper_match.len(), 1);
@@ -1077,13 +1030,7 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(fallback_ids, vec![row2.id, row3.id]);
 
     let nested_match = FuncRow::query()
-        .filter(
-            dbkit::func::coalesce(
-                dbkit::func::coalesce(FuncRow::email, FuncRow::backup_email),
-                "none",
-            )
-            .eq("none"),
-        )
+        .filter(dbkit::func::coalesce(dbkit::func::coalesce(FuncRow::email, FuncRow::backup_email), "none").eq("none"))
         .all(&tx)
         .await?;
     assert_eq!(nested_match.len(), 1);
@@ -1098,23 +1045,14 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(day_ids, vec![row1.id, row2.id]);
 
     let region_match = FuncRow::query()
-        .filter(
-            dbkit::func::upper(dbkit::func::coalesce(FuncRow::region, "unknown"))
-                .eq("UNKNOWN"),
-        )
+        .filter(dbkit::func::upper(dbkit::func::coalesce(FuncRow::region, "unknown")).eq("UNKNOWN"))
         .all(&tx)
         .await?;
     assert_eq!(region_match.len(), 1);
     assert_eq!(region_match[0].id, row4.id);
 
     let combined_match = FuncRow::query()
-        .filter(
-            dbkit::func::upper(dbkit::func::coalesce(
-                FuncRow::email,
-                FuncRow::backup_email,
-            ))
-            .eq("ALPHA@EX.COM"),
-        )
+        .filter(dbkit::func::upper(dbkit::func::coalesce(FuncRow::email, FuncRow::backup_email)).eq("ALPHA@EX.COM"))
         .filter(dbkit::func::date_trunc("day", FuncRow::starts_at).eq(day_start))
         .all(&tx)
         .await?;
@@ -1184,10 +1122,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
 
     let day1_end = NaiveDateTime::new(day1, NaiveTime::from_hms_opt(23, 59, 59).expect("time"));
 
-    let mut amount_between = Sale::query()
-        .filter(Sale::amount.between(40_i64, 70_i64))
-        .all(&tx)
-        .await?;
+    let mut amount_between = Sale::query().filter(Sale::amount.between(40_i64, 70_i64)).all(&tx).await?;
     amount_between.sort_by(|a, b| a.amount.cmp(&b.amount));
     assert_eq!(amount_between.len(), 2);
     assert_eq!(amount_between[0].amount, 40);
@@ -1239,10 +1174,7 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
         .column_as(dbkit::func::date_trunc("day", Sale::created_at), "bucket")
         .column_as(dbkit::func::sum(Sale::amount), "total")
         .group_by(dbkit::func::date_trunc("day", Sale::created_at))
-        .order_by(dbkit::Order::desc(dbkit::func::date_trunc(
-            "day",
-            Sale::created_at,
-        )))
+        .order_by(dbkit::Order::desc(dbkit::func::date_trunc("day", Sale::created_at)))
         .into_model()
         .all(&tx)
         .await?;
@@ -1304,28 +1236,16 @@ async fn query_helpers_count_exists_first_paginate() -> Result<(), dbkit::Error>
     let total = User::query().count(&tx).await?;
     assert_eq!(total, 3);
 
-    let filtered_total = User::query()
-        .filter(User::email.eq("page2@db.com"))
-        .count(&tx)
-        .await?;
+    let filtered_total = User::query().filter(User::email.eq("page2@db.com")).count(&tx).await?;
     assert_eq!(filtered_total, 1);
 
-    let exists = User::query()
-        .filter(User::email.eq("page2@db.com"))
-        .exists(&tx)
-        .await?;
+    let exists = User::query().filter(User::email.eq("page2@db.com")).exists(&tx).await?;
     assert!(exists);
 
-    let missing = User::query()
-        .filter(User::email.eq("missing@db.com"))
-        .exists(&tx)
-        .await?;
+    let missing = User::query().filter(User::email.eq("missing@db.com")).exists(&tx).await?;
     assert!(!missing);
 
-    let first = User::query()
-        .order_by(dbkit::Order::asc(User::id.as_ref()))
-        .one(&tx)
-        .await?;
+    let first = User::query().order_by(dbkit::Order::asc(User::id.as_ref())).one(&tx).await?;
     assert_eq!(first.expect("first").id, user1.id);
 
     let page1 = User::query()
@@ -1420,26 +1340,15 @@ async fn many_to_many_selectin_reverse_loads_parents() -> Result<(), dbkit::Erro
     let _t1b = seed_todo_tag(&tx, todo1.id, tag_b.id).await?;
     let _t2b = seed_todo_tag(&tx, todo2.id, tag_b.id).await?;
 
-    let tags: Vec<TagModel<Vec<Todo>>> = Tag::query()
-        .with(Tag::todos.selectin())
-        .all(&tx)
-        .await?;
+    let tags: Vec<TagModel<Vec<Todo>>> = Tag::query().with(Tag::todos.selectin()).all(&tx).await?;
 
     let tag_a_loaded = tags.iter().find(|tag| tag.id == tag_a.id).expect("tag a");
-    let mut todos_a: Vec<String> = tag_a_loaded
-        .todos
-        .iter()
-        .map(|todo| todo.title.clone())
-        .collect();
+    let mut todos_a: Vec<String> = tag_a_loaded.todos.iter().map(|todo| todo.title.clone()).collect();
     todos_a.sort();
     assert_eq!(todos_a, vec!["First"]);
 
     let tag_b_loaded = tags.iter().find(|tag| tag.id == tag_b.id).expect("tag b");
-    let mut todos_b: Vec<String> = tag_b_loaded
-        .todos
-        .iter()
-        .map(|todo| todo.title.clone())
-        .collect();
+    let mut todos_b: Vec<String> = tag_b_loaded.todos.iter().map(|todo| todo.title.clone()).collect();
     todos_b.sort();
     assert_eq!(todos_b, vec!["First", "Second"]);
 
@@ -1462,12 +1371,7 @@ async fn many_to_many_join_filter() -> Result<(), dbkit::Error> {
     let _t1a = seed_todo_tag(&tx, todo1.id, tag_a.id).await?;
     let _t2b = seed_todo_tag(&tx, todo2.id, tag_b.id).await?;
 
-    let todos = Todo::query()
-        .join(Todo::tags)
-        .filter(Tag::name.eq("B"))
-        .distinct()
-        .all(&tx)
-        .await?;
+    let todos = Todo::query().join(Todo::tags).filter(Tag::name.eq("B")).distinct().all(&tx).await?;
 
     assert_eq!(todos.len(), 1);
     assert_eq!(todos[0].id, todo2.id);
@@ -1980,30 +1884,19 @@ async fn locking_for_update_blocks_until_first_transaction_releases_lock() -> Re
     let row = seed_lock_row(&db_a, token, "row-1").await?;
 
     let tx1 = db_a.begin().await?;
-    let locked = LockRow::query()
-        .filter(LockRow::id.eq(row.id))
-        .for_update()
-        .one(&tx1)
-        .await?;
+    let locked = LockRow::query().filter(LockRow::id.eq(row.id)).for_update().one(&tx1).await?;
     assert!(locked.is_some());
 
     let row_id = row.id;
     let handle = tokio::spawn(async move {
         let tx2 = db_b.begin().await?;
-        let row = LockRow::query()
-            .filter(LockRow::id.eq(row_id))
-            .for_update()
-            .one(&tx2)
-            .await?;
+        let row = LockRow::query().filter(LockRow::id.eq(row_id)).for_update().one(&tx2).await?;
         tx2.rollback().await?;
         Ok::<Option<LockRow>, dbkit::Error>(row)
     });
 
     sleep(Duration::from_millis(150)).await;
-    assert!(
-        !handle.is_finished(),
-        "second transaction acquired lock before first released it"
-    );
+    assert!(!handle.is_finished(), "second transaction acquired lock before first released it");
 
     tx1.commit().await?;
 
@@ -2028,11 +1921,7 @@ async fn locking_skip_locked_skips_rows_locked_by_another_transaction() -> Resul
     let second = seed_lock_row(&db_a, token, "second").await?;
 
     let tx1 = db_a.begin().await?;
-    let locked_first = LockRow::query()
-        .filter(LockRow::id.eq(first.id))
-        .for_update()
-        .one(&tx1)
-        .await?;
+    let locked_first = LockRow::query().filter(LockRow::id.eq(first.id)).for_update().one(&tx1).await?;
     assert!(locked_first.is_some());
 
     let tx2 = db_b.begin().await?;
@@ -2063,11 +1952,7 @@ async fn locking_nowait_errors_immediately_when_row_is_locked() -> Result<(), db
     let row = seed_lock_row(&db_a, token, "locked").await?;
 
     let tx1 = db_a.begin().await?;
-    let _locked = LockRow::query()
-        .filter(LockRow::id.eq(row.id))
-        .for_update()
-        .one(&tx1)
-        .await?;
+    let _locked = LockRow::query().filter(LockRow::id.eq(row.id)).for_update().one(&tx1).await?;
 
     let tx2 = db_b.begin().await?;
     let err = LockRow::query()

@@ -27,10 +27,7 @@ enum InsertMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum InsertConflict {
     DoNothing { target: Vec<ColumnRef> },
-    DoUpdate {
-        target: Vec<ColumnRef>,
-        updates: Vec<ColumnRef>,
-    },
+    DoUpdate { target: Vec<ColumnRef>, updates: Vec<ColumnRef> },
 }
 
 mod private {

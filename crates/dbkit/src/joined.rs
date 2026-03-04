@@ -1,5 +1,5 @@
-use crate::expr::ExprNode;
 use crate::executor::{build_arguments, BoxFuture};
+use crate::expr::ExprNode;
 use crate::load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 use crate::query::{Join, JoinKind, SelectItem};
 use crate::rel::RelationInfo;
@@ -149,11 +149,7 @@ where
     {
         let (select, loads) = select.into_parts_with_loads();
         if select.columns_ref().is_some() {
-            return Box::pin(async {
-                Err(Error::Decode(
-                    "joined eager loading requires base model selection".to_string(),
-                ))
-            });
+            return Box::pin(async { Err(Error::Decode("joined eager loading requires base model selection".to_string())) });
         }
         let mut ctx = JoinContext::new(select.joins());
         let collectors = loads.build_collectors(&mut ctx);
@@ -179,11 +175,7 @@ where
     {
         let (select, loads) = select.limit(1).into_parts_with_loads();
         if select.columns_ref().is_some() {
-            return Box::pin(async {
-                Err(Error::Decode(
-                    "joined eager loading requires base model selection".to_string(),
-                ))
-            });
+            return Box::pin(async { Err(Error::Decode("joined eager loading requires base model selection".to_string())) });
         }
         let mut ctx = JoinContext::new(select.joins());
         let collectors = loads.build_collectors(&mut ctx);
@@ -400,10 +392,7 @@ impl<Parent, Child, Nested, ParentOut> BuildJoinPlan<ParentOut> for Joined<crate
 where
     Nested: ApplyLoad<Child> + BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>,
     <Nested as ApplyLoad<Child>>::Out2: JoinedModel + 'static,
-    ParentOut: GetRelation<
-        crate::rel::HasMany<Parent, Child>,
-        Vec<<Nested as ApplyLoad<Child>>::Out2>,
-    > + 'static,
+    ParentOut: GetRelation<crate::rel::HasMany<Parent, Child>, Vec<<Nested as ApplyLoad<Child>>::Out2>> + 'static,
     Parent: Clone + Send + 'static,
     Child: Clone + Send + 'static,
 {
@@ -420,10 +409,7 @@ where
         let prefix = ctx.next_prefix();
         ctx.add_columns::<<Nested as ApplyLoad<Child>>::Out2>(&prefix);
 
-        let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>>::build_collectors(
-            &self.nested,
-            ctx,
-        );
+        let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>>::build_collectors(&self.nested, ctx);
 
         let collector = HasManyCollector {
             rel: self.rel.clone(),
@@ -438,10 +424,7 @@ impl<Child, Parent, Nested, ChildOut> BuildJoinPlan<ChildOut> for Joined<crate::
 where
     Nested: ApplyLoad<Parent> + BuildJoinPlan<<Nested as ApplyLoad<Parent>>::Out2>,
     <Nested as ApplyLoad<Parent>>::Out2: JoinedModel + 'static,
-    ChildOut: GetRelation<
-        crate::rel::BelongsTo<Child, Parent>,
-        Option<<Nested as ApplyLoad<Parent>>::Out2>,
-    > + 'static,
+    ChildOut: GetRelation<crate::rel::BelongsTo<Child, Parent>, Option<<Nested as ApplyLoad<Parent>>::Out2>> + 'static,
     Child: Clone + Send + 'static,
     Parent: Clone + Send + 'static,
 {
@@ -458,10 +441,7 @@ where
         let prefix = ctx.next_prefix();
         ctx.add_columns::<<Nested as ApplyLoad<Parent>>::Out2>(&prefix);
 
-        let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Parent>>::Out2>>::build_collectors(
-            &self.nested,
-            ctx,
-        );
+        let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Parent>>::Out2>>::build_collectors(&self.nested, ctx);
 
         let collector = BelongsToCollector {
             rel: self.rel.clone(),
@@ -472,15 +452,11 @@ where
     }
 }
 
-impl<Parent, Child, Through, Nested, ParentOut> BuildJoinPlan<ParentOut>
-    for Joined<crate::rel::ManyToMany<Parent, Child, Through>, Nested>
+impl<Parent, Child, Through, Nested, ParentOut> BuildJoinPlan<ParentOut> for Joined<crate::rel::ManyToMany<Parent, Child, Through>, Nested>
 where
     Nested: ApplyLoad<Child> + BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>,
     <Nested as ApplyLoad<Child>>::Out2: JoinedModel + 'static,
-    ParentOut: GetRelation<
-        crate::rel::ManyToMany<Parent, Child, Through>,
-        Vec<<Nested as ApplyLoad<Child>>::Out2>,
-    > + 'static,
+    ParentOut: GetRelation<crate::rel::ManyToMany<Parent, Child, Through>, Vec<<Nested as ApplyLoad<Child>>::Out2>> + 'static,
     Parent: Clone + Send + 'static,
     Child: Clone + Send + 'static,
     Through: Clone + Send + 'static,
@@ -498,10 +474,7 @@ where
         let prefix = ctx.next_prefix();
         ctx.add_columns::<<Nested as ApplyLoad<Child>>::Out2>(&prefix);
 
-        let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>>::build_collectors(
-            &self.nested,
-            ctx,
-        );
+        let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>>::build_collectors(&self.nested, ctx);
 
         let collector = ManyToManyCollector {
             rel: self.rel.clone(),
@@ -512,10 +485,7 @@ where
     }
 }
 
-pub(crate) fn decode_joined<Out>(
-    rows: Vec<PgRow>,
-    collectors: &[Box<dyn JoinCollector<Out>>],
-) -> Result<Vec<Out>, Error>
+pub(crate) fn decode_joined<Out>(rows: Vec<PgRow>, collectors: &[Box<dyn JoinCollector<Out>>]) -> Result<Vec<Out>, Error>
 where
     Out: JoinedModel + ModelValue + for<'r> sqlx::FromRow<'r, PgRow>,
 {
@@ -561,10 +531,7 @@ fn model_key<M: JoinedModel + ModelValue>(model: &M) -> Result<Vec<Value>, Error
     Ok(values)
 }
 
-fn find_child_index<ChildOut: JoinedModel + ModelValue>(
-    children: &[ChildOut],
-    key: &[Value],
-) -> Result<Option<usize>, Error> {
+fn find_child_index<ChildOut: JoinedModel + ModelValue>(children: &[ChildOut], key: &[Value]) -> Result<Option<usize>, Error> {
     for (idx, child) in children.iter().enumerate() {
         if model_key(child)? == key {
             return Ok(Some(idx));

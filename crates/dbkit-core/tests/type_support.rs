@@ -22,10 +22,7 @@ fn value_from_datetime_date_time() {
 
 #[test]
 fn value_from_utc_datetime() {
-    let datetime: DateTime<Utc> = Utc
-        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
-        .single()
-        .expect("utc datetime");
+    let datetime: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 3, 4, 5).single().expect("utc datetime");
 
     assert_eq!(Value::from(datetime), Value::DateTimeUtc(datetime));
 }
@@ -53,12 +50,7 @@ fn select_binds_uuid_datetime_date_time() {
 
     assert_eq!(
         compiled.binds,
-        vec![
-            Value::Uuid(id),
-            Value::DateTime(datetime),
-            Value::Date(date),
-            Value::Time(time),
-        ]
+        vec![Value::Uuid(id), Value::DateTime(datetime), Value::Date(date), Value::Time(time),]
     );
 }
 
@@ -66,14 +58,9 @@ fn select_binds_uuid_datetime_date_time() {
 fn select_binds_utc_datetime() {
     let table = Table::new("events_tz");
     let starts_at_col: Column<(), DateTime<Utc>> = Column::new(table, "starts_at");
-    let datetime = Utc
-        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
-        .single()
-        .expect("utc datetime");
+    let datetime = Utc.with_ymd_and_hms(2024, 1, 2, 3, 4, 5).single().expect("utc datetime");
 
-    let compiled = Select::<()>::new(table)
-        .filter(starts_at_col.eq(datetime))
-        .compile();
+    let compiled = Select::<()>::new(table).filter(starts_at_col.eq(datetime)).compile();
 
     assert_eq!(compiled.binds, vec![Value::DateTimeUtc(datetime)]);
 }
@@ -82,10 +69,7 @@ fn select_binds_utc_datetime() {
 fn select_supports_utc_datetime_between_and_null_filters() {
     let table = Table::new("events_tz");
     let starts_at_col: Column<(), DateTime<Utc>> = Column::new(table, "starts_at");
-    let low = Utc
-        .with_ymd_and_hms(2024, 1, 2, 3, 0, 0)
-        .single()
-        .expect("utc low");
+    let low = Utc.with_ymd_and_hms(2024, 1, 2, 3, 0, 0).single().expect("utc low");
     let high = low + Duration::minutes(30);
 
     let compiled = Select::<()>::new(table)
@@ -94,10 +78,7 @@ fn select_supports_utc_datetime_between_and_null_filters() {
         .compile();
 
     assert!(compiled.sql.contains("IS NULL"));
-    assert_eq!(
-        compiled.binds,
-        vec![Value::DateTimeUtc(low), Value::DateTimeUtc(high)]
-    );
+    assert_eq!(compiled.binds, vec![Value::DateTimeUtc(low), Value::DateTimeUtc(high)]);
 }
 
 #[test]
@@ -112,9 +93,7 @@ fn select_binds_json() {
     let data_col: Column<(), serde_json::Value> = Column::new(table, "data");
     let payload = json!({"name": "alice", "active": true});
 
-    let compiled = Select::<()>::new(table)
-        .filter(data_col.eq(payload.clone()))
-        .compile();
+    let compiled = Select::<()>::new(table).filter(data_col.eq(payload.clone())).compile();
 
     assert_eq!(compiled.binds, vec![Value::Json(payload)]);
 }
@@ -131,9 +110,7 @@ fn select_binds_string_array() {
     let tags_col: Column<(), Vec<String>> = Column::new(table, "tags");
     let items = vec!["a".to_string(), "b".to_string()];
 
-    let compiled = Select::<()>::new(table)
-        .filter(tags_col.eq(items.clone()))
-        .compile();
+    let compiled = Select::<()>::new(table).filter(tags_col.eq(items.clone())).compile();
 
     assert_eq!(compiled.binds, vec![Value::Array(items)]);
 }

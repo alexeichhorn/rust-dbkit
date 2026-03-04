@@ -92,12 +92,7 @@ pub struct HasMany<Parent, Child> {
 }
 
 impl<Parent, Child> HasMany<Parent, Child> {
-    pub const fn new(
-        parent: Table,
-        child: Table,
-        parent_key: ColumnRef,
-        child_key: ColumnRef,
-    ) -> Self {
+    pub const fn new(parent: Table, child: Table, parent_key: ColumnRef, child_key: ColumnRef) -> Self {
         Self {
             parent,
             child,
@@ -147,12 +142,7 @@ pub struct BelongsTo<Child, Parent> {
 }
 
 impl<Child, Parent> BelongsTo<Child, Parent> {
-    pub const fn new(
-        child: Table,
-        parent: Table,
-        child_key: ColumnRef,
-        parent_key: ColumnRef,
-    ) -> Self {
+    pub const fn new(child: Table, parent: Table, child_key: ColumnRef, parent_key: ColumnRef) -> Self {
         Self {
             child,
             parent,

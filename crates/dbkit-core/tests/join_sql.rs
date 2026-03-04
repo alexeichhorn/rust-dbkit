@@ -1,4 +1,7 @@
-use dbkit_core::{rel::{BelongsTo, HasMany}, Column, Select, Table, Value};
+use dbkit_core::{
+    rel::{BelongsTo, HasMany},
+    Column, Select, Table, Value,
+};
 
 #[derive(Debug)]
 struct User;
@@ -24,54 +27,30 @@ fn todo_user_id() -> Column<Todo, i64> {
 
 #[test]
 fn compiles_join_from_relation() {
-    let rel = HasMany::<User, Todo>::new(
-        user_table(),
-        todo_table(),
-        user_id().as_ref(),
-        todo_user_id().as_ref(),
-    );
+    let rel = HasMany::<User, Todo>::new(user_table(), todo_table(), user_id().as_ref(), todo_user_id().as_ref());
     let query: Select<User> = Select::new(user_table()).join(rel);
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users JOIN todos ON (todos.user_id = users.id)"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users JOIN todos ON (todos.user_id = users.id)");
     assert_eq!(sql.binds, Vec::<Value>::new());
 }
 
 #[test]
 fn compiles_left_join_from_relation() {
-    let rel = HasMany::<User, Todo>::new(
-        user_table(),
-        todo_table(),
-        user_id().as_ref(),
-        todo_user_id().as_ref(),
-    );
+    let rel = HasMany::<User, Todo>::new(user_table(), todo_table(), user_id().as_ref(), todo_user_id().as_ref());
     let query: Select<User> = Select::new(user_table()).left_join(rel);
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users LEFT JOIN todos ON (todos.user_id = users.id)"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users LEFT JOIN todos ON (todos.user_id = users.id)");
     assert_eq!(sql.binds, Vec::<Value>::new());
 }
 
 #[test]
 fn compiles_join_belongs_to_relation() {
-    let rel = BelongsTo::<Todo, User>::new(
-        todo_table(),
-        user_table(),
-        todo_user_id().as_ref(),
-        user_id().as_ref(),
-    );
+    let rel = BelongsTo::<Todo, User>::new(todo_table(), user_table(), todo_user_id().as_ref(), user_id().as_ref());
     let query: Select<Todo> = Select::new(todo_table()).join(rel);
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "SELECT todos.* FROM todos JOIN users ON (todos.user_id = users.id)"
-    );
+    assert_eq!(sql.sql, "SELECT todos.* FROM todos JOIN users ON (todos.user_id = users.id)");
     assert_eq!(sql.binds, Vec::<Value>::new());
 }

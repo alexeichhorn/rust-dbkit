@@ -1,10 +1,8 @@
 use crate::executor::BoxFuture;
-use crate::{
-    Executor, GetRelation, ModelValue, Select, SetRelation, Value, SelectExt,
-};
 use crate::load::{LoadChain, NoLoad};
 use crate::rel::{ManyToManyThrough, RelationInfo};
 use crate::{Error, Expr, ExprNode};
+use crate::{Executor, GetRelation, ModelValue, Select, SelectExt, SetRelation, Value};
 
 pub trait RunLoads<Out> {
     fn run<'e, E>(&'e self, ex: &'e E, rows: &'e mut [Out]) -> BoxFuture<'e, Result<(), Error>>
@@ -110,9 +108,9 @@ where
                 return Err(Error::RelationMismatch);
             };
             if key == Value::Null {
-            row.set_relation(rel.clone(), Vec::new())?;
-            continue;
-        }
+                row.set_relation(rel.clone(), Vec::new())?;
+                continue;
+            }
             let mut value = Vec::new();
             if let Some((_, items)) = groups.iter_mut().find(|(k, _)| *k == key) {
                 value = std::mem::take(items);
@@ -232,12 +230,8 @@ where
         }
 
         let relation = rel.relation();
-        let join_parent_key = relation
-            .join_parent_key
-            .ok_or(Error::RelationMismatch)?;
-        let join_child_key = relation
-            .join_child_key
-            .ok_or(Error::RelationMismatch)?;
+        let join_parent_key = relation.join_parent_key.ok_or(Error::RelationMismatch)?;
+        let join_child_key = relation.join_child_key.ok_or(Error::RelationMismatch)?;
         let join_table = relation.join_table.ok_or(Error::RelationMismatch)?;
 
         let mut parent_keys: Vec<Value> = Vec::new();
@@ -277,10 +271,7 @@ where
             if parent_key == Value::Null || child_key == Value::Null {
                 continue;
             }
-            match parent_to_child
-                .iter_mut()
-                .find(|(key, _)| *key == parent_key)
-            {
+            match parent_to_child.iter_mut().find(|(key, _)| *key == parent_key) {
                 Some((_, children)) => {
                     if !children.iter().any(|existing| existing == &child_key) {
                         children.push(child_key);
@@ -323,9 +314,7 @@ where
                 continue;
             }
             let mut value = Vec::new();
-            if let Some((_, child_ids)) =
-                parent_to_child.iter().find(|(key, _)| *key == parent_key)
-            {
+            if let Some((_, child_ids)) = parent_to_child.iter().find(|(key, _)| *key == parent_key) {
                 for child_id in child_ids {
                     if let Some(child) = children
                         .iter()

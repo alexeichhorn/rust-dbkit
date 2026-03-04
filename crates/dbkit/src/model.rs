@@ -1,6 +1,6 @@
-use crate::{ColumnRef, Error, Value};
 use crate::executor::BoxFuture;
 use crate::Executor;
+use crate::{ColumnRef, Error, Value};
 
 pub trait ModelValue {
     fn column_value(&self, column: ColumnRef) -> Option<Value>;
@@ -10,15 +10,9 @@ pub trait JoinedModel: ModelValue + Sized {
     fn joined_columns() -> &'static [ColumnRef];
     fn joined_primary_keys() -> &'static [ColumnRef];
 
-    fn joined_from_row_prefixed(
-        row: &sqlx::postgres::PgRow,
-        prefix: &str,
-    ) -> Result<Self, sqlx::Error>;
+    fn joined_from_row_prefixed(row: &sqlx::postgres::PgRow, prefix: &str) -> Result<Self, sqlx::Error>;
 
-    fn joined_row_has_pk(
-        row: &sqlx::postgres::PgRow,
-        prefix: &str,
-    ) -> Result<bool, sqlx::Error>;
+    fn joined_row_has_pk(row: &sqlx::postgres::PgRow, prefix: &str) -> Result<bool, sqlx::Error>;
 }
 
 pub trait SetRelation<Rel, ValueOut> {

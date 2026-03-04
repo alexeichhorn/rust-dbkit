@@ -4,10 +4,7 @@ use dbkit_core::{func, Column, Order, Select, Table, Value};
 fn value_from_pgvector() {
     let embedding = dbkit_core::PgVector::<3>::new([0.1, 0.2, 0.3]).expect("finite vector");
 
-    assert_eq!(
-        Value::from(embedding),
-        Value::Vector(vec![0.1_f32, 0.2_f32, 0.3_f32])
-    );
+    assert_eq!(Value::from(embedding), Value::Vector(vec![0.1_f32, 0.2_f32, 0.3_f32]));
 }
 
 #[test]
@@ -21,8 +18,7 @@ fn pgvector_rejects_nan_and_infinity() {
 fn select_binds_pgvector_eq_and_null_filters() {
     let table = Table::new("embedding_rows");
     let embedding_col: Column<(), dbkit_core::PgVector<3>> = Column::new(table, "embedding");
-    let optional_embedding_col: Column<(), Option<dbkit_core::PgVector<3>>> =
-        Column::new(table, "embedding_optional");
+    let optional_embedding_col: Column<(), Option<dbkit_core::PgVector<3>>> = Column::new(table, "embedding_optional");
 
     let query = dbkit_core::PgVector::<3>::new([0.5, 0.25, 0.125]).expect("vector");
 
@@ -31,13 +27,9 @@ fn select_binds_pgvector_eq_and_null_filters() {
         .filter(optional_embedding_col.eq(None::<dbkit_core::PgVector<3>>))
         .compile();
 
-    assert!(compiled
-        .sql
-        .contains("embedding_rows.embedding = $1::vector"));
+    assert!(compiled.sql.contains("embedding_rows.embedding = $1::vector"));
     assert!(
-        compiled
-            .sql
-            .contains("embedding_rows.embedding_optional IS NULL"),
+        compiled.sql.contains("embedding_rows.embedding_optional IS NULL"),
         "unexpected SQL: {}",
         compiled.sql
     );
@@ -56,35 +48,18 @@ fn select_compiles_vector_distance_operators_and_bind_order() {
         .filter(func::cosine_distance(embedding_col.clone(), query.clone()).lt(0.20_f32))
         .filter(func::inner_product(embedding_col.clone(), query.clone()).gt(0.50_f32))
         .filter(func::l1_distance(embedding_col.clone(), query.clone()).lt(0.80_f32))
-        .order_by(Order::asc(func::l2_distance(
-            embedding_col.clone(),
-            query.clone(),
-        )))
-        .order_by(Order::asc(func::cosine_distance(
-            embedding_col.clone(),
-            query.clone(),
-        )))
-        .order_by(Order::asc(func::inner_product(
-            embedding_col,
-            query.clone(),
-        )))
+        .order_by(Order::asc(func::l2_distance(embedding_col.clone(), query.clone())))
+        .order_by(Order::asc(func::cosine_distance(embedding_col.clone(), query.clone())))
+        .order_by(Order::asc(func::inner_product(embedding_col, query.clone())))
         .compile();
 
     assert!(compiled.sql.contains("embedding_rows.embedding <-> $1::vector"));
     assert!(compiled.sql.contains("embedding_rows.embedding <=> $1::vector"));
-    assert!(compiled
-        .sql
-        .contains("INNER_PRODUCT(embedding_rows.embedding, $1::vector)"));
+    assert!(compiled.sql.contains("INNER_PRODUCT(embedding_rows.embedding, $1::vector)"));
     assert!(compiled.sql.contains("embedding_rows.embedding <+> $1::vector"));
-    assert!(compiled
-        .sql
-        .contains("ORDER BY (embedding_rows.embedding <-> $1::vector) ASC"));
-    assert!(compiled
-        .sql
-        .contains("(embedding_rows.embedding <=> $1::vector) ASC"));
-    assert!(compiled
-        .sql
-        .contains("INNER_PRODUCT(embedding_rows.embedding, $1::vector) ASC"));
+    assert!(compiled.sql.contains("ORDER BY (embedding_rows.embedding <-> $1::vector) ASC"));
+    assert!(compiled.sql.contains("(embedding_rows.embedding <=> $1::vector) ASC"));
+    assert!(compiled.sql.contains("INNER_PRODUCT(embedding_rows.embedding, $1::vector) ASC"));
     assert!(!compiled.sql.contains("L2_DISTANCE("), "unexpected SQL: {}", compiled.sql);
     assert!(!compiled.sql.contains("COSINE_DISTANCE("), "unexpected SQL: {}", compiled.sql);
     assert!(!compiled.sql.contains("L1_DISTANCE("), "unexpected SQL: {}", compiled.sql);
@@ -112,9 +87,7 @@ fn select_compiles_inner_product_distance_operator_for_ann_order_by() {
         .limit(10)
         .compile();
 
-    assert!(compiled
-        .sql
-        .contains("ORDER BY (embedding_rows.embedding <#> $1::vector) ASC"));
+    assert!(compiled.sql.contains("ORDER BY (embedding_rows.embedding <#> $1::vector) ASC"));
     assert!(!compiled.sql.contains("INNER_PRODUCT("), "unexpected SQL: {}", compiled.sql);
 }
 
@@ -133,8 +106,7 @@ fn pgvector_try_from_vec_validates_exact_dimension() {
 #[test]
 fn select_compiles_optional_vector_distance_operator() {
     let table = Table::new("embedding_rows");
-    let optional_embedding_col: Column<(), Option<dbkit_core::PgVector<3>>> =
-        Column::new(table, "embedding_optional");
+    let optional_embedding_col: Column<(), Option<dbkit_core::PgVector<3>>> = Column::new(table, "embedding_optional");
     let query = dbkit_core::PgVector::<3>::new([0.2, 0.3, 0.4]).expect("vector");
 
     let compiled = Select::<()>::new(table)

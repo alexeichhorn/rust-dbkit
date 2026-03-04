@@ -34,11 +34,7 @@ impl CaptureExecutor {
 }
 
 impl Executor for CaptureExecutor {
-    fn fetch_all<'e, T>(
-        &'e self,
-        sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Vec<T>, Error>>
+    fn fetch_all<'e, T>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
@@ -46,11 +42,7 @@ impl Executor for CaptureExecutor {
         Box::pin(async move { Ok(Vec::new()) })
     }
 
-    fn fetch_optional<'e, T>(
-        &'e self,
-        sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Option<T>, Error>>
+    fn fetch_optional<'e, T>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
@@ -58,20 +50,12 @@ impl Executor for CaptureExecutor {
         Box::pin(async move { Ok(None) })
     }
 
-    fn fetch_rows<'e>(
-        &'e self,
-        sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
+    fn fetch_rows<'e>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
         self.sqls.lock().expect("lock").push(sql.to_string());
         Box::pin(async move { Ok(Vec::new()) })
     }
 
-    fn execute<'e>(
-        &'e self,
-        sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<u64, Error>> {
+    fn execute<'e>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         self.sqls.lock().expect("lock").push(sql.to_string());
         Box::pin(async move { Ok(0) })
     }
@@ -80,12 +64,7 @@ impl Executor for CaptureExecutor {
 #[tokio::test]
 async fn left_join_for_update_nowait_scopes_lock_to_base_table() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<User> = User::query()
-        .left_join(User::todos)
-        .for_update()
-        .nowait()
-        .all(&ex)
-        .await?;
+    let _rows: Vec<User> = User::query().left_join(User::todos).for_update().nowait().all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);

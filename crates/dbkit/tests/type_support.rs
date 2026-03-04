@@ -11,12 +11,7 @@ fn build_arguments_accepts_uuid_datetime_date_time() {
     let datetime = NaiveDateTime::new(date, time);
     let id = Uuid::nil();
 
-    let values = vec![
-        Value::from(id),
-        Value::from(datetime),
-        Value::from(date),
-        Value::from(time),
-    ];
+    let values = vec![Value::from(id), Value::from(datetime), Value::from(date), Value::from(time)];
 
     let result = build_arguments(&values);
     assert!(result.is_ok());
@@ -24,10 +19,7 @@ fn build_arguments_accepts_uuid_datetime_date_time() {
 
 #[test]
 fn build_arguments_accepts_utc_datetime() {
-    let datetime: DateTime<Utc> = Utc
-        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
-        .single()
-        .expect("utc datetime");
+    let datetime: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 3, 4, 5).single().expect("utc datetime");
 
     let values = vec![Value::from(datetime)];
     let result = build_arguments(&values);

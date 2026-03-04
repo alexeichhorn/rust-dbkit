@@ -1,6 +1,6 @@
 use dbkit::executor::BoxFuture;
-use dbkit::{model, Error, Executor, SelectExt};
 use dbkit::sqlx::postgres::PgArguments;
+use dbkit::{model, Error, Executor, SelectExt};
 
 #[model(table = "users")]
 struct User {
@@ -53,11 +53,7 @@ impl CaptureExecutor {
 }
 
 impl Executor for CaptureExecutor {
-    fn fetch_all<'e, T>(
-        &'e self,
-        sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Vec<T>, Error>>
+    fn fetch_all<'e, T>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
@@ -65,11 +61,7 @@ impl Executor for CaptureExecutor {
         Box::pin(async move { Ok(Vec::new()) })
     }
 
-    fn fetch_optional<'e, T>(
-        &'e self,
-        sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Option<T>, Error>>
+    fn fetch_optional<'e, T>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
@@ -91,10 +83,7 @@ impl Executor for CaptureExecutor {
 #[tokio::test]
 async fn joined_has_many_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<UserModel<Vec<Todo>>> = User::query()
-        .with(User::todos.joined())
-        .all(&ex)
-        .await?;
+    let _rows: Vec<UserModel<Vec<Todo>>> = User::query().with(User::todos.joined()).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);
@@ -108,10 +97,7 @@ async fn joined_has_many_uses_single_join_query() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn joined_belongs_to_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<TodoModel<Option<User>>> = Todo::query()
-        .with(Todo::user.joined())
-        .all(&ex)
-        .await?;
+    let _rows: Vec<TodoModel<Option<User>>> = Todo::query().with(Todo::user.joined()).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);
@@ -125,10 +111,7 @@ async fn joined_belongs_to_uses_single_join_query() -> Result<(), dbkit::Error> 
 #[tokio::test]
 async fn joined_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
-        .with(Todo::tags.joined())
-        .all(&ex)
-        .await?;
+    let _rows: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query().with(Todo::tags.joined()).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);
@@ -143,10 +126,8 @@ async fn joined_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error
 #[tokio::test]
 async fn joined_nested_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
-        .with(User::todos.joined().with(Todo::tags.joined()))
-        .all(&ex)
-        .await?;
+    let _rows: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> =
+        User::query().with(User::todos.joined().with(Todo::tags.joined())).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);
@@ -162,12 +143,7 @@ async fn joined_nested_many_to_many_uses_single_join_query() -> Result<(), dbkit
 #[tokio::test]
 async fn joined_for_update_scopes_lock_to_base_table() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<UserModel<Vec<Todo>>> = User::query()
-        .with(User::todos.joined())
-        .for_update()
-        .nowait()
-        .all(&ex)
-        .await?;
+    let _rows: Vec<UserModel<Vec<Todo>>> = User::query().with(User::todos.joined()).for_update().nowait().all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);

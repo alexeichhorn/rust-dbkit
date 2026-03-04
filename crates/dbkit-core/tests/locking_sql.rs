@@ -1,4 +1,7 @@
-use dbkit_core::{expr::{ExprNode, Value}, Column, Join, JoinKind, Order, Select, SelectItem, Table};
+use dbkit_core::{
+    expr::{ExprNode, Value},
+    Column, Join, JoinKind, Order, Select, SelectItem, Table,
+};
 
 #[derive(Debug)]
 struct User;
@@ -106,18 +109,12 @@ fn compiles_locking_with_join_filter() {
         sql.sql,
         "SELECT users.* FROM users JOIN todos ON (users.id = todos.user_id) WHERE (todos.title = $1) FOR UPDATE NOWAIT"
     );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("Senior Rust Engineer".to_string())]
-    );
+    assert_eq!(sql.binds, vec![Value::String("Senior Rust Engineer".to_string())]);
 }
 
 #[test]
 fn compiles_select_only_with_locking_clause() {
-    let query = Select::<User>::new(user_table())
-        .select_only()
-        .column(user_id())
-        .for_update();
+    let query = Select::<User>::new(user_table()).select_only().column(user_id()).for_update();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.id FROM users FOR UPDATE");
@@ -135,10 +132,7 @@ fn for_update_is_idempotent() {
 
 #[test]
 fn skip_locked_is_idempotent() {
-    let query = Select::<User>::new(user_table())
-        .for_update()
-        .skip_locked()
-        .skip_locked();
+    let query = Select::<User>::new(user_table()).for_update().skip_locked().skip_locked();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.* FROM users FOR UPDATE SKIP LOCKED");
@@ -147,10 +141,7 @@ fn skip_locked_is_idempotent() {
 
 #[test]
 fn nowait_is_idempotent() {
-    let query = Select::<User>::new(user_table())
-        .for_update()
-        .nowait()
-        .nowait();
+    let query = Select::<User>::new(user_table()).for_update().nowait().nowait();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.* FROM users FOR UPDATE NOWAIT");
@@ -168,19 +159,13 @@ fn compile_without_pagination_omits_locking_for_count_exists_subqueries() {
         .skip_locked();
 
     let sql = query.compile_without_pagination();
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE (users.email = $1)"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email = $1)");
     assert_eq!(sql.binds, vec![Value::String("worker@example.com".to_string())]);
 }
 
 #[test]
 fn compile_with_extra_preserves_locking_clause() {
-    let query = Select::<User>::new(user_table())
-        .filter(user_id().eq(42))
-        .for_update()
-        .nowait();
+    let query = Select::<User>::new(user_table()).filter(user_id().eq(42)).for_update().nowait();
 
     let extra_columns = vec![SelectItem {
         expr: ExprNode::Column(todo_title().as_ref()),
@@ -202,10 +187,7 @@ fn compile_with_extra_preserves_locking_clause() {
 
 #[test]
 fn compile_with_extra_left_join_scopes_lock_to_base_table() {
-    let query = Select::<User>::new(user_table())
-        .filter(user_id().eq(7))
-        .for_update()
-        .nowait();
+    let query = Select::<User>::new(user_table()).filter(user_id().eq(7)).for_update().nowait();
 
     let extra_columns = vec![SelectItem {
         expr: ExprNode::Column(todo_title().as_ref()),

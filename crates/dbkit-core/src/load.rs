@@ -31,10 +31,7 @@ pub struct SelectIn<R, Nested = NoLoad> {
 
 impl<R> SelectIn<R, NoLoad> {
     pub fn new(rel: R) -> Self {
-        Self {
-            rel,
-            nested: NoLoad,
-        }
+        Self { rel, nested: NoLoad }
     }
 }
 
@@ -42,10 +39,7 @@ impl<R, Nested> SelectIn<R, Nested> {
     pub fn with<L>(self, load: L) -> SelectIn<R, LoadChain<Nested, L>> {
         SelectIn {
             rel: self.rel,
-            nested: LoadChain {
-                prev: self.nested,
-                load,
-            },
+            nested: LoadChain { prev: self.nested, load },
         }
     }
 }
@@ -58,10 +52,7 @@ pub struct Joined<R, Nested = NoLoad> {
 
 impl<R> Joined<R, NoLoad> {
     pub fn new(rel: R) -> Self {
-        Self {
-            rel,
-            nested: NoLoad,
-        }
+        Self { rel, nested: NoLoad }
     }
 }
 
@@ -69,10 +60,7 @@ impl<R, Nested> Joined<R, Nested> {
     pub fn with<L>(self, load: L) -> Joined<R, LoadChain<Nested, L>> {
         Joined {
             rel: self.rel,
-            nested: LoadChain {
-                prev: self.nested,
-                load,
-            },
+            nested: LoadChain { prev: self.nested, load },
         }
     }
 }

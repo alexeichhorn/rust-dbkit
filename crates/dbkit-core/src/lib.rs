@@ -13,8 +13,8 @@ pub use expr::{ColumnValue, Condition, Expr, ExprNode, IntoExpr, Value};
 pub use load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 pub use mutation::{Delete, Insert, Update};
 pub use query::{
-    DistinctSelected, ForUpdateRowLock, Grouped, Join, JoinKind, NoRowLock, NotDistinct, NotGrouped, Order,
-    OrderDirection, Select, SelectItem,
+    DistinctSelected, ForUpdateRowLock, Grouped, Join, JoinKind, NoRowLock, NotDistinct, NotGrouped, Order, OrderDirection, Select,
+    SelectItem,
 };
 pub use rel::{BelongsToSpec, ManyToManyThrough, Relation, RelationInfo, RelationKind, RelationTarget};
 pub use schema::{Column, ColumnRef, Table};

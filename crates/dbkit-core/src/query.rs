@@ -91,13 +91,7 @@ enum RowLockWait {
 }
 
 #[derive(Debug, Clone)]
-pub struct Select<
-    Out,
-    Loads = NoLoad,
-    Lock = NoRowLock,
-    DistinctState = NotDistinct,
-    GroupState = NotGrouped,
-> {
+pub struct Select<Out, Loads = NoLoad, Lock = NoRowLock, DistinctState = NotDistinct, GroupState = NotGrouped> {
     table: Table,
     columns: Option<Vec<SelectItem>>,
     joins: Vec<Join>,
@@ -298,10 +292,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
             offset: self.offset,
             distinct: self.distinct,
             row_lock_wait: self.row_lock_wait,
-            loads: LoadChain {
-                prev: self.loads,
-                load,
-            },
+            loads: LoadChain { prev: self.loads, load },
             _marker: PhantomData,
             _lock_marker: PhantomData,
             _distinct_marker: PhantomData,
@@ -317,20 +308,11 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         self.compile_inner(false, false, false)
     }
 
-    pub fn compile_with_extra(
-        &self,
-        extra_columns: &[SelectItem],
-        extra_joins: &[Join],
-    ) -> CompiledSql {
+    pub fn compile_with_extra(&self, extra_columns: &[SelectItem], extra_joins: &[Join]) -> CompiledSql {
         self.compile_inner_with(extra_columns, extra_joins, true, true, true)
     }
 
-    fn compile_inner(
-        &self,
-        include_order: bool,
-        include_pagination: bool,
-        include_locking: bool,
-    ) -> CompiledSql {
+    fn compile_inner(&self, include_order: bool, include_pagination: bool, include_locking: bool) -> CompiledSql {
         self.compile_inner_with(&[], &[], include_order, include_pagination, include_locking)
     }
 

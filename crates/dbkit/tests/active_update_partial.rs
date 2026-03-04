@@ -1,6 +1,6 @@
 use dbkit::executor::BoxFuture;
-use dbkit::{model, Error, Executor};
 use dbkit::sqlx::postgres::PgArguments;
+use dbkit::{model, Error, Executor};
 
 #[model(table = "users")]
 struct User {
@@ -23,11 +23,7 @@ impl CaptureExecutor {
 }
 
 impl Executor for CaptureExecutor {
-    fn fetch_all<'e, T>(
-        &'e self,
-        sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Vec<T>, Error>>
+    fn fetch_all<'e, T>(&'e self, sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
@@ -35,22 +31,14 @@ impl Executor for CaptureExecutor {
         Box::pin(async move { Ok(Vec::new()) })
     }
 
-    fn fetch_optional<'e, T>(
-        &'e self,
-        _sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Option<T>, Error>>
+    fn fetch_optional<'e, T>(&'e self, _sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Option<T>, Error>>
     where
         T: for<'r> dbkit::sqlx::FromRow<'r, dbkit::sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
         Box::pin(async move { Ok(None) })
     }
 
-    fn fetch_rows<'e>(
-        &'e self,
-        _sql: &'e str,
-        _args: PgArguments,
-    ) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
+    fn fetch_rows<'e>(&'e self, _sql: &'e str, _args: PgArguments) -> BoxFuture<'e, Result<Vec<dbkit::sqlx::postgres::PgRow>, Error>> {
         Box::pin(async move { Ok(Vec::new()) })
     }
 

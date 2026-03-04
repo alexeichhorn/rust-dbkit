@@ -21,11 +21,7 @@ fn db_url() -> String {
 }
 
 async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
-    ex.execute(
-        "CREATE EXTENSION IF NOT EXISTS vector",
-        PgArguments::default(),
-    )
-    .await?;
+    ex.execute("CREATE EXTENSION IF NOT EXISTS vector", PgArguments::default()).await?;
 
     ex.execute(
         "CREATE TEMP TABLE embedding_rows (\
@@ -106,39 +102,15 @@ async fn pgvector_distance_functions_support_threshold_and_ordering() -> Result<
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
 
-    seed_row(
-        &tx,
-        1,
-        "perfect",
-        dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"),
-        None,
-    )
-    .await?;
-    seed_row(
-        &tx,
-        2,
-        "close",
-        dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"),
-        None,
-    )
-    .await?;
-    seed_row(
-        &tx,
-        3,
-        "far",
-        dbkit::PgVector::<3>::new([0.0, 1.0, 0.0]).expect("vector"),
-        None,
-    )
-    .await?;
+    seed_row(&tx, 1, "perfect", dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"), None).await?;
+    seed_row(&tx, 2, "close", dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"), None).await?;
+    seed_row(&tx, 3, "far", dbkit::PgVector::<3>::new([0.0, 1.0, 0.0]).expect("vector"), None).await?;
 
     let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("query vector");
 
     let nearest = EmbeddingRow::query()
         .filter(func::l2_distance(EmbeddingRow::embedding, query.clone()).lt(1.5_f32))
-        .order_by(Order::asc(func::l2_distance(
-            EmbeddingRow::embedding,
-            query.clone(),
-        )))
+        .order_by(Order::asc(func::l2_distance(EmbeddingRow::embedding, query.clone())))
         .all(&tx)
         .await?;
 
@@ -150,10 +122,7 @@ async fn pgvector_distance_functions_support_threshold_and_ordering() -> Result<
     let high_similarity = EmbeddingRow::query()
         .filter(func::cosine_distance(EmbeddingRow::embedding, query.clone()).lt(0.01_f32))
         .filter(func::inner_product(EmbeddingRow::embedding, query.clone()).gt(0.80_f32))
-        .order_by(Order::asc(func::l1_distance(
-            EmbeddingRow::embedding,
-            query,
-        )))
+        .order_by(Order::asc(func::l1_distance(EmbeddingRow::embedding, query)))
         .all(&tx)
         .await?;
 
@@ -206,10 +175,7 @@ async fn pgvector_top_n_by_inner_product_desc_returns_expected_rank() -> Result<
     let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("query vector");
 
     let top2 = EmbeddingRow::query()
-        .order_by(Order::desc(func::inner_product(
-            EmbeddingRow::embedding,
-            query,
-        )))
+        .order_by(Order::desc(func::inner_product(EmbeddingRow::embedding, query)))
         .limit(2)
         .all(&tx)
         .await?;
@@ -222,8 +188,7 @@ async fn pgvector_top_n_by_inner_product_desc_returns_expected_rank() -> Result<
 }
 
 #[tokio::test]
-async fn pgvector_top_n_optional_embeddings_uses_non_null_filter_for_determinism(
-) -> Result<(), dbkit::Error> {
+async fn pgvector_top_n_optional_embeddings_uses_non_null_filter_for_determinism() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
@@ -266,10 +231,7 @@ async fn pgvector_top_n_optional_embeddings_uses_non_null_filter_for_determinism
     // We explicitly filter NULLs to avoid relying on PostgreSQL NULL sort defaults in DESC.
     let top2 = EmbeddingRow::query()
         .filter(EmbeddingRow::embedding_optional.is_not_null())
-        .order_by(Order::desc(func::inner_product(
-            EmbeddingRow::embedding_optional,
-            query,
-        )))
+        .order_by(Order::desc(func::inner_product(EmbeddingRow::embedding_optional, query)))
         .limit(2)
         .all(&tx)
         .await?;
@@ -282,28 +244,13 @@ async fn pgvector_top_n_optional_embeddings_uses_non_null_filter_for_determinism
 }
 
 #[tokio::test]
-async fn pgvector_top_n_by_inner_product_distance_asc_returns_expected_rank(
-) -> Result<(), dbkit::Error> {
+async fn pgvector_top_n_by_inner_product_distance_asc_returns_expected_rank() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
 
-    seed_row(
-        &tx,
-        1,
-        "perfect",
-        dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"),
-        None,
-    )
-    .await?;
-    seed_row(
-        &tx,
-        2,
-        "close",
-        dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"),
-        None,
-    )
-    .await?;
+    seed_row(&tx, 1, "perfect", dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"), None).await?;
+    seed_row(&tx, 2, "close", dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"), None).await?;
     seed_row(
         &tx,
         3,
@@ -324,10 +271,7 @@ async fn pgvector_top_n_by_inner_product_distance_asc_returns_expected_rank(
     let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("query vector");
 
     let top2 = EmbeddingRow::query()
-        .order_by(Order::asc(func::inner_product_distance(
-            EmbeddingRow::embedding,
-            query,
-        )))
+        .order_by(Order::asc(func::inner_product_distance(EmbeddingRow::embedding, query)))
         .limit(2)
         .all(&tx)
         .await?;
@@ -340,28 +284,13 @@ async fn pgvector_top_n_by_inner_product_distance_asc_returns_expected_rank(
 }
 
 #[tokio::test]
-async fn pgvector_inner_product_distance_threshold_uses_negative_inner_product_semantics(
-) -> Result<(), dbkit::Error> {
+async fn pgvector_inner_product_distance_threshold_uses_negative_inner_product_semantics() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
 
-    seed_row(
-        &tx,
-        1,
-        "perfect",
-        dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"),
-        None,
-    )
-    .await?;
-    seed_row(
-        &tx,
-        2,
-        "close",
-        dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"),
-        None,
-    )
-    .await?;
+    seed_row(&tx, 1, "perfect", dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"), None).await?;
+    seed_row(&tx, 2, "close", dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"), None).await?;
     seed_row(
         &tx,
         3,
@@ -374,15 +303,8 @@ async fn pgvector_inner_product_distance_threshold_uses_negative_inner_product_s
     let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("query vector");
 
     let highly_similar = EmbeddingRow::query()
-        .filter(func::inner_product_distance(
-            EmbeddingRow::embedding,
-            query.clone(),
-        )
-        .lt(-0.8_f32))
-        .order_by(Order::asc(func::inner_product_distance(
-            EmbeddingRow::embedding,
-            query,
-        )))
+        .filter(func::inner_product_distance(EmbeddingRow::embedding, query.clone()).lt(-0.8_f32))
+        .order_by(Order::asc(func::inner_product_distance(EmbeddingRow::embedding, query)))
         .all(&tx)
         .await?;
 

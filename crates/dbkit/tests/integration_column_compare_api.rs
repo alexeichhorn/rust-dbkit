@@ -255,9 +255,7 @@ async fn stale_embedding_predicate_with_coalesce_catches_nulls_and_hash_mismatch
             JobColCompare::embedding
                 .is_null()
                 .or(JobColCompare::embedding_hash.is_null())
-                .or(dbkit::func::coalesce(JobColCompare::embedding_hash, "").ne_col(
-                    JobColCompare::content_hash,
-                )),
+                .or(dbkit::func::coalesce(JobColCompare::embedding_hash, "").ne_col(JobColCompare::content_hash)),
         )
         .all(&tx)
         .await?;

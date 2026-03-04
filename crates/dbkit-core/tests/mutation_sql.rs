@@ -1,5 +1,5 @@
-use dbkit_core::{Delete, Insert, Table, Update, Value};
 use dbkit_core::{Column, ColumnRef};
+use dbkit_core::{Delete, Insert, Table, Update, Value};
 
 #[derive(Debug)]
 struct User;
@@ -64,29 +64,19 @@ fn run_version() -> Column<RunPayload, i64> {
 
 #[test]
 fn compiles_insert_returning_all() {
-    let query: Insert<User> = Insert::new(user_table())
-        .value(user_email(), "a@b.com")
-        .returning_all();
+    let query: Insert<User> = Insert::new(user_table()).value(user_email(), "a@b.com").returning_all();
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "INSERT INTO users (email) VALUES ($1) RETURNING users.*"
-    );
+    assert_eq!(sql.sql, "INSERT INTO users (email) VALUES ($1) RETURNING users.*");
     assert_eq!(sql.binds, vec![Value::String("a@b.com".to_string())]);
 }
 
 #[test]
 fn compiles_insert_with_null() {
-    let query: Insert<User> = Insert::new(user_table())
-        .value(user_email(), None)
-        .returning_all();
+    let query: Insert<User> = Insert::new(user_table()).value(user_email(), None).returning_all();
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "INSERT INTO users (email) VALUES (NULL) RETURNING users.*"
-    );
+    assert_eq!(sql.sql, "INSERT INTO users (email) VALUES (NULL) RETURNING users.*");
     assert!(sql.binds.is_empty());
 }
 
@@ -127,10 +117,7 @@ fn compiles_insert_on_conflict_do_nothing_with_single_target() {
     );
     assert_eq!(
         sql.binds,
-        vec![
-            Value::String("a@b.com".to_string()),
-            Value::String("Alice".to_string()),
-        ]
+        vec![Value::String("a@b.com".to_string()), Value::String("Alice".to_string()),]
     );
 }
 
@@ -184,10 +171,7 @@ fn compiles_insert_on_conflict_do_update_with_composite_target_and_selected_over
         .value(run_payload(), "new-payload")
         .value(run_source(), "new-source")
         .value(run_version(), 3_i64)
-        .on_conflict_do_update(
-            (run_target_id(), run_id()),
-            (run_payload(), run_version()),
-        )
+        .on_conflict_do_update((run_target_id(), run_id()), (run_payload(), run_version()))
         .returning_all();
 
     let sql = query.compile();
@@ -215,10 +199,7 @@ fn compiles_insert_on_conflict_do_update_with_four_selected_overwrite_columns() 
         .value(run_payload(), "new-payload")
         .value(run_source(), "new-source")
         .value(run_version(), 3_i64)
-        .on_conflict_do_update(
-            (run_target_id(), run_id()),
-            (run_payload(), run_source(), run_version(), run_id()),
-        )
+        .on_conflict_do_update((run_target_id(), run_id()), (run_payload(), run_source(), run_version(), run_id()))
         .returning_all();
 
     let sql = query.compile();
@@ -262,14 +243,8 @@ fn compiles_update_with_filter() {
         .returning(vec![ColumnRef::new(user_table(), "id")]);
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "UPDATE users SET email = $1 WHERE (users.id = $2) RETURNING users.id"
-    );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("new@b.com".to_string()), Value::I64(1)]
-    );
+    assert_eq!(sql.sql, "UPDATE users SET email = $1 WHERE (users.id = $2) RETURNING users.id");
+    assert_eq!(sql.binds, vec![Value::String("new@b.com".to_string()), Value::I64(1)]);
 }
 
 #[test]
@@ -280,14 +255,8 @@ fn compiles_update_returning_all_single_field() {
         .returning_all();
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "UPDATE users SET name = $1 WHERE (users.id = $2) RETURNING users.*"
-    );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("Updated".to_string()), Value::I64(1)]
-    );
+    assert_eq!(sql.sql, "UPDATE users SET name = $1 WHERE (users.id = $2) RETURNING users.*");
+    assert_eq!(sql.binds, vec![Value::String("Updated".to_string()), Value::I64(1)]);
 }
 
 #[test]
@@ -303,10 +272,7 @@ fn compiles_update_with_composite_key_filters() {
         sql.sql,
         "UPDATE order_lines SET note = $1 WHERE (order_lines.order_id = $2) AND (order_lines.line_id = $3) RETURNING order_lines.*"
     );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("Updated".to_string()), Value::I64(1), Value::I64(2)]
-    );
+    assert_eq!(sql.binds, vec![Value::String("Updated".to_string()), Value::I64(1), Value::I64(2)]);
 }
 
 #[test]
@@ -317,10 +283,7 @@ fn compiles_update_set_null() {
         .returning_all();
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "UPDATE users SET email = NULL WHERE (users.id = $1) RETURNING users.*"
-    );
+    assert_eq!(sql.sql, "UPDATE users SET email = NULL WHERE (users.id = $1) RETURNING users.*");
     assert_eq!(sql.binds, vec![Value::I64(1)]);
 }
 

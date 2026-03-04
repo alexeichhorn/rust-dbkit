@@ -50,10 +50,7 @@ fn compiles_ne_col_between_non_nullable_columns() {
 fn compiles_lt_col_between_numeric_columns() {
     let expr = job_retry_count().lt_col(job_max_retries());
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT jobs.* FROM jobs WHERE (jobs.retry_count < jobs.max_retries)"
-    );
+    assert_eq!(sql.sql, "SELECT jobs.* FROM jobs WHERE (jobs.retry_count < jobs.max_retries)");
     assert!(sql.binds.is_empty());
 }
 
@@ -61,10 +58,7 @@ fn compiles_lt_col_between_numeric_columns() {
 fn compiles_le_col_between_numeric_columns() {
     let expr = job_retry_count().le_col(job_max_retries());
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT jobs.* FROM jobs WHERE (jobs.retry_count <= jobs.max_retries)"
-    );
+    assert_eq!(sql.sql, "SELECT jobs.* FROM jobs WHERE (jobs.retry_count <= jobs.max_retries)");
     assert!(sql.binds.is_empty());
 }
 
@@ -72,10 +66,7 @@ fn compiles_le_col_between_numeric_columns() {
 fn compiles_gt_col_between_numeric_columns() {
     let expr = job_retry_count().gt_col(job_max_retries());
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT jobs.* FROM jobs WHERE (jobs.retry_count > jobs.max_retries)"
-    );
+    assert_eq!(sql.sql, "SELECT jobs.* FROM jobs WHERE (jobs.retry_count > jobs.max_retries)");
     assert!(sql.binds.is_empty());
 }
 
@@ -83,10 +74,7 @@ fn compiles_gt_col_between_numeric_columns() {
 fn compiles_ge_col_between_numeric_columns() {
     let expr = job_retry_count().ge_col(job_max_retries());
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT jobs.* FROM jobs WHERE (jobs.retry_count >= jobs.max_retries)"
-    );
+    assert_eq!(sql.sql, "SELECT jobs.* FROM jobs WHERE (jobs.retry_count >= jobs.max_retries)");
     assert!(sql.binds.is_empty());
 }
 
@@ -94,10 +82,7 @@ fn compiles_ge_col_between_numeric_columns() {
 fn compiles_ne_col_between_potentially_nullable_columns() {
     let expr = job_embedding_hash().ne_col(job_embedding());
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT jobs.* FROM jobs WHERE (jobs.embedding_hash <> jobs.embedding)"
-    );
+    assert_eq!(sql.sql, "SELECT jobs.* FROM jobs WHERE (jobs.embedding_hash <> jobs.embedding)");
     assert!(sql.binds.is_empty());
 }
 

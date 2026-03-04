@@ -21,10 +21,7 @@ impl Database {
             return Err(Error::Decode("max_connections must be greater than 0".to_string()));
         }
 
-        let pool = PgPoolOptions::new()
-            .max_connections(max_connections)
-            .connect(url)
-            .await?;
+        let pool = PgPoolOptions::new().max_connections(max_connections).connect(url).await?;
         Ok(Self { pool })
     }
 

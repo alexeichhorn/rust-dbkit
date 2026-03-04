@@ -70,24 +70,15 @@ fn compiles_bool_composition() {
         sql.sql,
         "SELECT users.* FROM users WHERE ((users.id > $1) AND (users.email ILIKE $2))"
     );
-    assert_eq!(
-        sql.binds,
-        vec![Value::I64(10), Value::String("%test%".to_string())]
-    );
+    assert_eq!(sql.binds, vec![Value::I64(10), Value::String("%test%".to_string())]);
 }
 
 #[test]
 fn compiles_in_expression() {
     let expr = user_id().in_([1_i64, 2, 3]);
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE (users.id IN ($1, $2, $3))"
-    );
-    assert_eq!(
-        sql.binds,
-        vec![Value::I64(1), Value::I64(2), Value::I64(3)]
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.id IN ($1, $2, $3))");
+    assert_eq!(sql.binds, vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
 }
 
 #[test]
@@ -110,10 +101,7 @@ fn compiles_eq_none_as_is_null() {
 fn compiles_ne_none_as_is_not_null() {
     let expr = user_email().ne(None);
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE (users.email IS NOT NULL)"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NOT NULL)");
     assert!(sql.binds.is_empty());
 }
 
@@ -121,10 +109,7 @@ fn compiles_ne_none_as_is_not_null() {
 fn compiles_upper_function_filter() {
     let expr = func::upper(user_email()).eq("TEST");
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE (UPPER(users.email) = $1)"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (UPPER(users.email) = $1)");
     assert_eq!(sql.binds, vec![Value::String("TEST".to_string())]);
 }
 
@@ -132,16 +117,10 @@ fn compiles_upper_function_filter() {
 fn compiles_coalesce_function_filter() {
     let expr = func::coalesce(user_email(), "unknown").eq("ALPHA");
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE (COALESCE(users.email, $1) = $2)"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (COALESCE(users.email, $1) = $2)");
     assert_eq!(
         sql.binds,
-        vec![
-            Value::String("unknown".to_string()),
-            Value::String("ALPHA".to_string()),
-        ]
+        vec![Value::String("unknown".to_string()), Value::String("ALPHA".to_string()),]
     );
 }
 
@@ -153,10 +132,7 @@ fn compiles_coalesce_two_columns() {
         sql.sql,
         "SELECT users.* FROM users WHERE (COALESCE(users.email, users.backup_email) = $1)"
     );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("alpha@db.com".to_string())]
-    );
+    assert_eq!(sql.binds, vec![Value::String("alpha@db.com".to_string())]);
 }
 
 #[test]
@@ -165,39 +141,24 @@ fn compiles_date_trunc_function_filter() {
     let expr = func::date_trunc("day", event_starts_at()).eq(dt);
     let query: Select<Event> = Select::new(event_table()).filter(expr);
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "SELECT events.* FROM events WHERE (DATE_TRUNC($1, events.starts_at) = $2)"
-    );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("day".to_string()), Value::DateTime(dt)]
-    );
+    assert_eq!(sql.sql, "SELECT events.* FROM events WHERE (DATE_TRUNC($1, events.starts_at) = $2)");
+    assert_eq!(sql.binds, vec![Value::String("day".to_string()), Value::DateTime(dt)]);
 }
 
 #[test]
 fn compiles_nested_functions() {
     let expr = func::upper(func::coalesce(user_email(), "unknown")).eq("ALPHA");
     let sql = expr_sql(expr);
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE (UPPER(COALESCE(users.email, $1)) = $2)"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (UPPER(COALESCE(users.email, $1)) = $2)");
     assert_eq!(
         sql.binds,
-        vec![
-            Value::String("unknown".to_string()),
-            Value::String("ALPHA".to_string()),
-        ]
+        vec![Value::String("unknown".to_string()), Value::String("ALPHA".to_string()),]
     );
 }
 
 #[test]
 fn compiles_select_only_with_columns() {
-    let query: Select<User> = Select::new(user_table())
-        .select_only()
-        .column(user_email())
-        .column(user_id());
+    let query: Select<User> = Select::new(user_table()).select_only().column(user_email()).column(user_id());
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.email, users.id FROM users");
@@ -206,9 +167,7 @@ fn compiles_select_only_with_columns() {
 
 #[test]
 fn compiles_select_only_with_column_as() {
-    let query: Select<User> = Select::new(user_table())
-        .select_only()
-        .column_as(user_email(), "email_addr");
+    let query: Select<User> = Select::new(user_table()).select_only().column_as(user_email(), "email_addr");
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT users.email AS email_addr FROM users");
@@ -217,9 +176,7 @@ fn compiles_select_only_with_column_as() {
 
 #[test]
 fn compiles_select_only_with_func_column() {
-    let query: Select<User> = Select::new(user_table())
-        .select_only()
-        .column(func::upper(user_email()));
+    let query: Select<User> = Select::new(user_table()).select_only().column(func::upper(user_email()));
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT UPPER(users.email) FROM users");
@@ -277,10 +234,7 @@ fn compiles_group_by_expression() {
         sql.sql,
         "SELECT DATE_TRUNC($1, sales.created_at) AS bucket, SUM(sales.amount) AS total FROM sales GROUP BY DATE_TRUNC($1, sales.created_at)"
     );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("day".to_string())]
-    );
+    assert_eq!(sql.binds, vec![Value::String("day".to_string())]);
 }
 
 #[test]
@@ -306,25 +260,16 @@ fn compiles_order_by_alias() {
         .order_by(Order::asc_alias("email_addr"));
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "SELECT users.email AS email_addr FROM users ORDER BY email_addr ASC"
-    );
+    assert_eq!(sql.sql, "SELECT users.email AS email_addr FROM users ORDER BY email_addr ASC");
     assert!(sql.binds.is_empty());
 }
 
 #[test]
 fn compiles_select_query() {
-    let query: Select<User> = Select::new(user_table())
-        .filter(user_email().like("%example%"))
-        .limit(5)
-        .offset(10);
+    let query: Select<User> = Select::new(user_table()).filter(user_email().like("%example%")).limit(5).offset(10);
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE (users.email LIKE $1) LIMIT 5 OFFSET 10"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email LIKE $1) LIMIT 5 OFFSET 10");
     assert_eq!(sql.binds, vec![Value::String("%example%".to_string())]);
 }
 
@@ -333,10 +278,7 @@ fn compiles_between_expression() {
     let query: Select<User> = Select::new(user_table()).filter(user_id().between(1_i64, 5_i64));
 
     let sql = query.compile();
-    assert_eq!(
-        sql.sql,
-        "SELECT users.* FROM users WHERE ((users.id >= $1) AND (users.id <= $2))"
-    );
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE ((users.id >= $1) AND (users.id <= $2))");
     assert_eq!(sql.binds, vec![Value::I64(1), Value::I64(5)]);
 }
 
@@ -344,9 +286,7 @@ fn compiles_between_expression() {
 fn compiles_between_on_func_expression() {
     let start = NaiveDateTime::from_timestamp_opt(1_700_000_000, 0).expect("start");
     let end = NaiveDateTime::from_timestamp_opt(1_700_000_100, 0).expect("end");
-    let query: Select<Sale> = Select::new(sales_table()).filter(
-        func::date_trunc("day", sales_created_at()).between(start, end),
-    );
+    let query: Select<Sale> = Select::new(sales_table()).filter(func::date_trunc("day", sales_created_at()).between(start, end));
 
     let sql = query.compile();
     assert_eq!(
@@ -355,11 +295,7 @@ fn compiles_between_on_func_expression() {
     );
     assert_eq!(
         sql.binds,
-        vec![
-            Value::String("day".to_string()),
-            Value::DateTime(start),
-            Value::DateTime(end)
-        ]
+        vec![Value::String("day".to_string()), Value::DateTime(start), Value::DateTime(end)]
     );
 }
 
@@ -377,9 +313,7 @@ fn condition_all_empty_returns_none() {
 
 #[test]
 fn compiles_condition_any_or() {
-    let cond = Condition::any()
-        .add(user_email().like("%example%"))
-        .add(user_id().gt(10_i64));
+    let cond = Condition::any().add(user_email().like("%example%")).add(user_id().gt(10_i64));
 
     let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
     let sql = query.compile();
@@ -387,17 +321,12 @@ fn compiles_condition_any_or() {
         sql.sql,
         "SELECT users.* FROM users WHERE ((users.email LIKE $1) OR (users.id > $2))"
     );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("%example%".to_string()), Value::I64(10)]
-    );
+    assert_eq!(sql.binds, vec![Value::String("%example%".to_string()), Value::I64(10)]);
 }
 
 #[test]
 fn compiles_condition_all_and() {
-    let cond = Condition::all()
-        .add(user_email().like("%example%"))
-        .add(user_id().gt(10_i64));
+    let cond = Condition::all().add(user_email().like("%example%")).add(user_id().gt(10_i64));
 
     let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
     let sql = query.compile();
@@ -405,10 +334,7 @@ fn compiles_condition_all_and() {
         sql.sql,
         "SELECT users.* FROM users WHERE ((users.email LIKE $1) AND (users.id > $2))"
     );
-    assert_eq!(
-        sql.binds,
-        vec![Value::String("%example%".to_string()), Value::I64(10)]
-    );
+    assert_eq!(sql.binds, vec![Value::String("%example%".to_string()), Value::I64(10)]);
 }
 
 fn expr_sql(expr: Expr<bool>) -> dbkit_core::CompiledSql {
