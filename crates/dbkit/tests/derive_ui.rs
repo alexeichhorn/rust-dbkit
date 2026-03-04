@@ -33,6 +33,10 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_for_update_nowait_after_distinct.rs".into(),
         "fail_distinct_after_for_update_skip_locked.rs".into(),
         "fail_distinct_after_for_update_nowait.rs".into(),
+        "fail_for_update_after_group_by.rs".into(),
+        "fail_group_by_after_for_update.rs".into(),
+        "fail_for_update_after_group_by_having.rs".into(),
+        "fail_group_by_having_after_for_update.rs".into(),
     ];
     ui_test::run_tests(config)
 }
