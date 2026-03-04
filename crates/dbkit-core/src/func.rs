@@ -1,5 +1,4 @@
 use crate::expr::{Expr, ExprNode, IntoExpr, VectorBinaryOp};
-use crate::schema::Column;
 use crate::PgVector;
 
 pub fn upper(arg: impl IntoExpr<String>) -> Expr<String> {
@@ -32,14 +31,6 @@ pub fn coalesce<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     Expr::new(ExprNode::Func {
         name: "COALESCE",
         args: vec![left.node, right.node],
-    })
-}
-
-pub fn coalesce_col<M, T>(column: Column<M, T>, default: impl IntoExpr<T>) -> Expr<T> {
-    let default = default.into_expr();
-    Expr::new(ExprNode::Func {
-        name: "COALESCE",
-        args: vec![ExprNode::Column(column.as_ref()), default.node],
     })
 }
 

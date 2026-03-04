@@ -371,7 +371,7 @@ let stale = Job::query()
         Job::embedding
             .is_null()
             .or(Job::embedding_hash.is_null())
-            .or(dbkit::func::coalesce_col(Job::embedding_hash, "").ne_col(Job::content_hash)),
+            .or(dbkit::func::coalesce(Job::embedding_hash, "").ne_col(Job::content_hash)),
     )
     .all(&db)
     .await?;
@@ -538,7 +538,6 @@ tx.commit().await?;
 - [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
 - [x] Add typed conflict helpers: `on_conflict_do_nothing`, `on_conflict_do_update`.
 - [x] Add ActiveModel `save()` that chooses insert vs update.
-- [ ] Improve `coalesce_col` ergonomics for raw `dbkit-core` nullable column types (`Column<_, Option<T>>`).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
 ## Deviations from spec

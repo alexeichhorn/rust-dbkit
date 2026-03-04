@@ -186,7 +186,7 @@ async fn stale_embedding_predicate_catches_nulls_and_hash_mismatch() -> Result<(
             JobColCompare::embedding
                 .is_null()
                 .or(JobColCompare::embedding_hash.is_null())
-                .or(dbkit::func::coalesce_col(JobColCompare::embedding_hash, "").ne_col(
+                .or(dbkit::func::coalesce(JobColCompare::embedding_hash, "").ne_col(
                     JobColCompare::content_hash,
                 )),
         )

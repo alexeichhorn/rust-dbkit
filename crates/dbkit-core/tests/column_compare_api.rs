@@ -103,7 +103,7 @@ fn compiles_ne_col_between_potentially_nullable_columns() {
 
 #[test]
 fn compiles_expr_ne_col_with_coalesce_for_nullable_vs_nonnullable() {
-    let expr = func::coalesce_col(job_embedding_hash(), "").ne_col(job_content_hash());
+    let expr = func::coalesce(job_embedding_hash(), "").ne_col(job_content_hash());
     let sql = expr_sql(expr);
     assert_eq!(
         sql.sql,
@@ -117,7 +117,7 @@ fn compiles_stale_embedding_predicate_with_null_checks_and_hash_mismatch() {
     let expr = job_embedding()
         .is_null()
         .or(job_embedding_hash().is_null())
-        .or(func::coalesce_col(job_embedding_hash(), "").ne_col(job_content_hash()));
+        .or(func::coalesce(job_embedding_hash(), "").ne_col(job_content_hash()));
     let sql = expr_sql(expr);
     assert_eq!(
         sql.sql,
