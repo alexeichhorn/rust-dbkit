@@ -76,7 +76,7 @@ fn enum_null_paths_compile_without_typed_bind_placeholders() {
         .compile();
     assert_eq!(
         update_sql.sql,
-        "UPDATE message_jobs SET channel = NULL WHERE (message_jobs.id = $1) RETURNING message_jobs.*"
+        "UPDATE message_jobs SET channel = NULL WHERE (message_jobs.id = $1)"
     );
     assert_eq!(update_sql.binds, vec![Value::I64(11)]);
 }
@@ -91,7 +91,7 @@ fn enum_update_and_insert_conflict_sql_keep_explicit_type_casts() {
         .compile();
     assert_eq!(
         update.sql,
-        "UPDATE message_jobs SET state = $1::queue_state, channel = $2::delivery_channel, attempts = $3 WHERE (message_jobs.id = $4) RETURNING message_jobs.*"
+        "UPDATE message_jobs SET state = $1::queue_state, channel = $2::delivery_channel, attempts = $3 WHERE (message_jobs.id = $4)"
     );
     assert_eq!(
         update.binds,
