@@ -341,6 +341,42 @@ if let Some(expr) = cond.into_expr() {
 }
 ```
 
+Column-to-column comparisons:
+
+```rust
+let changed = Job::query()
+    .filter(Job::content_hash.ne_col(Job::last_content_hash))
+    .all(&db)
+    .await?;
+
+let retryable = Job::query()
+    .filter(Job::retry_count.lt_col(Job::max_retries))
+    .all(&db)
+    .await?;
+```
+
+Supported column comparison helpers:
+- `eq_col`
+- `ne_col`
+- `lt_col`
+- `le_col`
+- `gt_col`
+- `ge_col`
+
+Stale-embedding predicate (nullable hash vs non-null content hash):
+
+```rust
+let stale = Job::query()
+    .filter(
+        Job::embedding
+            .is_null()
+            .or(Job::embedding_hash.is_null())
+            .or(dbkit::func::coalesce_col(Job::embedding_hash, "").ne_col(Job::content_hash)),
+    )
+    .all(&db)
+    .await?;
+```
+
 Type-level loaded relations:
 
 ```rust
