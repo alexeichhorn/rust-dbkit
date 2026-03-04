@@ -196,7 +196,19 @@ struct EmbeddingRow {
 
 let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0])?;
 
-let nearest = EmbeddingRow::query()
+// ANN/index-friendly top-k retrieval
+let ann_top_k = EmbeddingRow::query()
+    .filter(EmbeddingRow::embedding_optional.is_not_null())
+    .order_by(dbkit::Order::asc(dbkit::func::inner_product_distance(
+        EmbeddingRow::embedding_optional,
+        query.clone(),
+    )))
+    .limit(5)
+    .all(&db)
+    .await?;
+
+// True inner product score (semantic ranking), may not use ANN index
+let semantic_top_k = EmbeddingRow::query()
     .filter(EmbeddingRow::embedding_optional.is_not_null())
     .order_by(dbkit::Order::desc(dbkit::func::inner_product(
         EmbeddingRow::embedding_optional,
@@ -221,11 +233,18 @@ Available vector distance/similarity functions:
 - `dbkit::func::cosine_distance`
 - `dbkit::func::inner_product`
 - `dbkit::func::l1_distance`
+- `dbkit::func::inner_product_distance`
 
 Notes:
 - Dimension is part of the Rust type (`PgVector<3>`, `PgVector<1536>`, etc.).
 - Optional embeddings are supported via `Option<PgVector<N>>`.
 - `cosine_distance` is a distance metric (lower means more similar), so use `.lt(...)` thresholds.
+- Operator-based helpers (`l2_distance`, `cosine_distance`, `l1_distance`, `inner_product_distance`)
+  are ANN-index compatible for `ORDER BY ... LIMIT` with pgvector indexes.
+- `inner_product` preserves true score semantics (higher is better), but as a function expression it
+  may not use pgvector ANN indexes for `ORDER BY ... LIMIT`.
+- `inner_product_distance` uses negative inner-product distance, so `inner_product > 0.9`
+  corresponds to `inner_product_distance < -0.9`.
 - For CI, use a Postgres image with pgvector installed (for example `pgvector/pgvector:pg16`).
 
 Active model insert / update (change-tracked):
