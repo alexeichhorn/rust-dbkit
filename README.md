@@ -538,6 +538,7 @@ tx.commit().await?;
 - [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
 - [x] Add typed conflict helpers: `on_conflict_do_nothing`, `on_conflict_do_update`.
 - [x] Add ActiveModel `save()` that chooses insert vs update.
+- [ ] Improve `coalesce_col` ergonomics for raw `dbkit-core` nullable column types (`Column<_, Option<T>>`).
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
 ## Deviations from spec
