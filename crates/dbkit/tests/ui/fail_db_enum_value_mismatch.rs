@@ -22,6 +22,6 @@ pub struct Task {
 }
 
 fn main() {
-    let _eq = Task::query().filter(Task::state.eq(DeliveryState::Queued)); //~ E0277
+    let _eq = Task::query().filter(Task::state.eq(TaskState::Queued));
     let _in = Task::query().filter(Task::state.in_([DeliveryState::Queued])); //~ E0277
 }
