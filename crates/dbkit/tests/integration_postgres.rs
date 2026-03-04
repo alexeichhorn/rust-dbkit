@@ -219,8 +219,15 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
     Ok(())
 }
 
-async fn setup_locking_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
-    ex.execute(
+async fn setup_locking_schema(db: &Database) -> Result<(), dbkit::Error> {
+    // Serialize DDL across parallel test workers to avoid Postgres catalog races on CREATE TABLE IF NOT EXISTS.
+    let tx = db.begin().await?;
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(816726, 1)",
+        PgArguments::default(),
+    )
+    .await?;
+    tx.execute(
         "CREATE TABLE IF NOT EXISTS dbkit_lock_rows (\
             id BIGSERIAL PRIMARY KEY,\
             token UUID NOT NULL,\
@@ -229,11 +236,12 @@ async fn setup_locking_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), d
         PgArguments::default(),
     )
     .await?;
-    ex.execute(
+    tx.execute(
         "CREATE INDEX IF NOT EXISTS idx_dbkit_lock_rows_token ON dbkit_lock_rows(token)",
         PgArguments::default(),
     )
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 
