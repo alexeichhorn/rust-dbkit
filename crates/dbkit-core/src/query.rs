@@ -467,8 +467,10 @@ impl<Out, Loads, Lock, DistinctState> Select<Out, Loads, Lock, DistinctState> {
         if include_locking {
             if let Some(wait) = self.row_lock_wait {
                 builder.push_sql(" FOR UPDATE");
-                if extra_joins
+                if self
+                    .joins
                     .iter()
+                    .chain(extra_joins.iter())
                     .any(|join| matches!(join.kind, JoinKind::Left))
                 {
                     builder.push_sql(" OF ");
