@@ -38,6 +38,11 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "pass_pgvector.rs".into(),
         "fail_pgvector_dimension_mismatch.rs".into(),
         "fail_pgvector_raw_vec.rs".into(),
+        "pass_db_enum_crud.rs".into(),
+        "pass_db_enum_shared_type_across_models.rs".into(),
+        "fail_db_enum_value_mismatch.rs".into(),
+        "fail_db_enum_optional_value_mismatch.rs".into(),
+        "fail_db_enum_column_mismatch.rs".into(),
     ];
     ui_test::run_tests(config)
 }
