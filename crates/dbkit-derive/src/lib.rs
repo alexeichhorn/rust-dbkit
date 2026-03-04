@@ -1590,19 +1590,33 @@ fn is_relation_field(field: &Field, rels: &[RelationInfo]) -> bool {
 }
 
 fn to_snake_case(name: &str) -> String {
-    let mut out = String::new();
-    for (idx, ch) in name.chars().enumerate() {
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = String::with_capacity(name.len() + (name.len() / 4));
+
+    for (idx, &ch) in chars.iter().enumerate() {
+        let prev = idx.checked_sub(1).and_then(|i| chars.get(i)).copied();
+        let next = chars.get(idx + 1).copied();
+
         if ch.is_uppercase() {
-            if idx > 0 {
+            let prev_is_lower_or_digit = prev.map(|p| p.is_lowercase() || p.is_ascii_digit()).unwrap_or(false);
+            let prev_is_upper = prev.map(|p| p.is_uppercase()).unwrap_or(false);
+            let next_is_lower = next.map(|n| n.is_lowercase()).unwrap_or(false);
+            let leading_upper_pair = idx == 1 && prev_is_upper && next_is_lower;
+            let needs_separator =
+                idx > 0 && (prev_is_lower_or_digit || (prev_is_upper && next_is_lower && !leading_upper_pair));
+
+            if needs_separator && !out.ends_with('_') {
                 out.push('_');
             }
             for lower in ch.to_lowercase() {
                 out.push(lower);
             }
-        } else {
-            out.push(ch);
+            continue;
         }
+
+        out.push(ch);
     }
+
     out
 }
 
