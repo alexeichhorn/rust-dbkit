@@ -185,6 +185,75 @@ async fn stale_embedding_predicate_catches_nulls_and_hash_mismatch() -> Result<(
         .filter(
             JobColCompare::embedding
                 .is_null()
+                .or(JobColCompare::embedding_hash.is_distinct_from_col(JobColCompare::content_hash)),
+        )
+        .all(&tx)
+        .await?;
+
+    // Should return all except the fresh row.
+    assert_eq!(stale.len(), 3);
+
+    let content_hashes: Vec<String> = stale.into_iter().map(|row| row.content_hash).collect();
+    assert!(content_hashes.contains(&"missing-embedding".to_string()));
+    assert!(content_hashes.contains(&"missing-hash".to_string()));
+    assert!(content_hashes.contains(&"new-content".to_string()));
+    assert!(!content_hashes.contains(&"fresh".to_string()));
+
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_embedding_predicate_with_coalesce_catches_nulls_and_hash_mismatch() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    JobColCompare::insert_many(vec![
+        JobColCompareInsert {
+            // fresh
+            content_hash: "fresh".to_string(),
+            last_content_hash: "fresh".to_string(),
+            embedding_hash: Some("fresh".to_string()),
+            embedding: Some("vec-fresh".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // missing embedding payload
+            content_hash: "missing-embedding".to_string(),
+            last_content_hash: "missing-embedding".to_string(),
+            embedding_hash: Some("missing-embedding".to_string()),
+            embedding: None,
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // missing embedding hash
+            content_hash: "missing-hash".to_string(),
+            last_content_hash: "missing-hash".to_string(),
+            embedding_hash: None,
+            embedding: Some("vec-present".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // stale hash mismatch (non-null on both sides)
+            content_hash: "new-content".to_string(),
+            last_content_hash: "new-content".to_string(),
+            embedding_hash: Some("old-content".to_string()),
+            embedding: Some("vec-stale".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+    ])
+    .execute(&tx)
+    .await?;
+
+    let stale = JobColCompare::query()
+        .filter(
+            JobColCompare::embedding
+                .is_null()
                 .or(JobColCompare::embedding_hash.is_null())
                 .or(dbkit::func::coalesce(JobColCompare::embedding_hash, "").ne_col(
                     JobColCompare::content_hash,
@@ -201,6 +270,152 @@ async fn stale_embedding_predicate_catches_nulls_and_hash_mismatch() -> Result<(
     assert!(content_hashes.contains(&"missing-hash".to_string()));
     assert!(content_hashes.contains(&"new-content".to_string()));
     assert!(!content_hashes.contains(&"fresh".to_string()));
+
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn is_distinct_from_col_matches_null_safe_truth_table_for_nullable_columns() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    JobColCompare::insert_many(vec![
+        JobColCompareInsert {
+            // equal (non-null): false
+            content_hash: "eq_non_null".to_string(),
+            last_content_hash: "eq_non_null".to_string(),
+            embedding_hash: Some("same".to_string()),
+            embedding: Some("same".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // different (non-null): true
+            content_hash: "diff_non_null".to_string(),
+            last_content_hash: "diff_non_null".to_string(),
+            embedding_hash: Some("a".to_string()),
+            embedding: Some("b".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // null vs value: true
+            content_hash: "null_vs_value".to_string(),
+            last_content_hash: "null_vs_value".to_string(),
+            embedding_hash: None,
+            embedding: Some("b".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // value vs null: true
+            content_hash: "value_vs_null".to_string(),
+            last_content_hash: "value_vs_null".to_string(),
+            embedding_hash: Some("a".to_string()),
+            embedding: None,
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // null vs null: false
+            content_hash: "null_vs_null".to_string(),
+            last_content_hash: "null_vs_null".to_string(),
+            embedding_hash: None,
+            embedding: None,
+            retry_count: 0,
+            max_retries: 3,
+        },
+    ])
+    .execute(&tx)
+    .await?;
+
+    let rows = JobColCompare::query()
+        .filter(JobColCompare::embedding_hash.is_distinct_from_col(JobColCompare::embedding))
+        .all(&tx)
+        .await?;
+
+    let content_hashes: Vec<String> = rows.into_iter().map(|row| row.content_hash).collect();
+    assert_eq!(content_hashes.len(), 3);
+    assert!(content_hashes.contains(&"diff_non_null".to_string()));
+    assert!(content_hashes.contains(&"null_vs_value".to_string()));
+    assert!(content_hashes.contains(&"value_vs_null".to_string()));
+    assert!(!content_hashes.contains(&"eq_non_null".to_string()));
+    assert!(!content_hashes.contains(&"null_vs_null".to_string()));
+
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn is_not_distinct_from_col_matches_null_safe_truth_table_for_nullable_columns() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    JobColCompare::insert_many(vec![
+        JobColCompareInsert {
+            // equal (non-null): true
+            content_hash: "eq_non_null".to_string(),
+            last_content_hash: "eq_non_null".to_string(),
+            embedding_hash: Some("same".to_string()),
+            embedding: Some("same".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // different (non-null): false
+            content_hash: "diff_non_null".to_string(),
+            last_content_hash: "diff_non_null".to_string(),
+            embedding_hash: Some("a".to_string()),
+            embedding: Some("b".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // null vs value: false
+            content_hash: "null_vs_value".to_string(),
+            last_content_hash: "null_vs_value".to_string(),
+            embedding_hash: None,
+            embedding: Some("b".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // value vs null: false
+            content_hash: "value_vs_null".to_string(),
+            last_content_hash: "value_vs_null".to_string(),
+            embedding_hash: Some("a".to_string()),
+            embedding: None,
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            // null vs null: true
+            content_hash: "null_vs_null".to_string(),
+            last_content_hash: "null_vs_null".to_string(),
+            embedding_hash: None,
+            embedding: None,
+            retry_count: 0,
+            max_retries: 3,
+        },
+    ])
+    .execute(&tx)
+    .await?;
+
+    let rows = JobColCompare::query()
+        .filter(JobColCompare::embedding_hash.is_not_distinct_from_col(JobColCompare::embedding))
+        .all(&tx)
+        .await?;
+
+    let content_hashes: Vec<String> = rows.into_iter().map(|row| row.content_hash).collect();
+    assert_eq!(content_hashes.len(), 2);
+    assert!(content_hashes.contains(&"eq_non_null".to_string()));
+    assert!(content_hashes.contains(&"null_vs_null".to_string()));
+    assert!(!content_hashes.contains(&"diff_non_null".to_string()));
+    assert!(!content_hashes.contains(&"null_vs_value".to_string()));
+    assert!(!content_hashes.contains(&"value_vs_null".to_string()));
 
     tx.rollback().await?;
     Ok(())

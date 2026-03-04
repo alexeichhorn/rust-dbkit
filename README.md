@@ -358,6 +358,8 @@ let retryable = Job::query()
 Supported column comparison helpers:
 - `eq_col`
 - `ne_col`
+- `is_distinct_from_col`
+- `is_not_distinct_from_col`
 - `lt_col`
 - `le_col`
 - `gt_col`
@@ -372,6 +374,19 @@ let stale = Job::query()
             .is_null()
             .or(Job::embedding_hash.is_null())
             .or(dbkit::func::coalesce(Job::embedding_hash, "").ne_col(Job::content_hash)),
+    )
+    .all(&db)
+    .await?;
+```
+
+Null-safe hash mismatch (Postgres `IS DISTINCT FROM` semantics):
+
+```rust
+let stale = Job::query()
+    .filter(
+        Job::embedding
+            .is_null()
+            .or(Job::embedding_hash.is_distinct_from_col(Job::content_hash)),
     )
     .all(&db)
     .await?;
