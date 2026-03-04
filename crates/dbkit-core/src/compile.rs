@@ -27,7 +27,11 @@ impl SqlBuilder {
             self.sql.push_str("NULL");
             return;
         }
-        let cast_as_vector = matches!(value, Value::Vector(_));
+        let cast_as_vector = matches!(&value, Value::Vector(_));
+        let cast_as_enum = match &value {
+            Value::Enum { type_name, .. } => Some(*type_name),
+            _ => None,
+        };
         let idx = if let Some(existing) = self.binds.iter().position(|item| item == &value) {
             existing + 1
         } else {
@@ -38,6 +42,9 @@ impl SqlBuilder {
         self.sql.push_str(&idx.to_string());
         if cast_as_vector {
             self.sql.push_str("::vector");
+        } else if let Some(type_name) = cast_as_enum {
+            self.sql.push_str("::");
+            self.sql.push_str(type_name);
         }
     }
 

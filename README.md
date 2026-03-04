@@ -523,11 +523,105 @@ Built-in typed query/insert/update bindings currently support:
 - `serde_json::Value` (`JSON` / `JSONB`)
 - `Vec<String>` (`TEXT[]`)
 - `dbkit::PgVector<const N: usize>` (`vector`)
+- custom Postgres enums via `#[derive(dbkit::DbEnum)]`
 - `Option<T>` for nullable columns, where `T` is one of the above
 
 Notes:
 - `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
+- Enum binds are emitted as typed placeholders (`$n::your_enum_type`) for Postgres enum columns.
 - For types outside this list, use raw `sqlx` queries or add explicit dbkit support first.
+
+## Postgres enums with `DbEnum`
+
+`dbkit` supports first-class Postgres enums in models, filters, inserts, updates, and conflict updates.
+
+Define the enum once:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
+#[dbkit(type_name = "task_state", rename_all = "snake_case")]
+pub enum TaskState {
+    PendingReview,
+    InProgress,
+    Completed,
+    Failed,
+}
+```
+
+Use it directly in your model:
+
+```rust
+use dbkit::model;
+
+#[model(table = "tasks")]
+pub struct Task {
+    #[key]
+    pub id: i64,
+    pub title: String,
+    pub state: TaskState,
+    pub previous_state: Option<TaskState>,
+}
+```
+
+Use it in typed query/mutation APIs:
+
+```rust
+let rows = Task::query()
+    .filter(Task::state.eq(TaskState::InProgress))
+    .filter(Task::state.in_([TaskState::PendingReview, TaskState::InProgress]))
+    .all(&db)
+    .await?;
+
+let updated = Task::update()
+    .set(Task::state, TaskState::Completed)
+    .set(Task::previous_state, Some(TaskState::InProgress))
+    .filter(Task::id.eq(42_i64))
+    .returning_all()
+    .one(&db)
+    .await?;
+
+Task::update()
+    .set(Task::previous_state, None::<TaskState>)
+    .filter(Task::id.eq(42_i64))
+    .execute(&db)
+    .await?;
+```
+
+Upsert with enum columns is also supported:
+
+```rust
+let row = Task::insert(TaskInsert {
+    id: 42,
+    title: "Ship enum support".to_string(),
+    state: TaskState::PendingReview,
+    previous_state: None,
+})
+.on_conflict_do_update(Task::id, (Task::state, Task::previous_state))
+.returning_all()
+.one(&db)
+.await?;
+```
+
+### Enum naming controls
+
+- `#[dbkit(type_name = "...")]` is required and should match your Postgres enum type.
+- `#[dbkit(rename_all = "...")]` is optional and supports:
+  - `snake_case`
+  - `lowercase`
+  - `UPPERCASE`
+  - `SCREAMING_SNAKE_CASE`
+- Override a single variant with `#[dbkit(rename = "...")]`:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
+#[dbkit(type_name = "delivery_channel", rename_all = "snake_case")]
+pub enum DeliveryChannel {
+    Email,
+    Sms,
+    #[dbkit(rename = "http_webhook")]
+    Webhook,
+}
+```
 
 Transactions:
 
