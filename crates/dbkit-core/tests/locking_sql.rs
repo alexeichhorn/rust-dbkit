@@ -224,3 +224,47 @@ fn compile_with_extra_left_join_scopes_lock_to_base_table() {
     );
     assert_eq!(sql.binds, vec![Value::I64(7)]);
 }
+
+#[test]
+fn compiles_direct_left_join_for_update_scopes_lock_to_base_table() {
+    let query = Select::<User>::new(user_table())
+        .left_join_on(todo_table(), user_id().eq_col(todo_user_id()))
+        .for_update();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users LEFT JOIN todos ON (users.id = todos.user_id) FOR UPDATE OF users"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_direct_left_join_for_update_skip_locked_scopes_lock_to_base_table() {
+    let query = Select::<User>::new(user_table())
+        .left_join_on(todo_table(), user_id().eq_col(todo_user_id()))
+        .for_update()
+        .skip_locked();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users LEFT JOIN todos ON (users.id = todos.user_id) FOR UPDATE OF users SKIP LOCKED"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_direct_left_join_for_update_nowait_scopes_lock_to_base_table() {
+    let query = Select::<User>::new(user_table())
+        .left_join_on(todo_table(), user_id().eq_col(todo_user_id()))
+        .for_update()
+        .nowait();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT users.* FROM users LEFT JOIN todos ON (users.id = todos.user_id) FOR UPDATE OF users NOWAIT"
+    );
+    assert!(sql.binds.is_empty());
+}
