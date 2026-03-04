@@ -391,6 +391,14 @@ where
         }
     }
 
+    pub fn eq_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Eq,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn ne<V>(self, value: V) -> Expr<bool>
     where
         V: ColumnValue<T>,
@@ -412,6 +420,14 @@ where
         }
     }
 
+    pub fn ne_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Ne,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn lt<V>(self, value: V) -> Expr<bool>
     where
         V: ColumnValue<T>,
@@ -420,6 +436,14 @@ where
             left: Box::new(self.node),
             op: BinaryOp::Lt,
             right: Box::new(ExprNode::Value(value.into_value().unwrap_or(Value::Null))),
+        })
+    }
+
+    pub fn lt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Lt,
+            right: Box::new(ExprNode::Column(other.as_ref())),
         })
     }
 
@@ -434,6 +458,14 @@ where
         })
     }
 
+    pub fn le_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Le,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn gt<V>(self, value: V) -> Expr<bool>
     where
         V: ColumnValue<T>,
@@ -445,6 +477,14 @@ where
         })
     }
 
+    pub fn gt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Gt,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn ge<V>(self, value: V) -> Expr<bool>
     where
         V: ColumnValue<T>,
@@ -453,6 +493,14 @@ where
             left: Box::new(self.node),
             op: BinaryOp::Ge,
             right: Box::new(ExprNode::Value(value.into_value().unwrap_or(Value::Null))),
+        })
+    }
+
+    pub fn ge_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::Ge,
+            right: Box::new(ExprNode::Column(other.as_ref())),
         })
     }
 
@@ -593,6 +641,14 @@ where
         })
     }
 
+    pub fn ne_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::Ne,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn ne<V>(self, value: V) -> Expr<bool>
     where
         V: ColumnValue<T>,
@@ -625,6 +681,14 @@ where
         })
     }
 
+    pub fn lt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::Lt,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn le<V>(self, value: V) -> Expr<bool>
     where
         V: Into<Value>,
@@ -633,6 +697,14 @@ where
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Le,
             right: Box::new(ExprNode::Value(value.into())),
+        })
+    }
+
+    pub fn le_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::Le,
+            right: Box::new(ExprNode::Column(other.as_ref())),
         })
     }
 
@@ -647,6 +719,14 @@ where
         })
     }
 
+    pub fn gt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::Gt,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn ge<V>(self, value: V) -> Expr<bool>
     where
         V: Into<Value>,
@@ -655,6 +735,14 @@ where
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ge,
             right: Box::new(ExprNode::Value(value.into())),
+        })
+    }
+
+    pub fn ge_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::Ge,
+            right: Box::new(ExprNode::Column(other.as_ref())),
         })
     }
 
