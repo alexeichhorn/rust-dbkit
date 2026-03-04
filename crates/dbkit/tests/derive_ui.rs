@@ -37,6 +37,12 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_group_by_after_for_update.rs".into(),
         "fail_for_update_after_group_by_having.rs".into(),
         "fail_group_by_having_after_for_update.rs".into(),
+        "pass_pgvector.rs".into(),
+        "fail_unloaded.rs".into(),
+        "fail_conflict_cross_model.rs".into(),
+        "fail_conflict_column_ref.rs".into(),
+        "fail_pgvector_dimension_mismatch.rs".into(),
+        "fail_pgvector_raw_vec.rs".into(),
     ];
     ui_test::run_tests(config)
 }

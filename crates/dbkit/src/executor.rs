@@ -219,6 +219,7 @@ pub fn build_arguments(binds: &[crate::Value]) -> Result<PgArguments, Error> {
             crate::Value::DateTimeUtc(value) => args.add(value.clone()),
             crate::Value::Date(value) => args.add(value.clone()),
             crate::Value::Time(value) => args.add(value.clone()),
+            crate::Value::Vector(value) => args.add(dbkit_core::types::vector_sql_literal(value)),
         }
     }
     Ok(args)

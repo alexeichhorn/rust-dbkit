@@ -18,4 +18,4 @@ pub use query::{
 };
 pub use rel::{BelongsToSpec, ManyToManyThrough, Relation, RelationInfo, RelationKind, RelationTarget};
 pub use schema::{Column, ColumnRef, Table};
-pub use types::{ActiveValue, BelongsTo, HasMany, ManyToMany, NotLoaded};
+pub use types::{ActiveValue, BelongsTo, HasMany, ManyToMany, NotLoaded, PgVector, PgVectorError};

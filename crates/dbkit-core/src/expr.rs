@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::schema::{Column, ColumnRef};
+use crate::types::PgVector;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -19,6 +20,7 @@ pub enum Value {
     DateTimeUtc(chrono::DateTime<chrono::Utc>),
     Date(chrono::NaiveDate),
     Time(chrono::NaiveTime),
+    Vector(Vec<f32>),
 }
 
 pub trait ColumnValue<T> {
@@ -148,6 +150,12 @@ impl From<chrono::NaiveTime> for Value {
     }
 }
 
+impl<const N: usize> From<PgVector<N>> for Value {
+    fn from(value: PgVector<N>) -> Self {
+        Self::Vector(value.to_vec())
+    }
+}
+
 impl<T> From<Option<T>> for Value
 where
     T: Into<Value>,
@@ -181,6 +189,14 @@ pub enum UnaryOp {
     Not,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum VectorBinaryOp {
+    L2Distance,
+    CosineDistance,
+    InnerProductDistance,
+    L1Distance,
+}
+
 #[derive(Debug, Clone)]
 pub enum ExprNode {
     Column(ColumnRef),
@@ -188,6 +204,11 @@ pub enum ExprNode {
     Func {
         name: &'static str,
         args: Vec<ExprNode>,
+    },
+    VectorBinary {
+        left: Box<ExprNode>,
+        op: VectorBinaryOp,
+        right: Box<ExprNode>,
     },
     Binary {
         left: Box<ExprNode>,
@@ -339,6 +360,12 @@ impl IntoExpr<serde_json::Value> for serde_json::Value {
     }
 }
 
+impl<const N: usize> IntoExpr<PgVector<N>> for PgVector<N> {
+    fn into_expr(self) -> Expr<PgVector<N>> {
+        Expr::new(ExprNode::Value(Value::from(self)))
+    }
+}
+
 impl<T> Expr<T>
 where
     T: 'static,
@@ -348,6 +375,10 @@ where
         V: ColumnValue<T>,
     {
         match value.into_value() {
+            Some(Value::Null) => Expr::new(ExprNode::IsNull {
+                expr: Box::new(self.node),
+                negated: false,
+            }),
             Some(value) => Expr::new(ExprNode::Binary {
                 left: Box::new(self.node),
                 op: BinaryOp::Eq,
@@ -365,6 +396,10 @@ where
         V: ColumnValue<T>,
     {
         match value.into_value() {
+            Some(Value::Null) => Expr::new(ExprNode::IsNull {
+                expr: Box::new(self.node),
+                negated: true,
+            }),
             Some(value) => Expr::new(ExprNode::Binary {
                 left: Box::new(self.node),
                 op: BinaryOp::Ne,
@@ -534,6 +569,10 @@ where
         V: ColumnValue<T>,
     {
         match value.into_value() {
+            Some(Value::Null) => Expr::new(ExprNode::IsNull {
+                expr: Box::new(ExprNode::Column(self.as_ref())),
+                negated: false,
+            }),
             Some(value) => Expr::new(ExprNode::Binary {
                 left: Box::new(ExprNode::Column(self.as_ref())),
                 op: BinaryOp::Eq,
@@ -559,6 +598,10 @@ where
         V: ColumnValue<T>,
     {
         match value.into_value() {
+            Some(Value::Null) => Expr::new(ExprNode::IsNull {
+                expr: Box::new(ExprNode::Column(self.as_ref())),
+                negated: true,
+            }),
             Some(value) => Expr::new(ExprNode::Binary {
                 left: Box::new(ExprNode::Column(self.as_ref())),
                 op: BinaryOp::Ne,
