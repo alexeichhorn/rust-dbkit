@@ -172,6 +172,8 @@ where
 pub enum BinaryOp {
     Eq,
     Ne,
+    IsDistinctFrom,
+    IsNotDistinctFrom,
     Lt,
     Le,
     Gt,
@@ -428,6 +430,22 @@ where
         })
     }
 
+    pub fn is_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::IsDistinctFrom,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
+    pub fn is_not_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(self.node),
+            op: BinaryOp::IsNotDistinctFrom,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
     pub fn lt<V>(self, value: V) -> Expr<bool>
     where
         V: ColumnValue<T>,
@@ -645,6 +663,22 @@ where
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ne,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
+    pub fn is_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::IsDistinctFrom,
+            right: Box::new(ExprNode::Column(other.as_ref())),
+        })
+    }
+
+    pub fn is_not_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+        Expr::new(ExprNode::Binary {
+            left: Box::new(ExprNode::Column(self.as_ref())),
+            op: BinaryOp::IsNotDistinctFrom,
             right: Box::new(ExprNode::Column(other.as_ref())),
         })
     }
