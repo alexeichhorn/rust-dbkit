@@ -1667,6 +1667,7 @@ fn expand_db_enum(input: syn::ItemEnum) -> syn::Result<TokenStream> {
     let mut as_db_arms = Vec::new();
     let mut from_db_arms = Vec::new();
     let mut expected_values = Vec::new();
+    let mut seen_db_names: std::collections::BTreeMap<String, syn::Ident> = std::collections::BTreeMap::new();
 
     for variant in input.variants.iter() {
         if !matches!(variant.fields, syn::Fields::Unit) {
@@ -1682,6 +1683,16 @@ fn expand_db_enum(input: syn::ItemEnum) -> syn::Result<TokenStream> {
             Some(value) => value,
             None => apply_db_enum_rename_rule(&variant.ident.to_string(), rename_rule),
         };
+        if let Some(first_variant) = seen_db_names.get(&db_name) {
+            return Err(syn::Error::new_spanned(
+                variant_ident,
+                format!(
+                    "dbkit: duplicate DbEnum wire name `{}` for variants `{}` and `{}`",
+                    db_name, first_variant, variant_ident
+                ),
+            ));
+        }
+        seen_db_names.insert(db_name.clone(), variant_ident.clone());
         let db_name_lit = syn::LitStr::new(&db_name, variant.ident.span());
         expected_values.push(db_name);
 
@@ -1843,5 +1854,30 @@ fn apply_db_enum_rename_rule(value: &str, rule: DbEnumRenameAll) -> String {
         DbEnumRenameAll::LowerCase => value.to_lowercase(),
         DbEnumRenameAll::UpperCase => value.to_uppercase(),
         DbEnumRenameAll::ScreamingSnakeCase => to_snake_case(value).to_uppercase(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_db_enum_rename_rule, to_snake_case, DbEnumRenameAll};
+
+    #[test]
+    fn snake_case_respects_acronym_word_boundaries() {
+        assert_eq!(to_snake_case("HTTPWebhook"), "http_webhook");
+        assert_eq!(to_snake_case("OAuthToken"), "oauth_token");
+        assert_eq!(to_snake_case("XMLHttpRequest"), "xml_http_request");
+        assert_eq!(to_snake_case("WebhookHTTP"), "webhook_http");
+    }
+
+    #[test]
+    fn screaming_snake_case_respects_acronym_word_boundaries() {
+        assert_eq!(
+            apply_db_enum_rename_rule("HTTPWebhook", DbEnumRenameAll::ScreamingSnakeCase),
+            "HTTP_WEBHOOK"
+        );
+        assert_eq!(
+            apply_db_enum_rename_rule("XMLHttpRequest", DbEnumRenameAll::ScreamingSnakeCase),
+            "XML_HTTP_REQUEST"
+        );
     }
 }

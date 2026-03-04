@@ -21,6 +21,15 @@ pub enum RunOutcome {
     Timeout,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
+#[dbkit(type_name = "integration_mode", rename_all = "snake_case")]
+pub enum IntegrationMode {
+    HTTPWebhook,
+    OAuthToken,
+    XMLHttpRequest,
+    WebhookHTTP,
+}
+
 #[model(table = "workflow_runs")]
 pub struct WorkflowRun {
     #[key]
@@ -31,6 +40,16 @@ pub struct WorkflowRun {
     pub state: RunState,
     pub outcome: Option<RunOutcome>,
     pub attempts: i64,
+}
+
+#[model(table = "integration_events")]
+pub struct IntegrationEvent {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub ext_id: String,
+    pub mode: IntegrationMode,
+    pub fallback_mode: Option<IntegrationMode>,
 }
 
 fn db_url() -> String {
@@ -59,6 +78,21 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
             state run_state NOT NULL,\
             outcome run_outcome NULL,\
             attempts BIGINT NOT NULL\
+        )",
+        PgArguments::default(),
+    )
+    .await?;
+    ex.execute(
+        "CREATE TYPE pg_temp.integration_mode AS ENUM ('http_webhook', 'oauth_token', 'xml_http_request', 'webhook_http')",
+        PgArguments::default(),
+    )
+    .await?;
+    ex.execute(
+        "CREATE TEMP TABLE integration_events (\
+            id BIGSERIAL PRIMARY KEY,\
+            ext_id TEXT NOT NULL UNIQUE,\
+            mode integration_mode NOT NULL,\
+            fallback_mode integration_mode NULL\
         )",
         PgArguments::default(),
     )
@@ -187,6 +221,65 @@ async fn enum_upsert_updates_selected_enum_columns_and_preserves_unselected_fiel
     assert_eq!(fetched.state, RunState::Failed);
     assert_eq!(fetched.outcome, Some(RunOutcome::Timeout));
     assert_eq!(fetched.attempts, 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn enum_acronym_wire_names_roundtrip_for_crud_filters_and_upsert() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let inserted = IntegrationEvent::insert(IntegrationEventInsert {
+        ext_id: "evt-1".to_string(),
+        mode: IntegrationMode::HTTPWebhook,
+        fallback_mode: Some(IntegrationMode::OAuthToken),
+    })
+    .returning_all()
+    .one(&tx)
+    .await?
+    .expect("inserted integration event");
+    assert_eq!(inserted.mode, IntegrationMode::HTTPWebhook);
+    assert_eq!(inserted.fallback_mode, Some(IntegrationMode::OAuthToken));
+
+    let filtered = IntegrationEvent::query()
+        .filter(IntegrationEvent::mode.eq(IntegrationMode::HTTPWebhook))
+        .filter(IntegrationEvent::fallback_mode.in_([Some(IntegrationMode::OAuthToken)]))
+        .one(&tx)
+        .await?
+        .expect("filtered integration event");
+    assert_eq!(filtered.id, inserted.id);
+
+    let mut updated_rows = IntegrationEvent::update()
+        .set(IntegrationEvent::mode, IntegrationMode::WebhookHTTP)
+        .set(IntegrationEvent::fallback_mode, None::<IntegrationMode>)
+        .filter(IntegrationEvent::id.eq(inserted.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated_rows.len(), 1);
+    let updated = updated_rows.pop().expect("updated integration event");
+    assert_eq!(updated.mode, IntegrationMode::WebhookHTTP);
+    assert_eq!(updated.fallback_mode, None);
+
+    let upserted = IntegrationEvent::insert(IntegrationEventInsert {
+        ext_id: "evt-1".to_string(),
+        mode: IntegrationMode::XMLHttpRequest,
+        fallback_mode: Some(IntegrationMode::HTTPWebhook),
+    })
+    .on_conflict_do_update(
+        IntegrationEvent::ext_id,
+        (IntegrationEvent::mode, IntegrationEvent::fallback_mode),
+    )
+    .returning_all()
+    .one(&tx)
+    .await?
+    .expect("upserted integration event");
+
+    assert_eq!(upserted.id, inserted.id);
+    assert_eq!(upserted.mode, IntegrationMode::XMLHttpRequest);
+    assert_eq!(upserted.fallback_mode, Some(IntegrationMode::HTTPWebhook));
 
     Ok(())
 }

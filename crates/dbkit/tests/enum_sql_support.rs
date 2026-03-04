@@ -20,6 +20,17 @@ pub enum DeliveryChannel {
     Webhook,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
+#[dbkit(type_name = "integration_mode", rename_all = "snake_case")]
+pub enum IntegrationMode {
+    HTTPWebhook,
+    OAuthToken,
+    XMLHttpRequest,
+    WebhookHTTP,
+    #[dbkit(rename = "dns_probe")]
+    DNSProbe,
+}
+
 #[model(table = "message_jobs")]
 pub struct MessageJob {
     #[key]
@@ -28,6 +39,13 @@ pub struct MessageJob {
     pub state: QueueState,
     pub channel: Option<DeliveryChannel>,
     pub attempts: i64,
+}
+
+#[model(table = "integration_jobs")]
+pub struct IntegrationJob {
+    #[key]
+    pub id: i64,
+    pub mode: IntegrationMode,
 }
 
 #[test]
@@ -152,4 +170,90 @@ fn enum_empty_in_compiles_to_false_without_binds() {
 
     assert_eq!(compiled.sql, "SELECT message_jobs.* FROM message_jobs WHERE (FALSE)");
     assert!(compiled.binds.is_empty());
+}
+
+#[test]
+fn enum_snake_case_handles_acronyms_for_value_and_from_str_paths() {
+    assert_eq!(IntegrationMode::HTTPWebhook.as_db_str(), "http_webhook");
+    assert_eq!(IntegrationMode::OAuthToken.as_db_str(), "oauth_token");
+    assert_eq!(IntegrationMode::XMLHttpRequest.as_db_str(), "xml_http_request");
+    assert_eq!(IntegrationMode::WebhookHTTP.as_db_str(), "webhook_http");
+    assert_eq!(IntegrationMode::DNSProbe.as_db_str(), "dns_probe");
+
+    assert_eq!(
+        "http_webhook".parse::<IntegrationMode>().expect("http_webhook parses"),
+        IntegrationMode::HTTPWebhook
+    );
+    assert_eq!(
+        "oauth_token".parse::<IntegrationMode>().expect("oauth_token parses"),
+        IntegrationMode::OAuthToken
+    );
+    assert_eq!(
+        "xml_http_request".parse::<IntegrationMode>().expect("xml_http_request parses"),
+        IntegrationMode::XMLHttpRequest
+    );
+    assert_eq!(
+        "webhook_http".parse::<IntegrationMode>().expect("webhook_http parses"),
+        IntegrationMode::WebhookHTTP
+    );
+    assert_eq!(
+        "dns_probe".parse::<IntegrationMode>().expect("dns_probe parses"),
+        IntegrationMode::DNSProbe
+    );
+
+    assert_eq!(
+        Value::from(IntegrationMode::HTTPWebhook),
+        Value::Enum {
+            type_name: "integration_mode",
+            value: "http_webhook".to_string(),
+        }
+    );
+}
+
+#[test]
+fn enum_sql_uses_expected_acronym_wire_values_in_filters_and_updates() {
+    let select = IntegrationJob::query()
+        .filter(IntegrationJob::mode.eq(IntegrationMode::HTTPWebhook))
+        .filter(IntegrationJob::mode.in_([IntegrationMode::OAuthToken, IntegrationMode::XMLHttpRequest]))
+        .compile();
+    assert_eq!(
+        select.sql,
+        "SELECT integration_jobs.* FROM integration_jobs WHERE (integration_jobs.mode = $1::integration_mode) AND (integration_jobs.mode IN ($2::integration_mode, $3::integration_mode))"
+    );
+    assert_eq!(
+        select.binds,
+        vec![
+            Value::Enum {
+                type_name: "integration_mode",
+                value: "http_webhook".to_string(),
+            },
+            Value::Enum {
+                type_name: "integration_mode",
+                value: "oauth_token".to_string(),
+            },
+            Value::Enum {
+                type_name: "integration_mode",
+                value: "xml_http_request".to_string(),
+            },
+        ]
+    );
+
+    let update = IntegrationJob::update()
+        .set(IntegrationJob::mode, IntegrationMode::WebhookHTTP)
+        .filter(IntegrationJob::id.eq(5_i64))
+        .compile();
+    assert_eq!(
+        update.sql,
+        "UPDATE integration_jobs SET mode = $1::integration_mode WHERE (integration_jobs.id = $2)"
+    );
+    assert_eq!(
+        update.binds,
+        vec![
+            Value::Enum {
+                type_name: "integration_mode",
+                value: "webhook_http".to_string(),
+            },
+            Value::I64(5),
+        ]
+    );
 }
