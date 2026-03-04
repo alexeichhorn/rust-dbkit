@@ -43,6 +43,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_db_enum_value_mismatch.rs".into(),
         "fail_db_enum_optional_value_mismatch.rs".into(),
         "fail_db_enum_column_mismatch.rs".into(),
+        "fail_db_enum_duplicate_wire_name.rs".into(),
     ];
     ui_test::run_tests(config)
 }
