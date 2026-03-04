@@ -24,7 +24,7 @@ fn build_arguments_accepts_pgvector() {
 }
 
 #[test]
-fn query_with_pgvector_distance_functions_has_expected_sql_shape() {
+fn query_with_pgvector_distance_operators_has_expected_sql_shape() {
     let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector");
 
     let sql = EmbeddingRow::query()
@@ -36,14 +36,22 @@ fn query_with_pgvector_distance_functions_has_expected_sql_shape() {
         )))
         .order_by(Order::asc(func::cosine_distance(
             EmbeddingRow::embedding,
+            query.clone(),
+        )))
+        .order_by(Order::asc(func::inner_product(
+            EmbeddingRow::embedding,
             query,
         )))
         .debug_sql();
 
-    assert!(sql.contains("L2_DISTANCE(embedding_rows.embedding, $1::vector)"));
-    assert!(sql.contains("COSINE_DISTANCE(embedding_rows.embedding, $1::vector)"));
-    assert!(sql.contains("ORDER BY L2_DISTANCE(embedding_rows.embedding, $1::vector) ASC"));
-    assert!(sql.contains("COSINE_DISTANCE(embedding_rows.embedding, $1::vector) ASC"));
+    assert!(sql.contains("embedding_rows.embedding <-> $1::vector"));
+    assert!(sql.contains("embedding_rows.embedding <=> $1::vector"));
+    assert!(sql.contains("INNER_PRODUCT(embedding_rows.embedding, $1::vector)"));
+    assert!(sql.contains("ORDER BY (embedding_rows.embedding <-> $1::vector) ASC"));
+    assert!(sql.contains("(embedding_rows.embedding <=> $1::vector) ASC"));
+    assert!(sql.contains("INNER_PRODUCT(embedding_rows.embedding, $1::vector) ASC"));
+    assert!(!sql.contains("L2_DISTANCE("), "unexpected SQL: {sql}");
+    assert!(!sql.contains("COSINE_DISTANCE("), "unexpected SQL: {sql}");
 }
 
 #[test]
@@ -83,4 +91,38 @@ fn insert_and_update_builders_accept_pgvector_and_optional_pgvector() {
 fn pgvector_constructors_validate_non_finite_inputs() {
     assert!(dbkit::PgVector::<3>::new([0.0, f32::NAN, 1.0]).is_err());
     assert!(dbkit::PgVector::<3>::new([0.0, f32::INFINITY, 1.0]).is_err());
+}
+
+#[test]
+fn optional_pgvector_distance_ordering_uses_operator_sql_shape() {
+    let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector");
+
+    let sql = EmbeddingRow::query()
+        .filter(EmbeddingRow::embedding_optional.is_not_null())
+        .order_by(Order::asc(func::cosine_distance(
+            EmbeddingRow::embedding_optional,
+            query,
+        )))
+        .limit(5)
+        .debug_sql();
+
+    assert!(sql.contains("embedding_rows.embedding_optional IS NOT NULL"));
+    assert!(sql.contains("ORDER BY (embedding_rows.embedding_optional <=> $1::vector) ASC"));
+    assert!(!sql.contains("COSINE_DISTANCE("), "unexpected SQL: {sql}");
+}
+
+#[test]
+fn inner_product_distance_ordering_uses_operator_sql_shape() {
+    let query = dbkit::PgVector::<3>::new([0.9, 0.0, 0.1]).expect("vector");
+
+    let sql = EmbeddingRow::query()
+        .order_by(Order::asc(func::inner_product_distance(
+            EmbeddingRow::embedding,
+            query,
+        )))
+        .limit(10)
+        .debug_sql();
+
+    assert!(sql.contains("ORDER BY (embedding_rows.embedding <#> $1::vector) ASC"));
+    assert!(!sql.contains("INNER_PRODUCT("), "unexpected SQL: {sql}");
 }

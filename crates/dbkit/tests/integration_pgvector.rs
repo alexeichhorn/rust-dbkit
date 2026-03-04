@@ -280,3 +280,115 @@ async fn pgvector_top_n_optional_embeddings_uses_non_null_filter_for_determinism
 
     Ok(())
 }
+
+#[tokio::test]
+async fn pgvector_top_n_by_inner_product_distance_asc_returns_expected_rank(
+) -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_row(
+        &tx,
+        1,
+        "perfect",
+        dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"),
+        None,
+    )
+    .await?;
+    seed_row(
+        &tx,
+        2,
+        "close",
+        dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"),
+        None,
+    )
+    .await?;
+    seed_row(
+        &tx,
+        3,
+        "orthogonal",
+        dbkit::PgVector::<3>::new([0.0, 1.0, 0.0]).expect("vector"),
+        None,
+    )
+    .await?;
+    seed_row(
+        &tx,
+        4,
+        "opposite",
+        dbkit::PgVector::<3>::new([-1.0, 0.0, 0.0]).expect("vector"),
+        None,
+    )
+    .await?;
+
+    let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("query vector");
+
+    let top2 = EmbeddingRow::query()
+        .order_by(Order::asc(func::inner_product_distance(
+            EmbeddingRow::embedding,
+            query,
+        )))
+        .limit(2)
+        .all(&tx)
+        .await?;
+
+    assert_eq!(top2.len(), 2);
+    assert_eq!(top2[0].id, 1);
+    assert_eq!(top2[1].id, 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn pgvector_inner_product_distance_threshold_uses_negative_inner_product_semantics(
+) -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_row(
+        &tx,
+        1,
+        "perfect",
+        dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector"),
+        None,
+    )
+    .await?;
+    seed_row(
+        &tx,
+        2,
+        "close",
+        dbkit::PgVector::<3>::new([0.9, 0.1, 0.0]).expect("vector"),
+        None,
+    )
+    .await?;
+    seed_row(
+        &tx,
+        3,
+        "orthogonal",
+        dbkit::PgVector::<3>::new([0.0, 1.0, 0.0]).expect("vector"),
+        None,
+    )
+    .await?;
+
+    let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("query vector");
+
+    let highly_similar = EmbeddingRow::query()
+        .filter(func::inner_product_distance(
+            EmbeddingRow::embedding,
+            query.clone(),
+        )
+        .lt(-0.8_f32))
+        .order_by(Order::asc(func::inner_product_distance(
+            EmbeddingRow::embedding,
+            query,
+        )))
+        .all(&tx)
+        .await?;
+
+    assert_eq!(highly_similar.len(), 2);
+    assert_eq!(highly_similar[0].id, 1);
+    assert_eq!(highly_similar[1].id, 2);
+
+    Ok(())
+}
