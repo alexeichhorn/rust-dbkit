@@ -106,15 +106,16 @@ async fn enum_roundtrip_filter_update_and_optional_nulling() -> Result<(), dbkit
     assert_eq!(by_state.id, inserted.id);
     assert_eq!(by_state.external_ref, "run-1");
 
-    let updated = WorkflowRun::update()
+    let mut updated_rows = WorkflowRun::update()
         .set(WorkflowRun::state, RunState::Running)
         .set(WorkflowRun::outcome, Some(RunOutcome::Ok))
         .set(WorkflowRun::attempts, 1_i64)
         .filter(WorkflowRun::id.eq(inserted.id))
         .returning_all()
-        .one(&tx)
-        .await?
-        .expect("updated row");
+        .all(&tx)
+        .await?;
+    assert_eq!(updated_rows.len(), 1);
+    let updated = updated_rows.pop().expect("updated row");
     assert_eq!(updated.state, RunState::Running);
     assert_eq!(updated.outcome, Some(RunOutcome::Ok));
     assert_eq!(updated.attempts, 1);
