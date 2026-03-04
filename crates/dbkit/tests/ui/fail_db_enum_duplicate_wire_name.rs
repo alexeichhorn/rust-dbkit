@@ -3,7 +3,7 @@
 pub enum JobState {
     Planned,
     #[dbkit(rename = "planned")]
-    Active, //~ ERROR dbkit: duplicate DbEnum wire name
+    Active, //~ ERROR: dbkit: duplicate DbEnum wire name
 }
 
 fn main() {}

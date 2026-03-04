@@ -1703,6 +1703,7 @@ fn expand_db_enum(input: syn::ItemEnum) -> syn::Result<TokenStream> {
                 format!(
                     "dbkit: duplicate DbEnum wire name `{}` for variants `{}` and `{}`",
                     db_name, first_variant, variant_ident
+                    db_name, first_variant, variant_ident
                 ),
             ));
         }
