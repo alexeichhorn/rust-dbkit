@@ -48,21 +48,38 @@ impl<M, T> ConflictColumns<M> for Column<M, T> {
 }
 impl<M, T> private::Sealed for Column<M, T> {}
 
-impl<M, T1, T2> ConflictColumns<M> for (Column<M, T1>, Column<M, T2>) {
-    fn into_columns(self) -> Vec<ColumnRef> {
-        let (a, b) = self;
-        vec![a.as_ref(), b.as_ref()]
-    }
-}
-impl<M, T1, T2> private::Sealed for (Column<M, T1>, Column<M, T2>) {}
+macro_rules! impl_conflict_columns_tuple {
+    ($(($($ty:ident:$col:ident),+)),+ $(,)?) => {
+        $(
+            impl<M, $($ty),+> ConflictColumns<M> for ($(Column<M, $ty>,)+) {
+                fn into_columns(self) -> Vec<ColumnRef> {
+                    let ($($col,)+) = self;
+                    vec![$($col.as_ref()),+]
+                }
+            }
 
-impl<M, T1, T2, T3> ConflictColumns<M> for (Column<M, T1>, Column<M, T2>, Column<M, T3>) {
-    fn into_columns(self) -> Vec<ColumnRef> {
-        let (a, b, c) = self;
-        vec![a.as_ref(), b.as_ref(), c.as_ref()]
-    }
+            impl<M, $($ty),+> private::Sealed for ($(Column<M, $ty>,)+) {}
+        )+
+    };
 }
-impl<M, T1, T2, T3> private::Sealed for (Column<M, T1>, Column<M, T2>, Column<M, T3>) {}
+
+impl_conflict_columns_tuple!(
+    (T1:c1, T2:c2),
+    (T1:c1, T2:c2, T3:c3),
+    (T1:c1, T2:c2, T3:c3, T4:c4),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9, T10:c10),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9, T10:c10, T11:c11),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9, T10:c10, T11:c11, T12:c12),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9, T10:c10, T11:c11, T12:c12, T13:c13),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9, T10:c10, T11:c11, T12:c12, T13:c13, T14:c14),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9, T10:c10, T11:c11, T12:c12, T13:c13, T14:c14, T15:c15),
+    (T1:c1, T2:c2, T3:c3, T4:c4, T5:c5, T6:c6, T7:c7, T8:c8, T9:c9, T10:c10, T11:c11, T12:c12, T13:c13, T14:c14, T15:c15, T16:c16)
+);
 
 impl<Out> Insert<Out> {
     pub fn new(table: Table) -> Self {
