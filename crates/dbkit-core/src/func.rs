@@ -1,4 +1,4 @@
-use crate::expr::{Expr, ExprNode, IntoExpr};
+use crate::expr::{Expr, ExprNode, IntoExpr, VectorBinaryOp};
 use crate::PgVector;
 
 pub fn upper(arg: impl IntoExpr<String>) -> Expr<String> {
@@ -65,6 +65,24 @@ where
     })
 }
 
+fn vector_binary_operator<const N: usize, L, R>(
+    op: VectorBinaryOp,
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<f32>
+where
+    L: VectorExpr<N>,
+    R: VectorExpr<N>,
+{
+    let left = left.into_expr();
+    let right = right.into_expr();
+    Expr::new(ExprNode::VectorBinary {
+        left: Box::new(left.node),
+        op,
+        right: Box::new(right.node),
+    })
+}
+
 pub fn l2_distance<const N: usize, L, R>(
     left: impl IntoExpr<L>,
     right: impl IntoExpr<R>,
@@ -73,7 +91,7 @@ where
     L: VectorExpr<N>,
     R: VectorExpr<N>,
 {
-    vector_binary_fn::<N, L, R>("L2_DISTANCE", left, right)
+    vector_binary_operator::<N, L, R>(VectorBinaryOp::L2Distance, left, right)
 }
 
 pub fn cosine_distance<const N: usize, L, R>(
@@ -84,7 +102,7 @@ where
     L: VectorExpr<N>,
     R: VectorExpr<N>,
 {
-    vector_binary_fn::<N, L, R>("COSINE_DISTANCE", left, right)
+    vector_binary_operator::<N, L, R>(VectorBinaryOp::CosineDistance, left, right)
 }
 
 pub fn inner_product<const N: usize, L, R>(
@@ -106,5 +124,16 @@ where
     L: VectorExpr<N>,
     R: VectorExpr<N>,
 {
-    vector_binary_fn::<N, L, R>("L1_DISTANCE", left, right)
+    vector_binary_operator::<N, L, R>(VectorBinaryOp::L1Distance, left, right)
+}
+
+pub fn inner_product_distance<const N: usize, L, R>(
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<f32>
+where
+    L: VectorExpr<N>,
+    R: VectorExpr<N>,
+{
+    vector_binary_operator::<N, L, R>(VectorBinaryOp::InnerProductDistance, left, right)
 }

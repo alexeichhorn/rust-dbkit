@@ -189,6 +189,14 @@ pub enum UnaryOp {
     Not,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum VectorBinaryOp {
+    L2Distance,
+    CosineDistance,
+    InnerProductDistance,
+    L1Distance,
+}
+
 #[derive(Debug, Clone)]
 pub enum ExprNode {
     Column(ColumnRef),
@@ -196,6 +204,11 @@ pub enum ExprNode {
     Func {
         name: &'static str,
         args: Vec<ExprNode>,
+    },
+    VectorBinary {
+        left: Box<ExprNode>,
+        op: VectorBinaryOp,
+        right: Box<ExprNode>,
     },
     Binary {
         left: Box<ExprNode>,

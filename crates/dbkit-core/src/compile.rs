@@ -1,4 +1,4 @@
-use crate::expr::{BinaryOp, BoolOp, ExprNode, UnaryOp, Value};
+use crate::expr::{BinaryOp, BoolOp, ExprNode, UnaryOp, Value, VectorBinaryOp};
 use crate::schema::ColumnRef;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +71,18 @@ impl ToSql for ExprNode {
                     }
                     arg.to_sql(builder);
                 }
+                builder.push_sql(")");
+            }
+            ExprNode::VectorBinary { left, op, right } => {
+                builder.push_sql("(");
+                left.to_sql(builder);
+                builder.push_sql(match op {
+                    VectorBinaryOp::L2Distance => " <-> ",
+                    VectorBinaryOp::CosineDistance => " <=> ",
+                    VectorBinaryOp::InnerProductDistance => " <#> ",
+                    VectorBinaryOp::L1Distance => " <+> ",
+                });
+                right.to_sql(builder);
                 builder.push_sql(")");
             }
             ExprNode::Binary { left, op, right } => {
