@@ -62,13 +62,19 @@ pub(crate) trait JoinOps {
     type Out;
     type Loads;
 
-    fn all<'e, E>(select: Select<Self::Out, Self::Loads>, ex: &'e E) -> BoxFuture<'e, Result<Vec<Self::Out>, Error>>
+    fn all<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Self::Out, Self::Loads, Lock, DistinctState, GroupState>,
+        ex: &'e E,
+    ) -> BoxFuture<'e, Result<Vec<Self::Out>, Error>>
     where
         E: Executor + Send + Sync + 'e,
         Self::Out: 'e,
         Self::Loads: 'e;
 
-    fn one<'e, E>(select: Select<Self::Out, Self::Loads>, ex: &'e E) -> BoxFuture<'e, Result<Option<Self::Out>, Error>>
+    fn one<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Self::Out, Self::Loads, Lock, DistinctState, GroupState>,
+        ex: &'e E,
+    ) -> BoxFuture<'e, Result<Option<Self::Out>, Error>>
     where
         E: Executor + Send + Sync + 'e,
         Self::Out: 'e,
@@ -83,7 +89,10 @@ where
     type Out = Out;
     type Loads = Loads;
 
-    fn all<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
+        ex: &'e E,
+    ) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
         E: Executor + Send + Sync + 'e,
         Out: 'e,
@@ -98,7 +107,10 @@ where
         })
     }
 
-    fn one<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
+        ex: &'e E,
+    ) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
         E: Executor + Send + Sync + 'e,
         Out: 'e,
@@ -126,23 +138,28 @@ where
     type Out = Out;
     type Loads = Loads;
 
-    fn all<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
+    fn all<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
+        ex: &'e E,
+    ) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
         E: Executor + Send + Sync + 'e,
         Out: 'e,
         Loads: 'e,
     {
         let (select, loads) = select.into_parts_with_loads();
-        Box::pin(async move {
-            if select.columns_ref().is_some() {
-                return Err(Error::Decode(
+        if select.columns_ref().is_some() {
+            return Box::pin(async {
+                Err(Error::Decode(
                     "joined eager loading requires base model selection".to_string(),
-                ));
-            }
+                ))
+            });
+        }
+        let mut ctx = JoinContext::new(select.joins());
+        let collectors = loads.build_collectors(&mut ctx);
+        let compiled = select.compile_with_extra(&ctx.extra_columns, &ctx.extra_joins);
 
-            let mut ctx = JoinContext::new(select.joins());
-            let collectors = loads.build_collectors(&mut ctx);
-            let compiled = select.compile_with_extra(&ctx.extra_columns, &ctx.extra_joins);
+        Box::pin(async move {
             let args = build_arguments(&compiled.binds)?;
             let rows = ex.fetch_rows(&compiled.sql, args).await?;
             let mut out = decode_joined::<Out>(rows, &collectors)?;
@@ -151,23 +168,28 @@ where
         })
     }
 
-    fn one<'e, E>(select: Select<Out, Loads>, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
+    fn one<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
+        ex: &'e E,
+    ) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
         E: Executor + Send + Sync + 'e,
         Out: 'e,
         Loads: 'e,
     {
         let (select, loads) = select.limit(1).into_parts_with_loads();
-        Box::pin(async move {
-            if select.columns_ref().is_some() {
-                return Err(Error::Decode(
+        if select.columns_ref().is_some() {
+            return Box::pin(async {
+                Err(Error::Decode(
                     "joined eager loading requires base model selection".to_string(),
-                ));
-            }
+                ))
+            });
+        }
+        let mut ctx = JoinContext::new(select.joins());
+        let collectors = loads.build_collectors(&mut ctx);
+        let compiled = select.compile_with_extra(&ctx.extra_columns, &ctx.extra_joins);
 
-            let mut ctx = JoinContext::new(select.joins());
-            let collectors = loads.build_collectors(&mut ctx);
-            let compiled = select.compile_with_extra(&ctx.extra_columns, &ctx.extra_joins);
+        Box::pin(async move {
             let args = build_arguments(&compiled.binds)?;
             let rows = ex.fetch_rows(&compiled.sql, args).await?;
             let mut out = decode_joined::<Out>(rows, &collectors)?;

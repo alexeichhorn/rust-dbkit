@@ -65,8 +65,39 @@ pub struct Order {
     pub direction: OrderDirection,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoRowLock;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ForUpdateRowLock;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NotDistinct;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DistinctSelected;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NotGrouped;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Grouped;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowLockWait {
+    Wait,
+    SkipLocked,
+    NoWait,
+}
+
 #[derive(Debug, Clone)]
-pub struct Select<Out, Loads = NoLoad> {
+pub struct Select<
+    Out,
+    Loads = NoLoad,
+    Lock = NoRowLock,
+    DistinctState = NotDistinct,
+    GroupState = NotGrouped,
+> {
     table: Table,
     columns: Option<Vec<SelectItem>>,
     joins: Vec<Join>,
@@ -77,11 +108,15 @@ pub struct Select<Out, Loads = NoLoad> {
     limit: Option<u64>,
     offset: Option<u64>,
     distinct: bool,
+    row_lock_wait: Option<RowLockWait>,
     loads: Loads,
     _marker: PhantomData<Out>,
+    _lock_marker: PhantomData<Lock>,
+    _distinct_marker: PhantomData<DistinctState>,
+    _group_marker: PhantomData<GroupState>,
 }
 
-impl<Out> Select<Out, NoLoad> {
+impl<Out> Select<Out, NoLoad, NoRowLock, NotDistinct, NotGrouped> {
     pub fn new(table: Table) -> Self {
         Self {
             table,
@@ -94,13 +129,17 @@ impl<Out> Select<Out, NoLoad> {
             limit: None,
             offset: None,
             distinct: false,
+            row_lock_wait: None,
             loads: NoLoad,
             _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
         }
     }
 }
 
-impl<Out, Loads> Select<Out, Loads> {
+impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, DistinctState, GroupState> {
     pub fn table(&self) -> Table {
         self.table
     }
@@ -144,16 +183,6 @@ impl<Out, Loads> Select<Out, Loads> {
 
     pub fn filter(mut self, expr: Expr<bool>) -> Self {
         self.filters.push(expr);
-        self
-    }
-
-    pub fn group_by<T>(mut self, expr: impl IntoExpr<T>) -> Self {
-        self.group_by.push(expr.into_expr().node);
-        self
-    }
-
-    pub fn having(mut self, expr: Expr<bool>) -> Self {
-        self.having.push(expr);
         self
     }
 
@@ -215,11 +244,6 @@ impl<Out, Loads> Select<Out, Loads> {
         self
     }
 
-    pub fn distinct(mut self) -> Self {
-        self.distinct = true;
-        self
-    }
-
     pub fn order_by(mut self, order: Order) -> Self {
         self.order_by.push(order);
         self
@@ -237,7 +261,7 @@ impl<Out, Loads> Select<Out, Loads> {
         self
     }
 
-    pub fn into_model<T>(self) -> Select<T, Loads> {
+    pub fn into_model<T>(self) -> Select<T, Loads, Lock, DistinctState, GroupState> {
         Select {
             table: self.table,
             columns: self.columns,
@@ -249,12 +273,16 @@ impl<Out, Loads> Select<Out, Loads> {
             limit: self.limit,
             offset: self.offset,
             distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
             loads: self.loads,
             _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
         }
     }
 
-    pub fn with<L>(self, load: L) -> Select<L::Out2, LoadChain<Loads, L>>
+    pub fn with<L>(self, load: L) -> Select<L::Out2, LoadChain<Loads, L>, Lock, DistinctState, GroupState>
     where
         L: ApplyLoad<Out>,
     {
@@ -269,20 +297,24 @@ impl<Out, Loads> Select<Out, Loads> {
             limit: self.limit,
             offset: self.offset,
             distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
             loads: LoadChain {
                 prev: self.loads,
                 load,
             },
             _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
         }
     }
 
     pub fn compile(&self) -> CompiledSql {
-        self.compile_inner(true, true)
+        self.compile_inner(true, true, true)
     }
 
     pub fn compile_without_pagination(&self) -> CompiledSql {
-        self.compile_inner(false, false)
+        self.compile_inner(false, false, false)
     }
 
     pub fn compile_with_extra(
@@ -290,11 +322,16 @@ impl<Out, Loads> Select<Out, Loads> {
         extra_columns: &[SelectItem],
         extra_joins: &[Join],
     ) -> CompiledSql {
-        self.compile_inner_with(extra_columns, extra_joins, true, true)
+        self.compile_inner_with(extra_columns, extra_joins, true, true, true)
     }
 
-    fn compile_inner(&self, include_order: bool, include_pagination: bool) -> CompiledSql {
-        self.compile_inner_with(&[], &[], include_order, include_pagination)
+    fn compile_inner(
+        &self,
+        include_order: bool,
+        include_pagination: bool,
+        include_locking: bool,
+    ) -> CompiledSql {
+        self.compile_inner_with(&[], &[], include_order, include_pagination, include_locking)
     }
 
     fn compile_inner_with(
@@ -303,6 +340,7 @@ impl<Out, Loads> Select<Out, Loads> {
         extra_joins: &[Join],
         include_order: bool,
         include_pagination: bool,
+        include_locking: bool,
     ) -> CompiledSql {
         let mut builder = SqlBuilder::new();
         builder.push_sql("SELECT ");
@@ -432,6 +470,25 @@ impl<Out, Loads> Select<Out, Loads> {
                 builder.push_sql(&offset.to_string());
             }
         }
+        if include_locking {
+            if let Some(wait) = self.row_lock_wait {
+                builder.push_sql(" FOR UPDATE");
+                if self
+                    .joins
+                    .iter()
+                    .chain(extra_joins.iter())
+                    .any(|join| matches!(join.kind, JoinKind::Left))
+                {
+                    builder.push_sql(" OF ");
+                    builder.push_sql(self.table.qualifier());
+                }
+                match wait {
+                    RowLockWait::Wait => {}
+                    RowLockWait::SkipLocked => builder.push_sql(" SKIP LOCKED"),
+                    RowLockWait::NoWait => builder.push_sql(" NOWAIT"),
+                }
+            }
+        }
         builder.finish()
     }
 
@@ -444,7 +501,7 @@ impl<Out, Loads> Select<Out, Loads> {
         (compiled, self.loads)
     }
 
-    pub fn into_parts_with_loads(self) -> (Select<Out, NoLoad>, Loads) {
+    pub fn into_parts_with_loads(self) -> (Select<Out, NoLoad, Lock, DistinctState, GroupState>, Loads) {
         let Select {
             table,
             columns,
@@ -456,8 +513,12 @@ impl<Out, Loads> Select<Out, Loads> {
             limit,
             offset,
             distinct,
+            row_lock_wait,
             loads,
             _marker,
+            _lock_marker,
+            _distinct_marker,
+            _group_marker,
         } = self;
 
         let select = Select {
@@ -471,11 +532,130 @@ impl<Out, Loads> Select<Out, Loads> {
             limit,
             offset,
             distinct,
+            row_lock_wait,
             loads: NoLoad,
             _marker,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
         };
 
         (select, loads)
+    }
+}
+
+impl<Out, Loads, DistinctState, GroupState> Select<Out, Loads, NoRowLock, DistinctState, GroupState> {
+    pub fn group_by<T>(mut self, expr: impl IntoExpr<T>) -> Select<Out, Loads, NoRowLock, DistinctState, Grouped> {
+        self.group_by.push(expr.into_expr().node);
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
+            loads: self.loads,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
+        }
+    }
+
+    pub fn having(mut self, expr: Expr<bool>) -> Select<Out, Loads, NoRowLock, DistinctState, Grouped> {
+        self.having.push(expr);
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
+            loads: self.loads,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
+        }
+    }
+}
+
+impl<Out, Loads, GroupState> Select<Out, Loads, NoRowLock, NotDistinct, GroupState> {
+    pub fn distinct(mut self) -> Select<Out, Loads, NoRowLock, DistinctSelected, GroupState> {
+        self.distinct = true;
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
+            loads: self.loads,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
+        }
+    }
+}
+
+impl<Out, Loads> Select<Out, Loads, NoRowLock, NotDistinct, NotGrouped> {
+    pub fn for_update(self) -> Select<Out, Loads, ForUpdateRowLock, NotDistinct, NotGrouped> {
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: Some(self.row_lock_wait.unwrap_or(RowLockWait::Wait)),
+            loads: self.loads,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
+        }
+    }
+}
+
+impl<Out, Loads, GroupState> Select<Out, Loads, NoRowLock, DistinctSelected, GroupState> {
+    pub fn distinct(self) -> Self {
+        self
+    }
+}
+
+impl<Out, Loads> Select<Out, Loads, ForUpdateRowLock, NotDistinct, NotGrouped> {
+    pub fn for_update(self) -> Self {
+        self
+    }
+
+    pub fn skip_locked(mut self) -> Self {
+        self.row_lock_wait = Some(RowLockWait::SkipLocked);
+        self
+    }
+
+    pub fn nowait(mut self) -> Self {
+        self.row_lock_wait = Some(RowLockWait::NoWait);
+        self
     }
 }
 

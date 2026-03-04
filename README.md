@@ -75,6 +75,14 @@ let users = User::query()
     .await?;
 ```
 
+Row locking:
+
+```rust
+let rows = User::query().for_update().all(&tx).await?;
+let rows = User::query().for_update().skip_locked().all(&tx).await?;
+let rows = User::query().for_update().nowait().all(&tx).await?;
+```
+
 Migrations (optional, via `sqlx`):
 
 ```toml
@@ -490,7 +498,7 @@ tx.commit().await?;
 - [x] Add dynamic condition builder helpers (e.g., `Condition::any` / `Condition::all`).
 - [x] Allow `order_by` on expressions or aliases (e.g., `date_trunc(...)`, `total`).
 - [x] Add `between(a, b)` convenience for columns/expressions.
-- [ ] Add locking options: `for_update`, `skip_locked`, `nowait`.
+- [x] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
 - [x] Add typed conflict helpers: `on_conflict_do_nothing`, `on_conflict_do_update`.
 - [x] Add ActiveModel `save()` that chooses insert vs update.
