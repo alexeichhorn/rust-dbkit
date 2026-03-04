@@ -102,6 +102,28 @@ fn compiles_ne_col_between_potentially_nullable_columns() {
 }
 
 #[test]
+fn compiles_is_distinct_from_col_between_potentially_nullable_columns() {
+    let expr = job_embedding_hash().is_distinct_from_col(job_embedding());
+    let sql = expr_sql(expr);
+    assert_eq!(
+        sql.sql,
+        "SELECT jobs.* FROM jobs WHERE (jobs.embedding_hash IS DISTINCT FROM jobs.embedding)"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_is_not_distinct_from_col_between_potentially_nullable_columns() {
+    let expr = job_embedding_hash().is_not_distinct_from_col(job_embedding());
+    let sql = expr_sql(expr);
+    assert_eq!(
+        sql.sql,
+        "SELECT jobs.* FROM jobs WHERE (jobs.embedding_hash IS NOT DISTINCT FROM jobs.embedding)"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
 fn compiles_expr_ne_col_with_coalesce_for_nullable_vs_nonnullable() {
     let expr = func::coalesce_col(job_embedding_hash(), "").ne_col(job_content_hash());
     let sql = expr_sql(expr);
@@ -114,6 +136,19 @@ fn compiles_expr_ne_col_with_coalesce_for_nullable_vs_nonnullable() {
 
 #[test]
 fn compiles_stale_embedding_predicate_with_null_checks_and_hash_mismatch() {
+    let expr = job_embedding()
+        .is_null()
+        .or(job_embedding_hash().is_distinct_from_col(job_content_hash()));
+    let sql = expr_sql(expr);
+    assert_eq!(
+        sql.sql,
+        "SELECT jobs.* FROM jobs WHERE ((jobs.embedding IS NULL) OR (jobs.embedding_hash IS DISTINCT FROM jobs.content_hash))"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_stale_embedding_predicate_with_coalesce_and_hash_mismatch() {
     let expr = job_embedding()
         .is_null()
         .or(job_embedding_hash().is_null())
