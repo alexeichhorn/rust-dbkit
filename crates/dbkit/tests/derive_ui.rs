@@ -37,6 +37,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_group_by_after_for_update.rs".into(),
         "fail_for_update_after_group_by_having.rs".into(),
         "fail_group_by_having_after_for_update.rs".into(),
+        "pass_conflict_update_tuple4.rs".into(),
         "pass_pgvector.rs".into(),
         "fail_pgvector_dimension_mismatch.rs".into(),
         "fail_pgvector_raw_vec.rs".into(),

@@ -208,6 +208,37 @@ fn compiles_insert_on_conflict_do_update_with_composite_target_and_selected_over
 }
 
 #[test]
+fn compiles_insert_on_conflict_do_update_with_four_selected_overwrite_columns() {
+    let query: Insert<RunPayload> = Insert::new(run_payload_table())
+        .value(run_target_id(), 42_i64)
+        .value(run_id(), 7_i64)
+        .value(run_payload(), "new-payload")
+        .value(run_source(), "new-source")
+        .value(run_version(), 3_i64)
+        .on_conflict_do_update(
+            (run_target_id(), run_id()),
+            (run_payload(), run_source(), run_version(), run_id()),
+        )
+        .returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "INSERT INTO run_payloads (target_id, run_id, payload, source, version) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (target_id, run_id) DO UPDATE SET payload = EXCLUDED.payload, source = EXCLUDED.source, version = EXCLUDED.version, run_id = EXCLUDED.run_id RETURNING run_payloads.*"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::I64(42),
+            Value::I64(7),
+            Value::String("new-payload".to_string()),
+            Value::String("new-source".to_string()),
+            Value::I64(3),
+        ]
+    );
+}
+
+#[test]
 fn compiles_insert_on_conflict_do_update_with_null_insert_values_and_preserves_bind_order() {
     let query: Insert<User> = Insert::new(user_table())
         .value(user_email(), None::<String>)
