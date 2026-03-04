@@ -228,7 +228,7 @@ fn compiles_select_only_with_func_column() {
 
 #[test]
 fn compiles_group_by_and_having() {
-    let query: Select<User> = Select::new(user_table())
+    let query = Select::<User>::new(user_table())
         .select_only()
         .column(user_email())
         .column_as(func::count(user_id()), "cnt")
@@ -249,7 +249,7 @@ fn compiles_select_only_with_join_and_group_by() {
     let todo_user_id: Column<User, i64> = Column::new(todos_table, "user_id");
     let todo_id: Column<User, i64> = Column::new(todos_table, "id");
 
-    let query: Select<User> = Select::new(user_table())
+    let query = Select::<User>::new(user_table())
         .select_only()
         .column(user_id())
         .column_as(func::count(todo_id), "todo_count")
@@ -266,7 +266,7 @@ fn compiles_select_only_with_join_and_group_by() {
 
 #[test]
 fn compiles_group_by_expression() {
-    let query: Select<Sale> = Select::new(sales_table())
+    let query = Select::<Sale>::new(sales_table())
         .select_only()
         .column_as(func::date_trunc("day", sales_created_at()), "bucket")
         .column_as(func::sum(sales_amount()), "total")

@@ -31,12 +31,14 @@ pub trait SelectExt<Out, Loads> {
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
 }
 
-impl<Out, Loads, Lock, DistinctState> SelectExt<Out, Loads> for Select<Out, Loads, Lock, DistinctState>
+impl<Out, Loads, Lock, DistinctState, GroupState> SelectExt<Out, Loads>
+    for Select<Out, Loads, Lock, DistinctState, GroupState>
 where
     Loads: JoinedFlag,
     Ops<<Loads as JoinedFlag>::Flag, Out, Loads>: JoinOps<Out = Out, Loads = Loads>,
     Lock: Send + 'static,
     DistinctState: Send + 'static,
+    GroupState: Send + 'static,
 {
     fn all<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
@@ -44,7 +46,9 @@ where
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::all::<E, Lock, DistinctState>(self, ex)
+        <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::all::<E, Lock, DistinctState, GroupState>(
+            self, ex,
+        )
     }
 
     fn one<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Option<Out>, Error>>
@@ -53,7 +57,9 @@ where
         Loads: RunLoads<Out> + Send + Sync + 'e,
         Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
     {
-        <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::one::<E, Lock, DistinctState>(self, ex)
+        <Ops<<Loads as JoinedFlag>::Flag, Out, Loads> as JoinOps>::one::<E, Lock, DistinctState, GroupState>(
+            self, ex,
+        )
     }
 
     fn count<'e, E>(&self, ex: &'e E) -> BoxFuture<'e, Result<i64, Error>>

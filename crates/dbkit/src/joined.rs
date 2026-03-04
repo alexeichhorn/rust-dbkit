@@ -62,8 +62,8 @@ pub(crate) trait JoinOps {
     type Out;
     type Loads;
 
-    fn all<'e, E, Lock, DistinctState>(
-        select: Select<Self::Out, Self::Loads, Lock, DistinctState>,
+    fn all<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Self::Out, Self::Loads, Lock, DistinctState, GroupState>,
         ex: &'e E,
     ) -> BoxFuture<'e, Result<Vec<Self::Out>, Error>>
     where
@@ -71,8 +71,8 @@ pub(crate) trait JoinOps {
         Self::Out: 'e,
         Self::Loads: 'e;
 
-    fn one<'e, E, Lock, DistinctState>(
-        select: Select<Self::Out, Self::Loads, Lock, DistinctState>,
+    fn one<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Self::Out, Self::Loads, Lock, DistinctState, GroupState>,
         ex: &'e E,
     ) -> BoxFuture<'e, Result<Option<Self::Out>, Error>>
     where
@@ -89,8 +89,8 @@ where
     type Out = Out;
     type Loads = Loads;
 
-    fn all<'e, E, Lock, DistinctState>(
-        select: Select<Out, Loads, Lock, DistinctState>,
+    fn all<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
         ex: &'e E,
     ) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
@@ -107,8 +107,8 @@ where
         })
     }
 
-    fn one<'e, E, Lock, DistinctState>(
-        select: Select<Out, Loads, Lock, DistinctState>,
+    fn one<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
         ex: &'e E,
     ) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
@@ -138,8 +138,8 @@ where
     type Out = Out;
     type Loads = Loads;
 
-    fn all<'e, E, Lock, DistinctState>(
-        select: Select<Out, Loads, Lock, DistinctState>,
+    fn all<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
         ex: &'e E,
     ) -> BoxFuture<'e, Result<Vec<Out>, Error>>
     where
@@ -168,8 +168,8 @@ where
         })
     }
 
-    fn one<'e, E, Lock, DistinctState>(
-        select: Select<Out, Loads, Lock, DistinctState>,
+    fn one<'e, E, Lock, DistinctState, GroupState>(
+        select: Select<Out, Loads, Lock, DistinctState, GroupState>,
         ex: &'e E,
     ) -> BoxFuture<'e, Result<Option<Out>, Error>>
     where
