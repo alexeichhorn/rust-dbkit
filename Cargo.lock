@@ -388,6 +388,7 @@ dependencies = [
  "chrono",
  "insta",
  "serde_json",
+ "sqlx",
  "uuid",
 ]
 

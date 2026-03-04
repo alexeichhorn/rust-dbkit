@@ -21,9 +21,12 @@ fn main() -> ui_test::color_eyre::Result<()> {
     config.filter_files = vec![
         "basic.rs".into(),
         "pass_datetime_utc.rs".into(),
+        "pass_pgvector.rs".into(),
         "fail_unloaded.rs".into(),
         "fail_conflict_cross_model.rs".into(),
         "fail_conflict_column_ref.rs".into(),
+        "fail_pgvector_dimension_mismatch.rs".into(),
+        "fail_pgvector_raw_vec.rs".into(),
     ];
     ui_test::run_tests(config)
 }
