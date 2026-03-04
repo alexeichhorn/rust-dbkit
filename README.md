@@ -523,10 +523,12 @@ Built-in typed query/insert/update bindings currently support:
 - `serde_json::Value` (`JSON` / `JSONB`)
 - `Vec<String>` (`TEXT[]`)
 - `dbkit::PgVector<const N: usize>` (`vector`)
+- custom Postgres enums via `#[derive(dbkit::DbEnum)]`
 - `Option<T>` for nullable columns, where `T` is one of the above
 
 Notes:
 - `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
+- Enum binds are emitted as typed placeholders (`$n::your_enum_type`) for Postgres enum columns.
 - For types outside this list, use raw `sqlx` queries or add explicit dbkit support first.
 
 Transactions:

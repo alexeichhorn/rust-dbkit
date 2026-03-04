@@ -1,5 +1,5 @@
 pub use dbkit_core::*;
-pub use dbkit_derive::{model, Model};
+pub use dbkit_derive::{model, DbEnum, Model};
 pub use sqlx;
 #[cfg(feature = "migrations")]
 pub use sqlx::migrate;

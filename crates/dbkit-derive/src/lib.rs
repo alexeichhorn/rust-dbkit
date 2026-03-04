@@ -10,6 +10,15 @@ pub fn derive_model(_input: TokenStream) -> TokenStream {
     })
 }
 
+#[proc_macro_derive(DbEnum, attributes(dbkit))]
+pub fn derive_db_enum(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::ItemEnum);
+    match expand_db_enum(input) {
+        Ok(tokens) => tokens,
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
 #[proc_macro_attribute]
 pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
@@ -1620,3 +1629,219 @@ fn to_camel_case(name: &str) -> String {
 // (unused helper removed)
 
 // (intentionally removed unused AnyState helpers)
+
+#[derive(Default)]
+struct DbEnumArgs {
+    type_name: Option<String>,
+    rename_all: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+enum DbEnumRenameAll {
+    AsIs,
+    SnakeCase,
+    LowerCase,
+    UpperCase,
+    ScreamingSnakeCase,
+}
+
+fn expand_db_enum(input: syn::ItemEnum) -> syn::Result<TokenStream> {
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            input.generics,
+            "dbkit: #[derive(DbEnum)] does not support generics",
+        ));
+    }
+
+    let args = parse_db_enum_args(&input.attrs)?;
+    let type_name = args.type_name.ok_or_else(|| {
+        syn::Error::new_spanned(
+            &input.ident,
+            "dbkit: DbEnum requires #[dbkit(type_name = \"...\")]",
+        )
+    })?;
+    let rename_rule = parse_db_enum_rename_all(args.rename_all.as_deref())?;
+
+    let enum_ident = input.ident.clone();
+
+    let mut as_db_arms = Vec::new();
+    let mut from_db_arms = Vec::new();
+    let mut expected_values = Vec::new();
+
+    for variant in input.variants.iter() {
+        if !matches!(variant.fields, syn::Fields::Unit) {
+            return Err(syn::Error::new_spanned(
+                &variant.fields,
+                "dbkit: DbEnum only supports unit variants",
+            ));
+        }
+
+        let variant_ident = &variant.ident;
+        let explicit = parse_db_enum_variant_rename(&variant.attrs)?;
+        let db_name = match explicit {
+            Some(value) => value,
+            None => apply_db_enum_rename_rule(&variant.ident.to_string(), rename_rule),
+        };
+        let db_name_lit = syn::LitStr::new(&db_name, variant.ident.span());
+        expected_values.push(db_name);
+
+        as_db_arms.push(quote!(Self::#variant_ident => #db_name_lit,));
+        from_db_arms.push(quote!(#db_name_lit => Ok(Self::#variant_ident),));
+    }
+
+    if as_db_arms.is_empty() {
+        return Err(syn::Error::new_spanned(
+            enum_ident,
+            "dbkit: DbEnum requires at least one variant",
+        ));
+    }
+
+    let type_name_lit = syn::LitStr::new(&type_name, proc_macro2::Span::call_site());
+    let expected_lit = syn::LitStr::new(&expected_values.join(", "), proc_macro2::Span::call_site());
+
+    let tokens = quote! {
+        impl #enum_ident {
+            pub const DB_TYPE_NAME: &'static str = #type_name_lit;
+
+            pub fn as_db_str(&self) -> &'static str {
+                match self {
+                    #(#as_db_arms)*
+                }
+            }
+        }
+
+        impl ::std::str::FromStr for #enum_ident {
+            type Err = String;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                match value {
+                    #(#from_db_arms)*
+                    _ => Err(format!(
+                        "dbkit: invalid value `{}` for enum {} (expected one of: {})",
+                        value,
+                        stringify!(#enum_ident),
+                        #expected_lit
+                    )),
+                }
+            }
+        }
+
+        impl From<#enum_ident> for ::dbkit::Value {
+            fn from(value: #enum_ident) -> Self {
+                ::dbkit::Value::Enum {
+                    type_name: #type_name_lit,
+                    value: value.as_db_str().to_string(),
+                }
+            }
+        }
+
+        impl ::dbkit::sqlx::Type<::dbkit::sqlx::Postgres> for #enum_ident {
+            fn type_info() -> ::dbkit::sqlx::postgres::PgTypeInfo {
+                ::dbkit::sqlx::postgres::PgTypeInfo::with_name(#type_name_lit)
+            }
+
+            fn compatible(ty: &::dbkit::sqlx::postgres::PgTypeInfo) -> bool {
+                *ty == ::dbkit::sqlx::postgres::PgTypeInfo::with_name(#type_name_lit)
+                    || <&str as ::dbkit::sqlx::Type<::dbkit::sqlx::Postgres>>::compatible(ty)
+            }
+        }
+
+        impl<'q> ::dbkit::sqlx::Encode<'q, ::dbkit::sqlx::Postgres> for #enum_ident {
+            fn encode_by_ref(
+                &self,
+                buf: &mut ::dbkit::sqlx::postgres::PgArgumentBuffer,
+            ) -> ::dbkit::sqlx::encode::IsNull {
+                <&str as ::dbkit::sqlx::Encode<'q, ::dbkit::sqlx::Postgres>>::encode(self.as_db_str(), buf)
+            }
+
+            fn produces(&self) -> Option<::dbkit::sqlx::postgres::PgTypeInfo> {
+                Some(::dbkit::sqlx::postgres::PgTypeInfo::with_name(#type_name_lit))
+            }
+
+            fn size_hint(&self) -> usize {
+                self.as_db_str().len()
+            }
+        }
+
+        impl<'r> ::dbkit::sqlx::Decode<'r, ::dbkit::sqlx::Postgres> for #enum_ident {
+            fn decode(value: ::dbkit::sqlx::postgres::PgValueRef<'r>) -> Result<Self, ::dbkit::sqlx::error::BoxDynError> {
+                let value = <&str as ::dbkit::sqlx::Decode<'r, ::dbkit::sqlx::Postgres>>::decode(value)?;
+                <Self as ::std::str::FromStr>::from_str(value).map_err(|err| err.into())
+            }
+        }
+    };
+
+    Ok(TokenStream::from(tokens))
+}
+
+fn parse_db_enum_args(attrs: &[Attribute]) -> syn::Result<DbEnumArgs> {
+    let mut args = DbEnumArgs::default();
+
+    for attr in attrs {
+        if !attr.path().is_ident("dbkit") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("type_name") {
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                args.type_name = Some(lit.value());
+                return Ok(());
+            }
+            if meta.path.is_ident("rename_all") {
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                args.rename_all = Some(lit.value());
+                return Ok(());
+            }
+            Err(meta.error("dbkit: unsupported DbEnum option; expected `type_name` or `rename_all`"))
+        })?;
+    }
+
+    Ok(args)
+}
+
+fn parse_db_enum_variant_rename(attrs: &[Attribute]) -> syn::Result<Option<String>> {
+    let mut rename = None;
+
+    for attr in attrs {
+        if !attr.path().is_ident("dbkit") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename") {
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                rename = Some(lit.value());
+                return Ok(());
+            }
+            Err(meta.error("dbkit: unsupported DbEnum variant option; expected `rename`"))
+        })?;
+    }
+
+    Ok(rename)
+}
+
+fn parse_db_enum_rename_all(value: Option<&str>) -> syn::Result<DbEnumRenameAll> {
+    match value {
+        None => Ok(DbEnumRenameAll::AsIs),
+        Some("snake_case") => Ok(DbEnumRenameAll::SnakeCase),
+        Some("lowercase") => Ok(DbEnumRenameAll::LowerCase),
+        Some("UPPERCASE") => Ok(DbEnumRenameAll::UpperCase),
+        Some("SCREAMING_SNAKE_CASE") => Ok(DbEnumRenameAll::ScreamingSnakeCase),
+        Some(other) => Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!(
+                "dbkit: unsupported rename_all strategy `{}` for DbEnum; supported values: snake_case, lowercase, UPPERCASE, SCREAMING_SNAKE_CASE",
+                other
+            ),
+        )),
+    }
+}
+
+fn apply_db_enum_rename_rule(value: &str, rule: DbEnumRenameAll) -> String {
+    match rule {
+        DbEnumRenameAll::AsIs => value.to_string(),
+        DbEnumRenameAll::SnakeCase => to_snake_case(value),
+        DbEnumRenameAll::LowerCase => value.to_lowercase(),
+        DbEnumRenameAll::UpperCase => value.to_uppercase(),
+        DbEnumRenameAll::ScreamingSnakeCase => to_snake_case(value).to_uppercase(),
+    }
+}

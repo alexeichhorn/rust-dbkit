@@ -21,6 +21,7 @@ pub enum Value {
     Date(chrono::NaiveDate),
     Time(chrono::NaiveTime),
     Vector(Vec<f32>),
+    Enum { type_name: &'static str, value: String },
 }
 
 pub trait ColumnValue<T> {
