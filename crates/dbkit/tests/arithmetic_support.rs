@@ -16,6 +16,8 @@ pub struct Record {
 #[derive(Debug, Clone, Copy)]
 struct OffsetValue;
 
+impl dbkit::SqlInterval for OffsetValue {}
+
 fn make_offset(arg: impl IntoExpr<i64>) -> Expr<OffsetValue> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
@@ -32,16 +34,23 @@ fn query_with_numeric_arithmetic_has_expected_sql_shape() {
         .order_by(Order::desc(Record::baseline_value + Record::left_value))
         .debug_sql();
 
-    assert!(sql.contains("(records.left_value + $1) < records.baseline_value"), "unexpected SQL: {sql}");
-    assert!(sql.contains("(records.right_value - records.left_value) > $2"), "unexpected SQL: {sql}");
-    assert!(sql.contains("ORDER BY (records.baseline_value + records.left_value) DESC"), "unexpected SQL: {sql}");
+    assert!(
+        sql.contains("(records.left_value + $1) < records.baseline_value"),
+        "unexpected SQL: {sql}"
+    );
+    assert!(
+        sql.contains("(records.right_value - records.left_value) > $2"),
+        "unexpected SQL: {sql}"
+    );
+    assert!(
+        sql.contains("ORDER BY (records.baseline_value + records.left_value) DESC"),
+        "unexpected SQL: {sql}"
+    );
 }
 
 #[test]
 fn query_with_timestamp_offset_arithmetic_has_expected_sql_shape() {
-    let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0)
-        .expect("cutoff")
-        .naive_utc();
+    let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("cutoff").naive_utc();
 
     let sql = Record::query()
         .filter((Record::occurred_at + make_offset(Record::left_value)).le(cutoff))

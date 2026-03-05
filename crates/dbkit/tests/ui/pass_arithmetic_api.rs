@@ -15,6 +15,8 @@ pub struct Record {
 #[derive(Debug, Clone, Copy)]
 struct OffsetValue;
 
+impl dbkit::SqlInterval for OffsetValue {}
+
 fn make_offset(arg: impl IntoExpr<i64>) -> Expr<OffsetValue> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {

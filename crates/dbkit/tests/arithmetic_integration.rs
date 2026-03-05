@@ -19,6 +19,8 @@ pub struct Record {
 #[derive(Debug, Clone, Copy)]
 struct OffsetValue;
 
+impl dbkit::SqlInterval for OffsetValue {}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -29,17 +31,17 @@ fn db_url() -> String {
 fn make_offset(arg: impl IntoExpr<i64>) -> Expr<OffsetValue> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
-        name: "MAKE_OFFSET",
+        name: "pg_temp.make_offset",
         args: vec![expr.node],
     })
 }
 
 async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
     ex.execute(
-        "CREATE OR REPLACE FUNCTION pg_temp.make_offset(value BIGINT)\
-         RETURNS INTERVAL\
-         LANGUAGE SQL\
-         IMMUTABLE\
+        "CREATE OR REPLACE FUNCTION pg_temp.make_offset(value BIGINT) \
+         RETURNS INTERVAL \
+         LANGUAGE SQL \
+         IMMUTABLE \
          AS $$ SELECT make_interval(hours => value::int) $$;",
         PgArguments::default(),
     )
