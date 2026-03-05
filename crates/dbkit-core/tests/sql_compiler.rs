@@ -10,6 +10,12 @@ struct Event;
 #[derive(Debug)]
 struct Sale;
 
+#[derive(Debug)]
+struct WindowRow;
+
+#[derive(Debug)]
+struct CompactRow;
+
 fn user_table() -> Table {
     Table::new("users")
 }
@@ -52,6 +58,30 @@ fn sales_amount() -> Column<Sale, i64> {
 
 fn sales_created_at() -> Column<Sale, NaiveDateTime> {
     Column::new(sales_table(), "created_at")
+}
+
+fn window_table() -> Table {
+    Table::new("window_rows")
+}
+
+fn window_anchor_at() -> Column<WindowRow, NaiveDateTime> {
+    Column::new(window_table(), "anchor_at")
+}
+
+fn window_offset_units() -> Column<WindowRow, i32> {
+    Column::new(window_table(), "offset_units")
+}
+
+fn compact_table() -> Table {
+    Table::new("compact_rows")
+}
+
+fn compact_left_units() -> Column<CompactRow, i16> {
+    Column::new(compact_table(), "left_units")
+}
+
+fn compact_right_units() -> Column<CompactRow, i16> {
+    Column::new(compact_table(), "right_units")
 }
 
 #[test]
@@ -297,6 +327,110 @@ fn compiles_between_on_func_expression() {
         sql.binds,
         vec![Value::String("day".to_string()), Value::DateTime(start), Value::DateTime(end)]
     );
+}
+
+#[test]
+fn compiles_add_operator_filter() {
+    let expr = (sales_amount() + 5_i64).gt(10_i64);
+    let query: Select<Sale> = Select::new(sales_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT sales.* FROM sales WHERE ((sales.amount + $1) > $2)");
+    assert_eq!(sql.binds, vec![Value::I64(5), Value::I64(10)]);
+}
+
+#[test]
+fn compiles_sub_operator_filter() {
+    let expr = (sales_amount() - 7_i64).le(100_i64);
+    let query: Select<Sale> = Select::new(sales_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT sales.* FROM sales WHERE ((sales.amount - $1) <= $2)");
+    assert_eq!(sql.binds, vec![Value::I64(7), Value::I64(100)]);
+}
+
+#[test]
+fn compiles_nested_arithmetic_expression_with_stable_parentheses() {
+    let expr = (((sales_amount() + 5_i64) - sales_id()) + 2_i64).ge(20_i64);
+    let query: Select<Sale> = Select::new(sales_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT sales.* FROM sales WHERE ((((sales.amount + $1) - sales.id) + $2) >= $3)"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(5), Value::I64(2), Value::I64(20)]);
+}
+
+#[test]
+fn compiles_arithmetic_expression_in_projection_and_ordering() {
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(sales_amount() + sales_id(), "projected_total")
+        .order_by(Order::desc(sales_amount() - 10_i64));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (sales.amount + sales.id) AS projected_total FROM sales ORDER BY (sales.amount - $1) DESC"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(10)]);
+}
+
+#[test]
+fn compiles_timestamp_plus_custom_offset_function_filter() {
+    let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("cutoff").naive_utc();
+    let expr = (window_anchor_at() + dbkit_core::interval::hours(window_offset_units())).le(cutoff);
+    let query: Select<WindowRow> = Select::new(window_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT window_rows.* FROM window_rows WHERE ((window_rows.anchor_at + MAKE_INTERVAL(hours => window_rows.offset_units)) <= $1)"
+    );
+    assert_eq!(sql.binds, vec![Value::DateTime(cutoff)]);
+}
+
+#[test]
+fn compiles_smallint_add_filter_against_integer_rhs() {
+    // PostgreSQL promotes SMALLINT + SMALLINT to INTEGER, so the expression must
+    // accept i32 comparison operands even though both source columns are i16.
+    let expr = (compact_left_units() + compact_right_units()).gt(10_i32);
+    let query: Select<CompactRow> = Select::new(compact_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units + compact_rows.right_units) > $1)");
+    assert_eq!(sql.binds, vec![Value::I32(10)]);
+}
+
+#[test]
+fn compiles_smallint_sub_filter_against_integer_rhs() {
+    // PostgreSQL applies the same promotion rule for subtraction.
+    let expr = (compact_left_units() - compact_right_units()).le(3_i32);
+    let query: Select<CompactRow> = Select::new(compact_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units - compact_rows.right_units) <= $1)");
+    assert_eq!(sql.binds, vec![Value::I32(3)]);
+}
+
+#[test]
+fn compiles_smallint_arithmetic_projection_with_integer_expression_type() {
+    // Projection typing matters too: follow-up filters/ordering should see the
+    // arithmetic result as INTEGER rather than narrowing it back to SMALLINT.
+    let projected_total: Expr<i32> = compact_left_units() + compact_right_units();
+    let projected_delta: Expr<i32> = compact_left_units() - compact_right_units();
+    let query: Select<CompactRow> = Select::new(compact_table())
+        .select_only()
+        .column_as(projected_total, "total_units")
+        .order_by(Order::desc(projected_delta));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (compact_rows.left_units + compact_rows.right_units) AS total_units FROM compact_rows ORDER BY (compact_rows.left_units - compact_rows.right_units) DESC"
+    );
+    assert!(sql.binds.is_empty());
 }
 
 #[test]
