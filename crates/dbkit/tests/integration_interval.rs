@@ -76,10 +76,7 @@ async fn interval_minutes_with_coalesce_matches_expected_rows() -> Result<(), db
     setup_schema(&tx).await?;
 
     let matched = IntervalRow::query()
-        .filter(
-            dbkit::interval::minutes(dbkit::func::coalesce(IntervalRow::backoff_minutes, 15_i32))
-                .eq_col(IntervalRow::lease_window),
-        )
+        .filter(dbkit::interval::minutes(dbkit::func::coalesce(IntervalRow::backoff_minutes, 15_i32)).eq_col(IntervalRow::lease_window))
         .order_by(Order::asc(IntervalRow::id))
         .all(&tx)
         .await?;

@@ -46,9 +46,10 @@ fn compiles_interval_hours_with_column() {
 
 #[test]
 fn compiles_interval_hours_with_nested_expression_part() {
-    let query: Select<Schedule> = Select::new(schedule_table())
-        .select_only()
-        .column_as(dbkit_core::interval::hours(func::coalesce(schedule_base_interval_hours(), 24_i32)), "lease_window");
+    let query: Select<Schedule> = Select::new(schedule_table()).select_only().column_as(
+        dbkit_core::interval::hours(func::coalesce(schedule_base_interval_hours(), 24_i32)),
+        "lease_window",
+    );
 
     let sql = query.compile();
     assert_eq!(
@@ -60,10 +61,9 @@ fn compiles_interval_hours_with_nested_expression_part() {
 
 #[test]
 fn compiles_interval_minutes_with_negative_literal() {
-    let query: Select<Schedule> = Select::new(schedule_table()).select_only().column_as(
-        dbkit_core::interval::minutes(-30_i32),
-        "retry_after",
-    );
+    let query: Select<Schedule> = Select::new(schedule_table())
+        .select_only()
+        .column_as(dbkit_core::interval::minutes(-30_i32), "retry_after");
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT MAKE_INTERVAL(mins => $1) AS retry_after FROM schedules");
@@ -72,10 +72,9 @@ fn compiles_interval_minutes_with_negative_literal() {
 
 #[test]
 fn compiles_interval_days_with_literal() {
-    let query: Select<Schedule> = Select::new(schedule_table()).select_only().column_as(
-        dbkit_core::interval::days(2_i32),
-        "cooldown",
-    );
+    let query: Select<Schedule> = Select::new(schedule_table())
+        .select_only()
+        .column_as(dbkit_core::interval::days(2_i32), "cooldown");
 
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT MAKE_INTERVAL(days => $1) AS cooldown FROM schedules");
@@ -95,7 +94,8 @@ fn compiles_interval_seconds_with_fractional_literal() {
 
 #[test]
 fn interval_expression_can_compare_to_interval_columns() {
-    let query: Select<Schedule> = Select::new(schedule_table()).filter(dbkit_core::interval::hours(1_i32).eq_col(schedule_retry_interval()));
+    let query: Select<Schedule> =
+        Select::new(schedule_table()).filter(dbkit_core::interval::hours(1_i32).eq_col(schedule_retry_interval()));
 
     let sql = query.compile();
     assert_eq!(
