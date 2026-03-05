@@ -16,6 +16,15 @@ pub struct Record {
     pub occurred_at: NaiveDateTime,
 }
 
+#[model(table = "compact_records")]
+pub struct CompactRecord {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub left_units: i16,
+    pub right_units: i16,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -56,6 +65,36 @@ async fn seed_record<E: Executor + Send + Sync>(
     .one(ex)
     .await?
     .expect("inserted record");
+    Ok(row)
+}
+
+async fn setup_compact_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
+    ex.execute(
+        "CREATE TEMP TABLE compact_records (\
+            id BIGSERIAL PRIMARY KEY,\
+            left_units SMALLINT NOT NULL,\
+            right_units SMALLINT NOT NULL\
+        )",
+        PgArguments::default(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn seed_compact_record<E: Executor + Send + Sync>(
+    ex: &E,
+    left_units: i16,
+    right_units: i16,
+) -> Result<CompactRecord, dbkit::Error> {
+    let row = CompactRecord::insert(CompactRecordInsert {
+        left_units,
+        right_units,
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted compact record");
     Ok(row)
 }
 
@@ -120,6 +159,31 @@ async fn arithmetic_temporal_offset_filter_and_ordering_roundtrip() -> Result<()
     let rows = Record::query()
         .filter((Record::occurred_at + dbkit::interval::hours(Record::left_value)).le(cutoff))
         .order_by(Order::asc(Record::occurred_at - dbkit::interval::hours(1_i32)))
+        .all(&tx)
+        .await?;
+
+    let ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
+    assert_eq!(ids, vec![row1.id, row2.id]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn smallint_arithmetic_filters_roundtrip_with_integer_rhs() -> Result<(), dbkit::Error> {
+    // This roundtrip guards the database-facing contract: SMALLINT arithmetic
+    // must compose with INTEGER predicates and ordering in real Postgres.
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_compact_schema(&tx).await?;
+
+    let row1 = seed_compact_record(&tx, 3, 4).await?;
+    let row2 = seed_compact_record(&tx, 6, 5).await?;
+    let _row3 = seed_compact_record(&tx, 8, 8).await?;
+
+    let rows = CompactRecord::query()
+        .filter((CompactRecord::left_units + CompactRecord::right_units).gt(9_i32))
+        .filter((CompactRecord::left_units - CompactRecord::right_units).lt(2_i32))
+        .order_by(Order::asc(CompactRecord::left_units - CompactRecord::right_units))
         .all(&tx)
         .await?;
 

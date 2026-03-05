@@ -13,6 +13,14 @@ pub struct Record {
     pub occurred_at: NaiveDateTime,
 }
 
+#[model(table = "compact_records")]
+pub struct CompactRecord {
+    #[key]
+    pub id: i64,
+    pub left_units: i16,
+    pub right_units: i16,
+}
+
 #[test]
 fn query_with_numeric_arithmetic_has_expected_sql_shape() {
     let sql = Record::query()
@@ -64,4 +72,43 @@ fn select_only_accepts_arithmetic_projection_aliases() {
 
     assert!(sql.contains("SELECT (records.baseline_value + records.left_value) AS computed_value FROM records"));
     assert!(sql.contains("ORDER BY computed_value DESC"));
+}
+
+#[test]
+fn smallint_arithmetic_promotes_filters_to_integer_operands() {
+    // This pins the Postgres result type, not just the SQL text shape.
+    let sql = CompactRecord::query()
+        .filter((CompactRecord::left_units + CompactRecord::right_units).gt(9_i32))
+        .filter((CompactRecord::left_units - CompactRecord::right_units).lt(4_i32))
+        .debug_sql();
+
+    assert!(
+        sql.contains("(compact_records.left_units + compact_records.right_units) > $1"),
+        "unexpected SQL: {sql}"
+    );
+    assert!(
+        sql.contains("(compact_records.left_units - compact_records.right_units) < $2"),
+        "unexpected SQL: {sql}"
+    );
+}
+
+#[test]
+fn smallint_arithmetic_projection_is_usable_as_integer_expression() {
+    // If this assignment fails, the DSL is still treating SMALLINT arithmetic as i16.
+    let total_units: dbkit::Expr<i32> = CompactRecord::left_units + CompactRecord::right_units;
+
+    let sql = CompactRecord::query()
+        .select_only()
+        .column_as(total_units, "total_units")
+        .order_by(Order::desc(CompactRecord::left_units - CompactRecord::right_units))
+        .debug_sql();
+
+    assert!(
+        sql.contains("SELECT (compact_records.left_units + compact_records.right_units) AS total_units FROM compact_records"),
+        "unexpected SQL: {sql}"
+    );
+    assert!(
+        sql.contains("ORDER BY (compact_records.left_units - compact_records.right_units) DESC"),
+        "unexpected SQL: {sql}"
+    );
 }

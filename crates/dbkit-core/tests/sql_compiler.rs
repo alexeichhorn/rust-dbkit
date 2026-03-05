@@ -13,6 +13,9 @@ struct Sale;
 #[derive(Debug)]
 struct WindowRow;
 
+#[derive(Debug)]
+struct CompactRow;
+
 fn user_table() -> Table {
     Table::new("users")
 }
@@ -67,6 +70,18 @@ fn window_anchor_at() -> Column<WindowRow, NaiveDateTime> {
 
 fn window_offset_units() -> Column<WindowRow, i32> {
     Column::new(window_table(), "offset_units")
+}
+
+fn compact_table() -> Table {
+    Table::new("compact_rows")
+}
+
+fn compact_left_units() -> Column<CompactRow, i16> {
+    Column::new(compact_table(), "left_units")
+}
+
+fn compact_right_units() -> Column<CompactRow, i16> {
+    Column::new(compact_table(), "right_units")
 }
 
 #[test]
@@ -374,6 +389,48 @@ fn compiles_timestamp_plus_custom_offset_function_filter() {
         "SELECT window_rows.* FROM window_rows WHERE ((window_rows.anchor_at + MAKE_INTERVAL(hours => window_rows.offset_units)) <= $1)"
     );
     assert_eq!(sql.binds, vec![Value::DateTime(cutoff)]);
+}
+
+#[test]
+fn compiles_smallint_add_filter_against_integer_rhs() {
+    // PostgreSQL promotes SMALLINT + SMALLINT to INTEGER, so the expression must
+    // accept i32 comparison operands even though both source columns are i16.
+    let expr = (compact_left_units() + compact_right_units()).gt(10_i32);
+    let query: Select<CompactRow> = Select::new(compact_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units + compact_rows.right_units) > $1)");
+    assert_eq!(sql.binds, vec![Value::I32(10)]);
+}
+
+#[test]
+fn compiles_smallint_sub_filter_against_integer_rhs() {
+    // PostgreSQL applies the same promotion rule for subtraction.
+    let expr = (compact_left_units() - compact_right_units()).le(3_i32);
+    let query: Select<CompactRow> = Select::new(compact_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units - compact_rows.right_units) <= $1)");
+    assert_eq!(sql.binds, vec![Value::I32(3)]);
+}
+
+#[test]
+fn compiles_smallint_arithmetic_projection_with_integer_expression_type() {
+    // Projection typing matters too: follow-up filters/ordering should see the
+    // arithmetic result as INTEGER rather than narrowing it back to SMALLINT.
+    let projected_total: Expr<i32> = compact_left_units() + compact_right_units();
+    let projected_delta: Expr<i32> = compact_left_units() - compact_right_units();
+    let query: Select<CompactRow> = Select::new(compact_table())
+        .select_only()
+        .column_as(projected_total, "total_units")
+        .order_by(Order::desc(projected_delta));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (compact_rows.left_units + compact_rows.right_units) AS total_units FROM compact_rows ORDER BY (compact_rows.left_units - compact_rows.right_units) DESC"
+    );
+    assert!(sql.binds.is_empty());
 }
 
 #[test]
