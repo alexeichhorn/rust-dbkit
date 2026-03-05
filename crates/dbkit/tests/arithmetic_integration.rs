@@ -176,9 +176,9 @@ async fn smallint_arithmetic_filters_roundtrip_with_integer_rhs() -> Result<(), 
     let tx = db.begin().await?;
     setup_compact_schema(&tx).await?;
 
-    let row1 = seed_compact_record(&tx, 3, 4).await?;
+    let row1 = seed_compact_record(&tx, 5, 5).await?;
     let row2 = seed_compact_record(&tx, 6, 5).await?;
-    let _row3 = seed_compact_record(&tx, 8, 8).await?;
+    let _row3 = seed_compact_record(&tx, 8, 5).await?;
 
     let rows = CompactRecord::query()
         .filter((CompactRecord::left_units + CompactRecord::right_units).gt(9_i32))

@@ -577,7 +577,15 @@ macro_rules! impl_numeric_arithmetic {
     };
 }
 
-impl_numeric_arithmetic!(i16, i32, i64, f32, f64);
+impl SqlAdd<i16> for i16 {
+    type Output = i32;
+}
+
+impl SqlSub<i16> for i16 {
+    type Output = i32;
+}
+
+impl_numeric_arithmetic!(i32, i64, f32, f64);
 
 impl SqlAdd<PgInterval> for chrono::NaiveDateTime {
     type Output = chrono::NaiveDateTime;
