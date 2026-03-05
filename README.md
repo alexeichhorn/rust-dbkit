@@ -75,6 +75,17 @@ let users = User::query()
     .await?;
 ```
 
+Arithmetic expressions:
+
+```rust
+let rows = Record::query()
+    .filter((Record::left_value + 1_i64).lt_col(Record::baseline_value))
+    .filter((Record::right_value - Record::left_value).gt(0_i64))
+    .order_by(dbkit::Order::desc(Record::baseline_value + Record::left_value))
+    .all(&db)
+    .await?;
+```
+
 Row locking:
 
 ```rust
