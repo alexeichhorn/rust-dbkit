@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use dbkit_core::{expr::Value, func, Column, Condition, Expr, Order, Select, Table};
+use dbkit_core::{expr::Value, func, Column, Condition, Expr, ExprNode, IntoExpr, Order, Select, Table};
 
 #[derive(Debug)]
 struct User;
@@ -9,6 +9,12 @@ struct Event;
 
 #[derive(Debug)]
 struct Sale;
+
+#[derive(Debug)]
+struct WindowRow;
+
+#[derive(Debug, Clone, Copy)]
+struct OffsetValue;
 
 fn user_table() -> Table {
     Table::new("users")
@@ -52,6 +58,26 @@ fn sales_amount() -> Column<Sale, i64> {
 
 fn sales_created_at() -> Column<Sale, NaiveDateTime> {
     Column::new(sales_table(), "created_at")
+}
+
+fn window_table() -> Table {
+    Table::new("window_rows")
+}
+
+fn window_anchor_at() -> Column<WindowRow, NaiveDateTime> {
+    Column::new(window_table(), "anchor_at")
+}
+
+fn window_offset_units() -> Column<WindowRow, i64> {
+    Column::new(window_table(), "offset_units")
+}
+
+fn make_offset(arg: impl IntoExpr<i64>) -> Expr<OffsetValue> {
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "MAKE_OFFSET",
+        args: vec![expr.node],
+    })
 }
 
 #[test]
@@ -297,6 +323,70 @@ fn compiles_between_on_func_expression() {
         sql.binds,
         vec![Value::String("day".to_string()), Value::DateTime(start), Value::DateTime(end)]
     );
+}
+
+#[test]
+fn compiles_add_expression_filter() {
+    let expr = sales_amount().add(5_i64).gt(10_i64);
+    let query: Select<Sale> = Select::new(sales_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT sales.* FROM sales WHERE ((sales.amount + $1) > $2)");
+    assert_eq!(sql.binds, vec![Value::I64(5), Value::I64(10)]);
+}
+
+#[test]
+fn compiles_sub_expression_filter() {
+    let expr = sales_amount().sub(7_i64).le(100_i64);
+    let query: Select<Sale> = Select::new(sales_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT sales.* FROM sales WHERE ((sales.amount - $1) <= $2)");
+    assert_eq!(sql.binds, vec![Value::I64(7), Value::I64(100)]);
+}
+
+#[test]
+fn compiles_nested_arithmetic_expression_with_stable_parentheses() {
+    let expr = sales_amount().add(5_i64).sub(sales_id()).add(2_i64).ge(20_i64);
+    let query: Select<Sale> = Select::new(sales_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT sales.* FROM sales WHERE ((((sales.amount + $1) - sales.id) + $2) >= $3)"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(5), Value::I64(2), Value::I64(20)]);
+}
+
+#[test]
+fn compiles_arithmetic_expression_in_projection_and_ordering() {
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(sales_amount().add(sales_id()), "projected_total")
+        .order_by(Order::desc(sales_amount().sub(10_i64)));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (sales.amount + sales.id) AS projected_total FROM sales ORDER BY (sales.amount - $1) DESC"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(10)]);
+}
+
+#[test]
+fn compiles_timestamp_plus_custom_interval_function_filter() {
+    let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0)
+        .expect("cutoff")
+        .naive_utc();
+    let expr = window_anchor_at().add(make_offset(window_offset_units())).le(cutoff);
+    let query: Select<WindowRow> = Select::new(window_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT window_rows.* FROM window_rows WHERE ((window_rows.anchor_at + MAKE_OFFSET(window_rows.offset_units)) <= $1)"
+    );
+    assert_eq!(sql.binds, vec![Value::DateTime(cutoff)]);
 }
 
 #[test]

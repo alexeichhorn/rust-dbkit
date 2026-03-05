@@ -18,6 +18,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
     config.filter_files = vec![
         "basic.rs".into(),
         "pass_datetime_utc.rs".into(),
+        "pass_arithmetic_api.rs".into(),
         "pass_locking_api.rs".into(),
         "fail_unloaded.rs".into(),
         "fail_conflict_cross_model.rs".into(),
@@ -44,6 +45,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_db_enum_optional_value_mismatch.rs".into(),
         "fail_db_enum_column_mismatch.rs".into(),
         "fail_db_enum_duplicate_wire_name.rs".into(),
+        "fail_arithmetic_string_rhs.rs".into(),
+        "fail_arithmetic_datetime_integer.rs".into(),
     ];
     ui_test::run_tests(config)
 }
