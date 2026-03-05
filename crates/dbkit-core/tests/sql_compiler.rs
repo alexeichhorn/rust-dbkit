@@ -326,8 +326,8 @@ fn compiles_between_on_func_expression() {
 }
 
 #[test]
-fn compiles_add_expression_filter() {
-    let expr = sales_amount().add(5_i64).gt(10_i64);
+fn compiles_add_operator_filter() {
+    let expr = (sales_amount() + 5_i64).gt(10_i64);
     let query: Select<Sale> = Select::new(sales_table()).filter(expr);
 
     let sql = query.compile();
@@ -336,8 +336,8 @@ fn compiles_add_expression_filter() {
 }
 
 #[test]
-fn compiles_sub_expression_filter() {
-    let expr = sales_amount().sub(7_i64).le(100_i64);
+fn compiles_sub_operator_filter() {
+    let expr = (sales_amount() - 7_i64).le(100_i64);
     let query: Select<Sale> = Select::new(sales_table()).filter(expr);
 
     let sql = query.compile();
@@ -347,7 +347,7 @@ fn compiles_sub_expression_filter() {
 
 #[test]
 fn compiles_nested_arithmetic_expression_with_stable_parentheses() {
-    let expr = sales_amount().add(5_i64).sub(sales_id()).add(2_i64).ge(20_i64);
+    let expr = (((sales_amount() + 5_i64) - sales_id()) + 2_i64).ge(20_i64);
     let query: Select<Sale> = Select::new(sales_table()).filter(expr);
 
     let sql = query.compile();
@@ -362,8 +362,8 @@ fn compiles_nested_arithmetic_expression_with_stable_parentheses() {
 fn compiles_arithmetic_expression_in_projection_and_ordering() {
     let query: Select<Sale> = Select::new(sales_table())
         .select_only()
-        .column_as(sales_amount().add(sales_id()), "projected_total")
-        .order_by(Order::desc(sales_amount().sub(10_i64)));
+        .column_as(sales_amount() + sales_id(), "projected_total")
+        .order_by(Order::desc(sales_amount() - 10_i64));
 
     let sql = query.compile();
     assert_eq!(
@@ -374,11 +374,11 @@ fn compiles_arithmetic_expression_in_projection_and_ordering() {
 }
 
 #[test]
-fn compiles_timestamp_plus_custom_interval_function_filter() {
+fn compiles_timestamp_plus_custom_offset_function_filter() {
     let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0)
         .expect("cutoff")
         .naive_utc();
-    let expr = window_anchor_at().add(make_offset(window_offset_units())).le(cutoff);
+    let expr = (window_anchor_at() + make_offset(window_offset_units())).le(cutoff);
     let query: Select<WindowRow> = Select::new(window_table()).filter(expr);
 
     let sql = query.compile();

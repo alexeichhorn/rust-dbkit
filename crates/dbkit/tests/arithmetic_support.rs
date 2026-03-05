@@ -27,9 +27,9 @@ fn make_offset(arg: impl IntoExpr<i64>) -> Expr<OffsetValue> {
 #[test]
 fn query_with_numeric_arithmetic_has_expected_sql_shape() {
     let sql = Record::query()
-        .filter(Record::left_value.add(1_i64).lt_col(Record::baseline_value))
-        .filter(Record::right_value.sub(Record::left_value).gt(0_i64))
-        .order_by(Order::desc(Record::baseline_value.add(Record::left_value)))
+        .filter((Record::left_value + 1_i64).lt_col(Record::baseline_value))
+        .filter((Record::right_value - Record::left_value).gt(0_i64))
+        .order_by(Order::desc(Record::baseline_value + Record::left_value))
         .debug_sql();
 
     assert!(sql.contains("(records.left_value + $1) < records.baseline_value"), "unexpected SQL: {sql}");
@@ -38,14 +38,14 @@ fn query_with_numeric_arithmetic_has_expected_sql_shape() {
 }
 
 #[test]
-fn query_with_timestamp_interval_arithmetic_has_expected_sql_shape() {
+fn query_with_timestamp_offset_arithmetic_has_expected_sql_shape() {
     let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0)
         .expect("cutoff")
         .naive_utc();
 
     let sql = Record::query()
-        .filter(Record::occurred_at.add(make_offset(Record::left_value)).le(cutoff))
-        .order_by(Order::asc(Record::occurred_at.sub(make_offset(1_i64))))
+        .filter((Record::occurred_at + make_offset(Record::left_value)).le(cutoff))
+        .order_by(Order::asc(Record::occurred_at - make_offset(1_i64)))
         .debug_sql();
 
     assert!(
@@ -62,7 +62,7 @@ fn query_with_timestamp_interval_arithmetic_has_expected_sql_shape() {
 fn select_only_accepts_arithmetic_projection_aliases() {
     let sql = Record::query()
         .select_only()
-        .column_as(Record::baseline_value.add(Record::left_value), "computed_value")
+        .column_as(Record::baseline_value + Record::left_value, "computed_value")
         .order_by(Order::desc_alias("computed_value"))
         .debug_sql();
 

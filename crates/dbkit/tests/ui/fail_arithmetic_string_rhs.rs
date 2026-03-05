@@ -8,5 +8,5 @@ pub struct Record {
 }
 
 fn main() {
-    let _query = Record::query().filter(Record::label.add(1_i64).eq("x")); //~ ERROR
+    let _query = Record::query().filter((Record::label + 1_i64).eq("x")); //~ ERROR
 }

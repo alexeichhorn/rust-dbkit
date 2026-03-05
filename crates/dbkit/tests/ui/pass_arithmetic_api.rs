@@ -29,16 +29,16 @@ fn main() {
         .naive_utc();
 
     let _query = Record::query()
-        .filter(Record::left_value.add(1_i64).lt_col(Record::baseline_value))
-        .filter(Record::right_value.sub(Record::left_value).ge(0_i64))
-        .filter(Record::occurred_at.add(make_offset(1_i64)).le(cutoff))
-        .order_by(Order::desc(Record::baseline_value.add(Record::left_value)))
-        .order_by(Order::asc(Record::occurred_at.sub(make_offset(Record::left_value))))
+        .filter((Record::left_value + 1_i64).lt_col(Record::baseline_value))
+        .filter((Record::right_value - Record::left_value).ge(0_i64))
+        .filter((Record::occurred_at + make_offset(1_i64)).le(cutoff))
+        .order_by(Order::desc(Record::baseline_value + Record::left_value))
+        .order_by(Order::asc(Record::occurred_at - make_offset(Record::left_value)))
         .limit(25)
         .debug_sql();
 
     let _projection = Record::query()
         .select_only()
-        .column_as(Record::baseline_value.add(Record::left_value), "computed_value")
+        .column_as(Record::baseline_value + Record::left_value, "computed_value")
         .debug_sql();
 }
