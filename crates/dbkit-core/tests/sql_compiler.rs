@@ -16,6 +16,8 @@ struct WindowRow;
 #[derive(Debug, Clone, Copy)]
 struct OffsetValue;
 
+impl dbkit_core::SqlInterval for OffsetValue {}
+
 fn user_table() -> Table {
     Table::new("users")
 }
@@ -375,9 +377,7 @@ fn compiles_arithmetic_expression_in_projection_and_ordering() {
 
 #[test]
 fn compiles_timestamp_plus_custom_offset_function_filter() {
-    let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0)
-        .expect("cutoff")
-        .naive_utc();
+    let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("cutoff").naive_utc();
     let expr = (window_anchor_at() + make_offset(window_offset_units())).le(cutoff);
     let query: Select<WindowRow> = Select::new(window_table()).filter(expr);
 
