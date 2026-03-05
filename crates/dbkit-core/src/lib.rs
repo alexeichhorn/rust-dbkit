@@ -9,7 +9,7 @@ pub mod schema;
 pub mod types;
 
 pub use compile::CompiledSql;
-pub use expr::{ColumnValue, Condition, Expr, ExprNode, IntoExpr, Value};
+pub use expr::{ColumnValue, Condition, Expr, ExprNode, IntoExpr, SqlAdd, SqlInterval, SqlSub, Value};
 pub use load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 pub use mutation::{Delete, Insert, Update};
 pub use query::{

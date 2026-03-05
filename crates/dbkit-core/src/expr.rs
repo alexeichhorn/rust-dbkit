@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::ops::{Add, Sub};
 
 use crate::schema::{Column, ColumnRef};
 use crate::types::PgVector;
@@ -171,6 +172,8 @@ where
 
 #[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
+    Add,
+    Sub,
     Eq,
     Ne,
     IsDistinctFrom,
@@ -261,8 +264,32 @@ pub trait IntoExpr<T> {
     fn into_expr(self) -> Expr<T>;
 }
 
+pub trait ExprOperand {
+    type Value;
+
+    fn into_operand_expr(self) -> Expr<Self::Value>;
+}
+
+pub trait SqlInterval {}
+
+pub trait SqlAdd<Rhs> {
+    type Output;
+}
+
+pub trait SqlSub<Rhs> {
+    type Output;
+}
+
 impl<T> IntoExpr<T> for Expr<T> {
     fn into_expr(self) -> Expr<T> {
+        self
+    }
+}
+
+impl<T> ExprOperand for Expr<T> {
+    type Value = T;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
         self
     }
 }
@@ -273,9 +300,25 @@ impl<M, T> IntoExpr<T> for Column<M, T> {
     }
 }
 
+impl<M, T> ExprOperand for Column<M, T> {
+    type Value = T;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<String> for String {
     fn into_expr(self) -> Expr<String> {
         Expr::new(ExprNode::Value(Value::String(self)))
+    }
+}
+
+impl ExprOperand for String {
+    type Value = String;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
     }
 }
 
@@ -285,9 +328,25 @@ impl IntoExpr<String> for &str {
     }
 }
 
+impl ExprOperand for &str {
+    type Value = String;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<bool> for bool {
     fn into_expr(self) -> Expr<bool> {
         Expr::new(ExprNode::Value(Value::Bool(self)))
+    }
+}
+
+impl ExprOperand for bool {
+    type Value = bool;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
     }
 }
 
@@ -297,9 +356,25 @@ impl IntoExpr<i16> for i16 {
     }
 }
 
+impl ExprOperand for i16 {
+    type Value = i16;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<i32> for i32 {
     fn into_expr(self) -> Expr<i32> {
         Expr::new(ExprNode::Value(Value::I32(self)))
+    }
+}
+
+impl ExprOperand for i32 {
+    type Value = i32;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
     }
 }
 
@@ -309,9 +384,25 @@ impl IntoExpr<i64> for i64 {
     }
 }
 
+impl ExprOperand for i64 {
+    type Value = i64;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<f32> for f32 {
     fn into_expr(self) -> Expr<f32> {
         Expr::new(ExprNode::Value(Value::F32(self)))
+    }
+}
+
+impl ExprOperand for f32 {
+    type Value = f32;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
     }
 }
 
@@ -321,9 +412,25 @@ impl IntoExpr<f64> for f64 {
     }
 }
 
+impl ExprOperand for f64 {
+    type Value = f64;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<uuid::Uuid> for uuid::Uuid {
     fn into_expr(self) -> Expr<uuid::Uuid> {
         Expr::new(ExprNode::Value(Value::Uuid(self)))
+    }
+}
+
+impl ExprOperand for uuid::Uuid {
+    type Value = uuid::Uuid;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
     }
 }
 
@@ -333,9 +440,25 @@ impl IntoExpr<chrono::NaiveDateTime> for chrono::NaiveDateTime {
     }
 }
 
+impl ExprOperand for chrono::NaiveDateTime {
+    type Value = chrono::NaiveDateTime;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<chrono::DateTime<chrono::Utc>> for chrono::DateTime<chrono::Utc> {
     fn into_expr(self) -> Expr<chrono::DateTime<chrono::Utc>> {
         Expr::new(ExprNode::Value(Value::DateTimeUtc(self)))
+    }
+}
+
+impl ExprOperand for chrono::DateTime<chrono::Utc> {
+    type Value = chrono::DateTime<chrono::Utc>;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
     }
 }
 
@@ -345,9 +468,25 @@ impl IntoExpr<chrono::NaiveDate> for chrono::NaiveDate {
     }
 }
 
+impl ExprOperand for chrono::NaiveDate {
+    type Value = chrono::NaiveDate;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<chrono::NaiveTime> for chrono::NaiveTime {
     fn into_expr(self) -> Expr<chrono::NaiveTime> {
         Expr::new(ExprNode::Value(Value::Time(self)))
+    }
+}
+
+impl ExprOperand for chrono::NaiveTime {
+    type Value = chrono::NaiveTime;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
     }
 }
 
@@ -357,15 +496,139 @@ impl IntoExpr<Vec<String>> for Vec<String> {
     }
 }
 
+impl ExprOperand for Vec<String> {
+    type Value = Vec<String>;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<serde_json::Value> for serde_json::Value {
     fn into_expr(self) -> Expr<serde_json::Value> {
         Expr::new(ExprNode::Value(Value::Json(self)))
     }
 }
 
+impl ExprOperand for serde_json::Value {
+    type Value = serde_json::Value;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl<const N: usize> IntoExpr<PgVector<N>> for PgVector<N> {
     fn into_expr(self) -> Expr<PgVector<N>> {
         Expr::new(ExprNode::Value(Value::from(self)))
+    }
+}
+
+impl<const N: usize> ExprOperand for PgVector<N> {
+    type Value = PgVector<N>;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
+macro_rules! impl_numeric_arithmetic {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl SqlAdd<$ty> for $ty {
+                type Output = $ty;
+            }
+
+            impl SqlSub<$ty> for $ty {
+                type Output = $ty;
+            }
+        )*
+    };
+}
+
+impl_numeric_arithmetic!(i16, i32, i64, f32, f64);
+
+impl<I> SqlAdd<I> for chrono::NaiveDateTime
+where
+    I: SqlInterval,
+{
+    type Output = chrono::NaiveDateTime;
+}
+
+impl<I> SqlSub<I> for chrono::NaiveDateTime
+where
+    I: SqlInterval,
+{
+    type Output = chrono::NaiveDateTime;
+}
+
+impl<I> SqlAdd<I> for chrono::DateTime<chrono::Utc>
+where
+    I: SqlInterval,
+{
+    type Output = chrono::DateTime<chrono::Utc>;
+}
+
+impl<I> SqlSub<I> for chrono::DateTime<chrono::Utc>
+where
+    I: SqlInterval,
+{
+    type Output = chrono::DateTime<chrono::Utc>;
+}
+
+fn arithmetic_expr<Out>(left: ExprNode, op: BinaryOp, right: ExprNode) -> Expr<Out> {
+    Expr::new(ExprNode::Binary {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    })
+}
+
+impl<Lhs, RhsExpr> Add<RhsExpr> for Expr<Lhs>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlAdd<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlAdd<RhsExpr::Value>>::Output>;
+
+    fn add(self, rhs: RhsExpr) -> Self::Output {
+        arithmetic_expr(self.node, BinaryOp::Add, rhs.into_operand_expr().node)
+    }
+}
+
+impl<Lhs, RhsExpr> Sub<RhsExpr> for Expr<Lhs>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlSub<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlSub<RhsExpr::Value>>::Output>;
+
+    fn sub(self, rhs: RhsExpr) -> Self::Output {
+        arithmetic_expr(self.node, BinaryOp::Sub, rhs.into_operand_expr().node)
+    }
+}
+
+impl<M, Lhs, RhsExpr> Add<RhsExpr> for Column<M, Lhs>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlAdd<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlAdd<RhsExpr::Value>>::Output>;
+
+    fn add(self, rhs: RhsExpr) -> Self::Output {
+        arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Add, rhs.into_operand_expr().node)
+    }
+}
+
+impl<M, Lhs, RhsExpr> Sub<RhsExpr> for Column<M, Lhs>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlSub<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlSub<RhsExpr::Value>>::Output>;
+
+    fn sub(self, rhs: RhsExpr) -> Self::Output {
+        arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Sub, rhs.into_operand_expr().node)
     }
 }
 

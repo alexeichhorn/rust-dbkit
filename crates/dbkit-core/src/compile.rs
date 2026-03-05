@@ -96,6 +96,8 @@ impl ToSql for ExprNode {
                 builder.push_sql("(");
                 left.to_sql(builder);
                 builder.push_sql(match op {
+                    BinaryOp::Add => " + ",
+                    BinaryOp::Sub => " - ",
                     BinaryOp::Eq => " = ",
                     BinaryOp::Ne => " <> ",
                     BinaryOp::IsDistinctFrom => " IS DISTINCT FROM ",
