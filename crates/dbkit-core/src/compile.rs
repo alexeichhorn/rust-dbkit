@@ -1,4 +1,4 @@
-use crate::expr::{BinaryOp, BoolOp, ExprNode, UnaryOp, Value, VectorBinaryOp};
+use crate::expr::{BinaryOp, BoolOp, ExprNode, IntervalField, UnaryOp, Value, VectorBinaryOp};
 use crate::schema::ColumnRef;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +28,7 @@ impl SqlBuilder {
             return;
         }
         let cast_as_vector = matches!(&value, Value::Vector(_));
+        let cast_as_interval = matches!(&value, Value::Interval(_));
         let cast_as_enum = match &value {
             Value::Enum { type_name, .. } => Some(*type_name),
             _ => None,
@@ -42,6 +43,8 @@ impl SqlBuilder {
         self.sql.push_str(&idx.to_string());
         if cast_as_vector {
             self.sql.push_str("::vector");
+        } else if cast_as_interval {
+            self.sql.push_str("::interval");
         } else if let Some(type_name) = cast_as_enum {
             self.sql.push_str("::");
             self.sql.push_str(type_name);
@@ -90,6 +93,17 @@ impl ToSql for ExprNode {
                     VectorBinaryOp::L1Distance => " <+> ",
                 });
                 right.to_sql(builder);
+                builder.push_sql(")");
+            }
+            ExprNode::MakeInterval { field, value } => {
+                builder.push_sql("MAKE_INTERVAL(");
+                builder.push_sql(match field {
+                    IntervalField::Days => "days => ",
+                    IntervalField::Hours => "hours => ",
+                    IntervalField::Minutes => "mins => ",
+                    IntervalField::Seconds => "secs => ",
+                });
+                value.to_sql(builder);
                 builder.push_sql(")");
             }
             ExprNode::Binary { left, op, right } => {

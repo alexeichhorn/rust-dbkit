@@ -33,3 +33,16 @@ fn build_arguments_accepts_json() {
     let result = build_arguments(&values);
     assert!(result.is_ok());
 }
+
+#[test]
+fn build_arguments_accepts_interval() {
+    let interval = dbkit::PgInterval {
+        months: 0,
+        days: 1,
+        microseconds: 1_800_000_000,
+    };
+
+    let values = vec![Value::from(interval)];
+    let result = build_arguments(&values);
+    assert!(result.is_ok());
+}

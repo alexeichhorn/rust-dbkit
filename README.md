@@ -128,6 +128,19 @@ let page = User::query()
 println!("page {} of {}", page.page, page.total_pages());
 ```
 
+Interval expressions:
+
+```rust
+let rows = Schedule::query()
+    .filter(dbkit::interval::hours(Schedule::base_interval_hours).eq_col(Schedule::lease_window))
+    .order_by(dbkit::Order::asc(dbkit::interval::minutes(dbkit::func::coalesce(
+        Schedule::backoff_minutes,
+        15_i32,
+    ))))
+    .all(&db)
+    .await?;
+```
+
 Insert / update / delete:
 
 ```rust
@@ -531,6 +544,7 @@ Built-in typed query/insert/update bindings currently support:
 - `chrono::DateTime<chrono::Utc>` (`TIMESTAMPTZ`)
 - `chrono::NaiveDate` (`DATE`)
 - `chrono::NaiveTime` (`TIME`)
+- `dbkit::PgInterval` (`INTERVAL`)
 - `serde_json::Value` (`JSON` / `JSONB`)
 - `Vec<String>` (`TEXT[]`)
 - `dbkit::PgVector<const N: usize>` (`vector`)
@@ -539,6 +553,7 @@ Built-in typed query/insert/update bindings currently support:
 
 Notes:
 - `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
+- Interval expressions are available via `dbkit::interval::{days, hours, minutes, seconds}`.
 - Enum binds are emitted as typed placeholders (`$n::your_enum_type`) for Postgres enum columns.
 - For types outside this list, use raw `sqlx` queries or add explicit dbkit support first.
 

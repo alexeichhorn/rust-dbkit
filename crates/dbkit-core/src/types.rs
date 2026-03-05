@@ -10,6 +10,17 @@ pub struct BelongsTo<T>(std::marker::PhantomData<T>);
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ManyToMany<T>(std::marker::PhantomData<T>);
 
+#[cfg(feature = "sqlx")]
+pub type PgInterval = sqlx::postgres::types::PgInterval;
+
+#[cfg(not(feature = "sqlx"))]
+#[derive(Debug, Eq, PartialEq, Clone, Hash, Default)]
+pub struct PgInterval {
+    pub months: i32,
+    pub days: i32,
+    pub microseconds: i64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PgVector<const N: usize> {
     values: [f32; N],

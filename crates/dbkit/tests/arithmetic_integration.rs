@@ -3,23 +3,18 @@
 use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
-use dbkit::{model, Database, Executor, Expr, ExprNode, IntoExpr, Order};
+use dbkit::{model, Database, Executor, Order};
 
 #[model(table = "records")]
 pub struct Record {
     #[key]
     #[autoincrement]
     pub id: i64,
-    pub left_value: i64,
-    pub right_value: i64,
-    pub baseline_value: i64,
+    pub left_value: i32,
+    pub right_value: i32,
+    pub baseline_value: i32,
     pub occurred_at: NaiveDateTime,
 }
-
-#[derive(Debug, Clone, Copy)]
-struct OffsetValue;
-
-impl dbkit::SqlInterval for OffsetValue {}
 
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
@@ -28,31 +23,13 @@ fn db_url() -> String {
         .expect("DB_URL or DATABASE_URL must be set for integration tests")
 }
 
-fn make_offset(arg: impl IntoExpr<i64>) -> Expr<OffsetValue> {
-    let expr = arg.into_expr();
-    Expr::new(ExprNode::Func {
-        name: "pg_temp.make_offset",
-        args: vec![expr.node],
-    })
-}
-
 async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
-    ex.execute(
-        "CREATE OR REPLACE FUNCTION pg_temp.make_offset(value BIGINT) \
-         RETURNS INTERVAL \
-         LANGUAGE SQL \
-         IMMUTABLE \
-         AS $$ SELECT make_interval(hours => value::int) $$;",
-        PgArguments::default(),
-    )
-    .await?;
-
     ex.execute(
         "CREATE TEMP TABLE records (\
             id BIGSERIAL PRIMARY KEY,\
-            left_value BIGINT NOT NULL,\
-            right_value BIGINT NOT NULL,\
-            baseline_value BIGINT NOT NULL,\
+            left_value INTEGER NOT NULL,\
+            right_value INTEGER NOT NULL,\
+            baseline_value INTEGER NOT NULL,\
             occurred_at TIMESTAMP NOT NULL\
         )",
         PgArguments::default(),
@@ -64,9 +41,9 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
 
 async fn seed_record<E: Executor + Send + Sync>(
     ex: &E,
-    left_value: i64,
-    right_value: i64,
-    baseline_value: i64,
+    left_value: i32,
+    right_value: i32,
+    baseline_value: i32,
     occurred_at: NaiveDateTime,
 ) -> Result<Record, dbkit::Error> {
     let row = Record::insert(RecordInsert {
@@ -115,8 +92,8 @@ async fn arithmetic_numeric_filters_and_ordering_roundtrip() -> Result<(), dbkit
     .await?;
 
     let rows = Record::query()
-        .filter((Record::left_value + 1_i64).lt_col(Record::baseline_value))
-        .filter((Record::right_value - Record::left_value).gt(3_i64))
+        .filter((Record::left_value + 1_i32).lt_col(Record::baseline_value))
+        .filter((Record::right_value - Record::left_value).gt(3_i32))
         .order_by(Order::desc(Record::baseline_value + Record::left_value))
         .all(&tx)
         .await?;
@@ -141,8 +118,8 @@ async fn arithmetic_temporal_offset_filter_and_ordering_roundtrip() -> Result<()
 
     let cutoff = base + Duration::hours(4);
     let rows = Record::query()
-        .filter((Record::occurred_at + make_offset(Record::left_value)).le(cutoff))
-        .order_by(Order::asc(Record::occurred_at - make_offset(1_i64)))
+        .filter((Record::occurred_at + dbkit::interval::hours(Record::left_value)).le(cutoff))
+        .order_by(Order::asc(Record::occurred_at - dbkit::interval::hours(1_i32)))
         .all(&tx)
         .await?;
 

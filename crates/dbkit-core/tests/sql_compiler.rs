@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use dbkit_core::{expr::Value, func, Column, Condition, Expr, ExprNode, IntoExpr, Order, Select, Table};
+use dbkit_core::{expr::Value, func, Column, Condition, Expr, Order, Select, Table};
 
 #[derive(Debug)]
 struct User;
@@ -12,11 +12,6 @@ struct Sale;
 
 #[derive(Debug)]
 struct WindowRow;
-
-#[derive(Debug, Clone, Copy)]
-struct OffsetValue;
-
-impl dbkit_core::SqlInterval for OffsetValue {}
 
 fn user_table() -> Table {
     Table::new("users")
@@ -70,16 +65,8 @@ fn window_anchor_at() -> Column<WindowRow, NaiveDateTime> {
     Column::new(window_table(), "anchor_at")
 }
 
-fn window_offset_units() -> Column<WindowRow, i64> {
+fn window_offset_units() -> Column<WindowRow, i32> {
     Column::new(window_table(), "offset_units")
-}
-
-fn make_offset(arg: impl IntoExpr<i64>) -> Expr<OffsetValue> {
-    let expr = arg.into_expr();
-    Expr::new(ExprNode::Func {
-        name: "MAKE_OFFSET",
-        args: vec![expr.node],
-    })
 }
 
 #[test]
@@ -378,13 +365,13 @@ fn compiles_arithmetic_expression_in_projection_and_ordering() {
 #[test]
 fn compiles_timestamp_plus_custom_offset_function_filter() {
     let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("cutoff").naive_utc();
-    let expr = (window_anchor_at() + make_offset(window_offset_units())).le(cutoff);
+    let expr = (window_anchor_at() + dbkit_core::interval::hours(window_offset_units())).le(cutoff);
     let query: Select<WindowRow> = Select::new(window_table()).filter(expr);
 
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT window_rows.* FROM window_rows WHERE ((window_rows.anchor_at + MAKE_OFFSET(window_rows.offset_units)) <= $1)"
+        "SELECT window_rows.* FROM window_rows WHERE ((window_rows.anchor_at + MAKE_INTERVAL(hours => window_rows.offset_units)) <= $1)"
     );
     assert_eq!(sql.binds, vec![Value::DateTime(cutoff)]);
 }

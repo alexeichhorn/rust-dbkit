@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
 use crate::schema::{Column, ColumnRef};
-use crate::types::PgVector;
+use crate::types::{PgInterval, PgVector};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -21,6 +21,7 @@ pub enum Value {
     DateTimeUtc(chrono::DateTime<chrono::Utc>),
     Date(chrono::NaiveDate),
     Time(chrono::NaiveTime),
+    Interval(PgInterval),
     Vector(Vec<f32>),
     Enum { type_name: &'static str, value: String },
 }
@@ -152,6 +153,12 @@ impl From<chrono::NaiveTime> for Value {
     }
 }
 
+impl From<PgInterval> for Value {
+    fn from(value: PgInterval) -> Self {
+        Self::Interval(value)
+    }
+}
+
 impl<const N: usize> From<PgVector<N>> for Value {
     fn from(value: PgVector<N>) -> Self {
         Self::Vector(value.to_vec())
@@ -203,6 +210,14 @@ pub enum VectorBinaryOp {
     L1Distance,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum IntervalField {
+    Days,
+    Hours,
+    Minutes,
+    Seconds,
+}
+
 #[derive(Debug, Clone)]
 pub enum ExprNode {
     Column(ColumnRef),
@@ -215,6 +230,10 @@ pub enum ExprNode {
         left: Box<ExprNode>,
         op: VectorBinaryOp,
         right: Box<ExprNode>,
+    },
+    MakeInterval {
+        field: IntervalField,
+        value: Box<ExprNode>,
     },
     Binary {
         left: Box<ExprNode>,
@@ -269,8 +288,6 @@ pub trait ExprOperand {
 
     fn into_operand_expr(self) -> Expr<Self::Value>;
 }
-
-pub trait SqlInterval {}
 
 pub trait SqlAdd<Rhs> {
     type Output;
@@ -490,6 +507,20 @@ impl ExprOperand for chrono::NaiveTime {
     }
 }
 
+impl IntoExpr<PgInterval> for PgInterval {
+    fn into_expr(self) -> Expr<PgInterval> {
+        Expr::new(ExprNode::Value(Value::Interval(self)))
+    }
+}
+
+impl ExprOperand for PgInterval {
+    type Value = PgInterval;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
 impl IntoExpr<Vec<String>> for Vec<String> {
     fn into_expr(self) -> Expr<Vec<String>> {
         Expr::new(ExprNode::Value(Value::Array(self)))
@@ -548,31 +579,19 @@ macro_rules! impl_numeric_arithmetic {
 
 impl_numeric_arithmetic!(i16, i32, i64, f32, f64);
 
-impl<I> SqlAdd<I> for chrono::NaiveDateTime
-where
-    I: SqlInterval,
-{
+impl SqlAdd<PgInterval> for chrono::NaiveDateTime {
     type Output = chrono::NaiveDateTime;
 }
 
-impl<I> SqlSub<I> for chrono::NaiveDateTime
-where
-    I: SqlInterval,
-{
+impl SqlSub<PgInterval> for chrono::NaiveDateTime {
     type Output = chrono::NaiveDateTime;
 }
 
-impl<I> SqlAdd<I> for chrono::DateTime<chrono::Utc>
-where
-    I: SqlInterval,
-{
+impl SqlAdd<PgInterval> for chrono::DateTime<chrono::Utc> {
     type Output = chrono::DateTime<chrono::Utc>;
 }
 
-impl<I> SqlSub<I> for chrono::DateTime<chrono::Utc>
-where
-    I: SqlInterval,
-{
+impl SqlSub<PgInterval> for chrono::DateTime<chrono::Utc> {
     type Output = chrono::DateTime<chrono::Utc>;
 }
 
