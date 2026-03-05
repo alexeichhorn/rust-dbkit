@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::schema::{Column, ColumnRef};
-use crate::types::PgVector;
+use crate::types::{PgInterval, PgVector};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -20,6 +20,7 @@ pub enum Value {
     DateTimeUtc(chrono::DateTime<chrono::Utc>),
     Date(chrono::NaiveDate),
     Time(chrono::NaiveTime),
+    Interval(PgInterval),
     Vector(Vec<f32>),
     Enum { type_name: &'static str, value: String },
 }
@@ -151,6 +152,12 @@ impl From<chrono::NaiveTime> for Value {
     }
 }
 
+impl From<PgInterval> for Value {
+    fn from(value: PgInterval) -> Self {
+        Self::Interval(value)
+    }
+}
+
 impl<const N: usize> From<PgVector<N>> for Value {
     fn from(value: PgVector<N>) -> Self {
         Self::Vector(value.to_vec())
@@ -200,6 +207,14 @@ pub enum VectorBinaryOp {
     L1Distance,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum IntervalField {
+    Days,
+    Hours,
+    Minutes,
+    Seconds,
+}
+
 #[derive(Debug, Clone)]
 pub enum ExprNode {
     Column(ColumnRef),
@@ -212,6 +227,10 @@ pub enum ExprNode {
         left: Box<ExprNode>,
         op: VectorBinaryOp,
         right: Box<ExprNode>,
+    },
+    MakeInterval {
+        field: IntervalField,
+        value: Box<ExprNode>,
     },
     Binary {
         left: Box<ExprNode>,
@@ -348,6 +367,12 @@ impl IntoExpr<chrono::NaiveDate> for chrono::NaiveDate {
 impl IntoExpr<chrono::NaiveTime> for chrono::NaiveTime {
     fn into_expr(self) -> Expr<chrono::NaiveTime> {
         Expr::new(ExprNode::Value(Value::Time(self)))
+    }
+}
+
+impl IntoExpr<PgInterval> for PgInterval {
+    fn into_expr(self) -> Expr<PgInterval> {
+        Expr::new(ExprNode::Value(Value::Interval(self)))
     }
 }
 

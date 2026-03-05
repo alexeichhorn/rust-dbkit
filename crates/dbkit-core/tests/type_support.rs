@@ -4,6 +4,16 @@ use serde_json::json;
 use uuid::Uuid;
 
 #[test]
+fn value_from_interval() {
+    let interval = dbkit_core::PgInterval {
+        months: 0,
+        days: 2,
+        microseconds: 3_600_000_000,
+    };
+    assert_eq!(Value::from(interval.clone()), Value::Interval(interval));
+}
+
+#[test]
 fn value_from_uuid() {
     let id = Uuid::nil();
     assert_eq!(Value::from(id), Value::Uuid(id));
@@ -113,4 +123,19 @@ fn select_binds_string_array() {
     let compiled = Select::<()>::new(table).filter(tags_col.eq(items.clone())).compile();
 
     assert_eq!(compiled.binds, vec![Value::Array(items)]);
+}
+
+#[test]
+fn select_binds_interval() {
+    let table = Table::new("interval_rows");
+    let lease_window_col: Column<(), dbkit_core::PgInterval> = Column::new(table, "lease_window");
+    let interval = dbkit_core::PgInterval {
+        months: 0,
+        days: 0,
+        microseconds: 7_200_000_000,
+    };
+
+    let compiled = Select::<()>::new(table).filter(lease_window_col.eq(interval.clone())).compile();
+
+    assert_eq!(compiled.binds, vec![Value::Interval(interval)]);
 }
