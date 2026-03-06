@@ -185,6 +185,7 @@ pub fn build_arguments(binds: &[crate::Value]) -> Result<PgArguments, Error> {
             crate::Value::Vector(value) => args.add(dbkit_core::types::vector_sql_literal(value)),
             crate::Value::Enum { value, .. } => args.add(value.clone()),
         }
+        .map_err(|err| Error::Decode(err.to_string()))?;
     }
     Ok(args)
 }

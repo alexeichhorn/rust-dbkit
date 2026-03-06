@@ -1768,7 +1768,7 @@ fn expand_db_enum(input: syn::ItemEnum) -> syn::Result<TokenStream> {
             fn encode_by_ref(
                 &self,
                 buf: &mut ::dbkit::sqlx::postgres::PgArgumentBuffer,
-            ) -> ::dbkit::sqlx::encode::IsNull {
+            ) -> Result<::dbkit::sqlx::encode::IsNull, ::dbkit::sqlx::error::BoxDynError> {
                 <&str as ::dbkit::sqlx::Encode<'q, ::dbkit::sqlx::Postgres>>::encode(self.as_db_str(), buf)
             }
 
