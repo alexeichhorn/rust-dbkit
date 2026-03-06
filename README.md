@@ -40,7 +40,7 @@ async fn main() -> Result<(), dbkit::Error> {
     // Optional: customize sqlx pool options when needed.
     let _db_tuned = Database::connect_with_options(
         "postgres://...",
-        dbkit::sqlx::postgres::PgPoolOptions::new().max_connections(20),
+        dbkit::PgPoolOptions::new().max_connections(20),
     )
     .await?;
 
