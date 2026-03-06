@@ -16,12 +16,8 @@ impl Database {
         Ok(Self { pool })
     }
 
-    pub async fn connect_with_max_connections(url: &str, max_connections: u32) -> Result<Self, Error> {
-        if max_connections == 0 {
-            return Err(Error::Decode("max_connections must be greater than 0".to_string()));
-        }
-
-        let pool = PgPoolOptions::new().max_connections(max_connections).connect(url).await?;
+    pub async fn connect_with_options(url: &str, options: PgPoolOptions) -> Result<Self, Error> {
+        let pool = options.connect(url).await?;
         Ok(Self { pool })
     }
 

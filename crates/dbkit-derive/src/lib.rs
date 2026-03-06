@@ -1602,8 +1602,7 @@ fn to_snake_case(name: &str) -> String {
             let prev_is_upper = prev.map(|p| p.is_uppercase()).unwrap_or(false);
             let next_is_lower = next.map(|n| n.is_lowercase()).unwrap_or(false);
             let leading_upper_pair = idx == 1 && prev_is_upper && next_is_lower;
-            let needs_separator =
-                idx > 0 && (prev_is_lower_or_digit || (prev_is_upper && next_is_lower && !leading_upper_pair));
+            let needs_separator = idx > 0 && (prev_is_lower_or_digit || (prev_is_upper && next_is_lower && !leading_upper_pair));
 
             if needs_separator && !out.ends_with('_') {
                 out.push('_');
@@ -1668,12 +1667,9 @@ fn expand_db_enum(input: syn::ItemEnum) -> syn::Result<TokenStream> {
     }
 
     let args = parse_db_enum_args(&input.attrs)?;
-    let type_name = args.type_name.ok_or_else(|| {
-        syn::Error::new_spanned(
-            &input.ident,
-            "dbkit: DbEnum requires #[dbkit(type_name = \"...\")]",
-        )
-    })?;
+    let type_name = args
+        .type_name
+        .ok_or_else(|| syn::Error::new_spanned(&input.ident, "dbkit: DbEnum requires #[dbkit(type_name = \"...\")]"))?;
     let rename_rule = parse_db_enum_rename_all(args.rename_all.as_deref())?;
 
     let enum_ident = input.ident.clone();
@@ -1715,10 +1711,7 @@ fn expand_db_enum(input: syn::ItemEnum) -> syn::Result<TokenStream> {
     }
 
     if as_db_arms.is_empty() {
-        return Err(syn::Error::new_spanned(
-            enum_ident,
-            "dbkit: DbEnum requires at least one variant",
-        ));
+        return Err(syn::Error::new_spanned(enum_ident, "dbkit: DbEnum requires at least one variant"));
     }
 
     let type_name_lit = syn::LitStr::new(&type_name, proc_macro2::Span::call_site());

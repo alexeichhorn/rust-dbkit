@@ -1,6 +1,7 @@
 pub use dbkit_core::interval;
 pub use dbkit_core::*;
 pub use dbkit_derive::{model, DbEnum, Model};
+pub use sqlx::postgres::PgPoolOptions;
 pub use sqlx;
 #[cfg(feature = "migrations")]
 pub use sqlx::migrate;

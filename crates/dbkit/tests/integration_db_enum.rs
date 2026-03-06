@@ -268,10 +268,7 @@ async fn enum_acronym_wire_names_roundtrip_for_crud_filters_and_upsert() -> Resu
         mode: IntegrationMode::XMLHttpRequest,
         fallback_mode: Some(IntegrationMode::HTTPWebhook),
     })
-    .on_conflict_do_update(
-        IntegrationEvent::ext_id,
-        (IntegrationEvent::mode, IntegrationEvent::fallback_mode),
-    )
+    .on_conflict_do_update(IntegrationEvent::ext_id, (IntegrationEvent::mode, IntegrationEvent::fallback_mode))
     .returning_all()
     .one(&tx)
     .await?
