@@ -81,7 +81,9 @@ fn enum_filter_sql_uses_typed_casts_and_stable_bind_reuse() {
 
 #[test]
 fn enum_null_paths_compile_without_typed_bind_placeholders() {
-    let select_sql = MessageJob::query().filter(MessageJob::channel.eq(None::<DeliveryChannel>)).compile();
+    let select_sql = MessageJob::query()
+        .filter(MessageJob::channel.eq(None::<DeliveryChannel>))
+        .compile();
     assert_eq!(
         select_sql.sql,
         "SELECT message_jobs.* FROM message_jobs WHERE (message_jobs.channel IS NULL)"

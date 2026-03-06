@@ -399,7 +399,10 @@ fn compiles_smallint_add_filter_against_integer_rhs() {
     let query: Select<CompactRow> = Select::new(compact_table()).filter(expr);
 
     let sql = query.compile();
-    assert_eq!(sql.sql, "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units + compact_rows.right_units) > $1)");
+    assert_eq!(
+        sql.sql,
+        "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units + compact_rows.right_units) > $1)"
+    );
     assert_eq!(sql.binds, vec![Value::I32(10)]);
 }
 
@@ -410,7 +413,10 @@ fn compiles_smallint_sub_filter_against_integer_rhs() {
     let query: Select<CompactRow> = Select::new(compact_table()).filter(expr);
 
     let sql = query.compile();
-    assert_eq!(sql.sql, "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units - compact_rows.right_units) <= $1)");
+    assert_eq!(
+        sql.sql,
+        "SELECT compact_rows.* FROM compact_rows WHERE ((compact_rows.left_units - compact_rows.right_units) <= $1)"
+    );
     assert_eq!(sql.binds, vec![Value::I32(3)]);
 }
 

@@ -82,19 +82,12 @@ async fn setup_compact_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), d
     Ok(())
 }
 
-async fn seed_compact_record<E: Executor + Send + Sync>(
-    ex: &E,
-    left_units: i16,
-    right_units: i16,
-) -> Result<CompactRecord, dbkit::Error> {
-    let row = CompactRecord::insert(CompactRecordInsert {
-        left_units,
-        right_units,
-    })
-    .returning_all()
-    .one(ex)
-    .await?
-    .expect("inserted compact record");
+async fn seed_compact_record<E: Executor + Send + Sync>(ex: &E, left_units: i16, right_units: i16) -> Result<CompactRecord, dbkit::Error> {
+    let row = CompactRecord::insert(CompactRecordInsert { left_units, right_units })
+        .returning_all()
+        .one(ex)
+        .await?
+        .expect("inserted compact record");
     Ok(row)
 }
 
