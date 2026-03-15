@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "dbkit"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "dbkit-core",
  "dbkit-derive",
@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "dbkit-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde_json",
@@ -216,7 +216,7 @@ dependencies = [
 
 [[package]]
 name = "dbkit-derive"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",

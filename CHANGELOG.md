@@ -2,7 +2,7 @@
 
 All notable changes to `dbkit` will be documented in this file.
 
-## 0.2.0 - Unreleased
+## 0.2.0
 
 This is the first substantial release since `0.1.1`. It includes first-class Postgres enums, `pgvector` support, row locking, migrations, arithmetic and interval expressions, column-to-column comparisons, wider typed `ON CONFLICT` support, configurable pool options, and `sqlx` 0.8.
 

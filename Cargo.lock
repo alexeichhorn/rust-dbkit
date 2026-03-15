@@ -365,7 +365,7 @@ dependencies = [
 
 [[package]]
 name = "dbkit"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "dbkit-core",
@@ -381,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "dbkit-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "insta",
@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "dbkit-derive"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",

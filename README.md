@@ -102,7 +102,7 @@ Migrations (optional, via `sqlx`):
 
 ```toml
 # Cargo.toml
-dbkit = { version = "0.1", features = ["migrations"] }
+dbkit = { version = "0.2", features = ["migrations"] }
 ```
 
 ```rust
