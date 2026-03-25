@@ -16,6 +16,9 @@ struct WindowRow;
 #[derive(Debug)]
 struct CompactRow;
 
+#[derive(Debug)]
+struct TextSample;
+
 fn user_table() -> Table {
     Table::new("users")
 }
@@ -82,6 +85,22 @@ fn compact_left_units() -> Column<CompactRow, i16> {
 
 fn compact_right_units() -> Column<CompactRow, i16> {
     Column::new(compact_table(), "right_units")
+}
+
+fn text_samples_table() -> Table {
+    Table::new("text_samples")
+}
+
+fn text_sample_id() -> Column<TextSample, i64> {
+    Column::new(text_samples_table(), "id")
+}
+
+fn text_sample_body() -> Column<TextSample, Option<String>> {
+    Column::new(text_samples_table(), "body")
+}
+
+fn text_sample_title() -> Column<TextSample, String> {
+    Column::new(text_samples_table(), "title")
 }
 
 #[test]
@@ -184,6 +203,48 @@ fn compiles_nested_functions() {
         sql.binds,
         vec![Value::String("unknown".to_string()), Value::String("ALPHA".to_string()),]
     );
+}
+
+#[test]
+fn compiles_trim_function_filter() {
+    let expr = func::trim(text_sample_title()).eq("alpha");
+    let query: Select<TextSample> = Select::new(text_samples_table()).filter(expr);
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT text_samples.* FROM text_samples WHERE (TRIM(text_samples.title) = $1)"
+    );
+    assert_eq!(sql.binds, vec![Value::String("alpha".to_string())]);
+}
+
+#[test]
+fn compiles_nested_char_length_trim_filter_on_nullable_text() {
+    let expr = func::char_length(func::trim(text_sample_body())).ge(5_i32);
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .filter(text_sample_body().is_not_null())
+        .filter(expr);
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT text_samples.* FROM text_samples WHERE ((text_samples.body IS NOT NULL) AND (CHAR_LENGTH(TRIM(text_samples.body)) >= $1))"
+    );
+    assert_eq!(sql.binds, vec![Value::I32(5)]);
+}
+
+#[test]
+fn compiles_trimmed_nullable_text_selection() {
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column(text_sample_id())
+        .column_as(func::trim(text_sample_body()), "trimmed_body")
+        .column_as(func::char_length(func::trim(text_sample_body())), "trimmed_body_len");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT text_samples.id, TRIM(text_samples.body) AS trimmed_body, CHAR_LENGTH(TRIM(text_samples.body)) AS trimmed_body_len FROM text_samples"
+    );
+    assert!(sql.binds.is_empty());
 }
 
 #[test]
