@@ -89,6 +89,15 @@ pub struct FuncRow {
     pub starts_at: NaiveDateTime,
 }
 
+#[model(table = "text_samples")]
+pub struct TextSample {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub label: String,
+    pub body: Option<String>,
+}
+
 #[model(table = "sales")]
 pub struct Sale {
     #[key]
@@ -173,6 +182,11 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
             backup_email TEXT,\
             region TEXT,\
             starts_at TIMESTAMP NOT NULL\
+        )",
+        "CREATE TEMP TABLE text_samples (\
+            id BIGSERIAL PRIMARY KEY,\
+            label TEXT NOT NULL,\
+            body TEXT\
         )",
         "CREATE TEMP TABLE sales (\
             id BIGSERIAL PRIMARY KEY,\
@@ -347,6 +361,18 @@ async fn seed_nullable_row<E: Executor + Send + Sync>(ex: &E, note: Option<Strin
         .one(ex)
         .await?
         .expect("inserted nullable row");
+    Ok(row)
+}
+
+async fn seed_text_sample<E: Executor + Send + Sync>(ex: &E, label: &str, body: Option<&str>) -> Result<TextSample, dbkit::Error> {
+    let row = TextSample::insert(TextSampleInsert {
+        label: label.to_string(),
+        body: body.map(str::to_string),
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted text sample");
     Ok(row)
 }
 
@@ -1060,6 +1086,55 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(combined_match[0].id, row1.id);
 
     let _ = later_start;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn trim_filter_matches_trimmed_text() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let exact = seed_text_sample(&tx, "exact", Some("alpha")).await?;
+    let padded = seed_text_sample(&tx, "padded", Some("  alpha  ")).await?;
+    let _different = seed_text_sample(&tx, "different", Some("beta")).await?;
+    let _blank = seed_text_sample(&tx, "blank", Some("   ")).await?;
+    let _missing = seed_text_sample(&tx, "missing", None).await?;
+
+    let matches = TextSample::query()
+        .filter(dbkit::func::trim(TextSample::body).eq("alpha"))
+        .all(&tx)
+        .await?;
+
+    let mut ids: Vec<i64> = matches.into_iter().map(|row| row.id).collect();
+    ids.sort();
+    assert_eq!(ids, vec![exact.id, padded.id]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn char_length_of_trimmed_nullable_text_filters_rows() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let _short = seed_text_sample(&tx, "short", Some("  abc  ")).await?;
+    let long = seed_text_sample(&tx, "long", Some("  abcdef  ")).await?;
+    let spaced = seed_text_sample(&tx, "spaced", Some("     abcde     ")).await?;
+    let _blank = seed_text_sample(&tx, "blank", Some("    ")).await?;
+    let _missing = seed_text_sample(&tx, "missing", None).await?;
+
+    let matches = TextSample::query()
+        .filter(TextSample::body.is_not_null())
+        .filter(dbkit::func::char_length(dbkit::func::trim(TextSample::body)).ge(5_i32))
+        .all(&tx)
+        .await?;
+
+    let mut ids: Vec<i64> = matches.into_iter().map(|row| row.id).collect();
+    ids.sort();
+    assert_eq!(ids, vec![long.id, spaced.id]);
 
     Ok(())
 }
