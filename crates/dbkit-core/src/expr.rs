@@ -63,6 +63,30 @@ where
     }
 }
 
+impl<T> ColumnValue<Option<T>> for T
+where
+    T: Into<Value>,
+{
+    fn into_value(self) -> Option<Value> {
+        Some(self.into())
+    }
+}
+
+impl<T> ColumnValue<Option<T>> for &T
+where
+    T: Clone + Into<Value>,
+{
+    fn into_value(self) -> Option<Value> {
+        Some(self.clone().into())
+    }
+}
+
+impl ColumnValue<Option<String>> for &str {
+    fn into_value(self) -> Option<Value> {
+        Some(Value::String(self.to_string()))
+    }
+}
+
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Self::Bool(value)

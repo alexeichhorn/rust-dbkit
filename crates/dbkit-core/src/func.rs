@@ -1,12 +1,78 @@
 use crate::expr::{Expr, ExprNode, IntoExpr, VectorBinaryOp};
 use crate::PgVector;
 
-pub fn upper(arg: impl IntoExpr<String>) -> Expr<String> {
+pub trait StringUnaryExpr {
+    type Output;
+}
+
+impl StringUnaryExpr for String {
+    type Output = String;
+}
+
+impl StringUnaryExpr for Option<String> {
+    type Output = Option<String>;
+}
+
+pub trait StringLengthExpr {
+    type Output;
+}
+
+impl StringLengthExpr for String {
+    type Output = i32;
+}
+
+impl StringLengthExpr for Option<String> {
+    type Output = Option<i32>;
+}
+
+fn unary_string_fn<T>(name: &'static str, arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
-        name: "UPPER",
+        name,
         args: vec![expr.node],
     })
+}
+
+fn string_length_fn<T>(name: &'static str, arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name,
+        args: vec![expr.node],
+    })
+}
+
+pub fn upper<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("UPPER", arg)
+}
+
+pub fn trim<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("TRIM", arg)
+}
+
+pub fn char_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("CHAR_LENGTH", arg)
+}
+
+pub fn length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("LENGTH", arg)
 }
 
 pub fn count<T>(arg: impl IntoExpr<T>) -> Expr<i64> {

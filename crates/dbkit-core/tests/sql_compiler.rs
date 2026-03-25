@@ -226,7 +226,7 @@ fn compiles_nested_char_length_trim_filter_on_nullable_text() {
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT text_samples.* FROM text_samples WHERE ((text_samples.body IS NOT NULL) AND (CHAR_LENGTH(TRIM(text_samples.body)) >= $1))"
+        "SELECT text_samples.* FROM text_samples WHERE (text_samples.body IS NOT NULL) AND (CHAR_LENGTH(TRIM(text_samples.body)) >= $1)"
     );
     assert_eq!(sql.binds, vec![Value::I32(5)]);
 }
