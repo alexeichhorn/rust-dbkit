@@ -68,13 +68,6 @@ where
     string_length_fn("CHAR_LENGTH", arg)
 }
 
-pub fn length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
-where
-    T: StringLengthExpr,
-{
-    string_length_fn("LENGTH", arg)
-}
-
 pub fn count<T>(arg: impl IntoExpr<T>) -> Expr<i64> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
