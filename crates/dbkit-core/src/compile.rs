@@ -62,11 +62,12 @@ impl SqlBuilder {
     pub fn push_compiled_sql(&mut self, compiled: &CompiledSql) {
         let bytes = compiled.sql.as_bytes();
         let mut idx = 0;
+        let mut segment_start = 0;
 
         while idx < bytes.len() {
             if bytes[idx] == b'$' {
                 // Scan bytewise and only interpret ASCII placeholder syntax (`$` + digits).
-                // Everything else is copied through verbatim below.
+                // Everything else is copied through verbatim below as UTF-8 string slices.
                 let prev_is_ident = idx > 0 && is_bind_ident_char(bytes[idx - 1]);
                 let start = idx + 1;
                 let mut end = start;
@@ -76,6 +77,7 @@ impl SqlBuilder {
                 let next_is_ident = end < bytes.len() && is_bind_ident_char(bytes[end]);
 
                 if end > start && !prev_is_ident && !next_is_ident {
+                    self.push_sql(&compiled.sql[segment_start..idx]);
                     let bind_idx = compiled.sql[start..end].parse::<usize>().expect("valid bind index");
                     let value = compiled.binds[bind_idx - 1].clone();
                     // Rebind only the placeholder token. Any suffix text such as `::vector`,
@@ -83,13 +85,15 @@ impl SqlBuilder {
                     // copied verbatim by the fallback branch after this placeholder is emitted.
                     self.push_placeholder(value);
                     idx = end;
+                    segment_start = end;
                     continue;
                 }
             }
 
-            self.sql.push(bytes[idx] as char);
             idx += 1;
         }
+
+        self.push_sql(&compiled.sql[segment_start..]);
     }
 
     pub fn finish(self) -> CompiledSql {
