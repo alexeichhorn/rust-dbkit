@@ -48,6 +48,29 @@ pub struct IntegrationJob {
     pub mode: IntegrationMode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
+#[dbkit(type_name = "app.run_state", rename_all = "snake_case")]
+pub enum QualifiedRunState {
+    Scheduled,
+    Running,
+    Completed,
+}
+
+#[model(table = "job_batches")]
+pub struct JobBatch {
+    #[key]
+    pub id: i64,
+    pub label: String,
+}
+
+#[model(table = "job_attempts")]
+pub struct JobAttempt {
+    #[key]
+    pub id: i64,
+    pub batch_id: i64,
+    pub state: QualifiedRunState,
+}
+
 #[test]
 fn enum_filter_sql_uses_typed_casts_and_stable_bind_reuse() {
     let compiled = MessageJob::query()
@@ -257,5 +280,30 @@ fn enum_sql_uses_expected_acronym_wire_values_in_filters_and_updates() {
             },
             Value::I64(5),
         ]
+    );
+}
+
+#[test]
+fn exists_subquery_rebind_preserves_schema_qualified_enum_casts() {
+    let compiled = JobBatch::query()
+        .where_exists(
+            JobAttempt::query()
+                .select_only()
+                .column(JobAttempt::id)
+                .filter(JobAttempt::batch_id.eq_col(JobBatch::id))
+                .filter(JobAttempt::state.eq(QualifiedRunState::Running)),
+        )
+        .compile();
+
+    assert_eq!(
+        compiled.sql,
+        "SELECT job_batches.* FROM job_batches WHERE EXISTS (SELECT job_attempts.id FROM job_attempts WHERE (job_attempts.batch_id = job_batches.id) AND (job_attempts.state = $1::app.run_state))"
+    );
+    assert_eq!(
+        compiled.binds,
+        vec![Value::Enum {
+            type_name: "app.run_state",
+            value: "running".to_string(),
+        }]
     );
 }
