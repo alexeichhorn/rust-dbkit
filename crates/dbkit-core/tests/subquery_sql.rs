@@ -205,3 +205,24 @@ fn exists_subquery_does_not_treat_dollar_suffix_in_utf8_alias_as_bind_token() {
     );
     assert!(sql.binds.is_empty());
 }
+
+#[test]
+fn exists_subquery_does_not_treat_dollar_digits_inside_quoted_identifier_as_bind_token() {
+    let weird_table = Table::new("employees").with_alias("\"$1\"");
+    let weird_id: Column<Employee, i64> = Column::new(weird_table, "id");
+    let weird_manager_id: Column<Employee, i64> = Column::new(weird_table, "manager_id");
+
+    let subquery: Select<Employee> = Select::new(weird_table)
+        .select_only()
+        .column(weird_id)
+        .filter(weird_manager_id.eq_col(employee_id()));
+
+    let query: Select<Employee> = Select::new(employees_table()).where_exists(subquery);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT employees.* FROM employees WHERE EXISTS (SELECT \"$1\".id FROM employees \"$1\" WHERE (\"$1\".manager_id = employees.id))"
+    );
+    assert!(sql.binds.is_empty());
+}
