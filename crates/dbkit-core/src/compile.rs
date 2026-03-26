@@ -22,6 +22,17 @@ impl SqlBuilder {
         self.sql.push_str(fragment);
     }
 
+    fn push_placeholder(&mut self, value: Value) {
+        let idx = if let Some(existing) = self.binds.iter().position(|item| item == &value) {
+            existing + 1
+        } else {
+            self.binds.push(value);
+            self.binds.len()
+        };
+        self.sql.push('$');
+        self.sql.push_str(&idx.to_string());
+    }
+
     pub fn push_value(&mut self, value: Value) {
         if value == Value::Null {
             self.sql.push_str("NULL");
@@ -33,14 +44,7 @@ impl SqlBuilder {
             Value::Enum { type_name, .. } => Some(*type_name),
             _ => None,
         };
-        let idx = if let Some(existing) = self.binds.iter().position(|item| item == &value) {
-            existing + 1
-        } else {
-            self.binds.push(value);
-            self.binds.len()
-        };
-        self.sql.push('$');
-        self.sql.push_str(&idx.to_string());
+        self.push_placeholder(value);
         if cast_as_vector {
             self.sql.push_str("::vector");
         } else if cast_as_interval {
@@ -70,16 +74,8 @@ impl SqlBuilder {
                 if end > start {
                     let bind_idx = compiled.sql[start..end].parse::<usize>().expect("valid bind index");
                     let value = compiled.binds[bind_idx - 1].clone();
-                    self.push_value(value);
+                    self.push_placeholder(value);
                     idx = end;
-
-                    if compiled.sql[idx..].starts_with("::") {
-                        idx += 2;
-                        while idx < bytes.len() && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_') {
-                            idx += 1;
-                        }
-                    }
-
                     continue;
                 }
             }
