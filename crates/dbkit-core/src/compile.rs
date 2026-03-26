@@ -63,9 +63,23 @@ impl SqlBuilder {
         let bytes = compiled.sql.as_bytes();
         let mut idx = 0;
         let mut segment_start = 0;
+        let mut in_quoted_identifier = false;
 
         while idx < bytes.len() {
-            if bytes[idx] == b'$' {
+            if bytes[idx] == b'"' {
+                // Quoted identifiers may legally contain `$1` text. Treat doubled quotes as
+                // escaped identifier content and avoid placeholder scanning until the closing `"`.
+                if in_quoted_identifier && idx + 1 < bytes.len() && bytes[idx + 1] == b'"' {
+                    idx += 2;
+                    continue;
+                }
+
+                in_quoted_identifier = !in_quoted_identifier;
+                idx += 1;
+                continue;
+            }
+
+            if !in_quoted_identifier && bytes[idx] == b'$' {
                 // Scan bytewise and only interpret ASCII placeholder syntax (`$` + digits).
                 // Everything else is copied through verbatim below as UTF-8 string slices.
                 let prev_is_ident = idx > 0 && is_bind_ident_char(bytes[idx - 1]);
