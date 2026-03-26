@@ -324,7 +324,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
     }
 
     pub(crate) fn compile_for_exists(&self) -> CompiledSql {
-        self.compile_inner(true, true, false)
+        self.compile_inner(true, true, true)
     }
 
     pub fn compile_with_extra(&self, extra_columns: &[SelectItem], extra_joins: &[Join]) -> CompiledSql {
