@@ -65,13 +65,15 @@ impl SqlBuilder {
 
         while idx < bytes.len() {
             if bytes[idx] == b'$' {
+                let prev_is_ident = idx > 0 && is_bind_ident_char(bytes[idx - 1]);
                 let start = idx + 1;
                 let mut end = start;
                 while end < bytes.len() && bytes[end].is_ascii_digit() {
                     end += 1;
                 }
+                let next_is_ident = end < bytes.len() && is_bind_ident_char(bytes[end]);
 
-                if end > start {
+                if end > start && !prev_is_ident && !next_is_ident {
                     let bind_idx = compiled.sql[start..end].parse::<usize>().expect("valid bind index");
                     let value = compiled.binds[bind_idx - 1].clone();
                     self.push_placeholder(value);
@@ -91,6 +93,10 @@ impl SqlBuilder {
             binds: self.binds,
         }
     }
+}
+
+fn is_bind_ident_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
 }
 
 pub trait ToSql {
