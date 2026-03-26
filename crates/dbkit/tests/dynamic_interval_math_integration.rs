@@ -23,28 +23,18 @@ fn db_url() -> String {
         .expect("DB_URL or DATABASE_URL must be set for integration tests")
 }
 
-fn due_window_filter(
-    now: NaiveDateTime,
-    stale_timeout_seconds: i64,
-    retry_base_seconds: f64,
-    retry_cap_seconds: f64,
-) -> Expr<bool> {
+fn due_window_filter(now: NaiveDateTime, stale_timeout_seconds: i64, retry_base_seconds: f64, retry_cap_seconds: f64) -> Expr<bool> {
     let retry_exponent: Expr<i32> = func::least(func::greatest(WorkRun::attempts - 1_i32, 0_i32), 10_i32);
-    let retry_seconds: Expr<f64> =
-        func::least(retry_cap_seconds, func::power(2.0_f64, retry_exponent.clone()) * retry_base_seconds);
+    let retry_seconds: Expr<f64> = func::least(retry_cap_seconds, func::power(2.0_f64, retry_exponent.clone()) * retry_base_seconds);
 
     WorkRun::status
         .eq("pending")
-        .or(
-            WorkRun::status
-                .eq("running")
-                .and(WorkRun::updated_at.le(now - interval::seconds(stale_timeout_seconds))),
-        )
-        .or(
-            WorkRun::status
-                .eq("failed")
-                .and(WorkRun::updated_at.le(now - interval::seconds(retry_seconds))),
-        )
+        .or(WorkRun::status
+            .eq("running")
+            .and(WorkRun::updated_at.le(now - interval::seconds(stale_timeout_seconds))))
+        .or(WorkRun::status
+            .eq("failed")
+            .and(WorkRun::updated_at.le(now - interval::seconds(retry_seconds))))
 }
 
 async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {

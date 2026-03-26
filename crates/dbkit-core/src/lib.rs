@@ -10,7 +10,9 @@ pub mod schema;
 pub mod types;
 
 pub use compile::CompiledSql;
-pub use expr::{ColumnValue, Condition, Expr, ExprNode, IntervalField, IntoExpr, SqlAdd, SqlSub, Value};
+pub use expr::{
+    ColumnValue, ComparisonValue, Condition, Expr, ExprNode, IntervalField, IntoExpr, NumericExprType, SqlAdd, SqlMul, SqlSub, Value,
+};
 pub use load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 pub use mutation::{Delete, Insert, Update};
 pub use query::{
