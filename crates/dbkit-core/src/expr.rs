@@ -352,6 +352,12 @@ impl<T> ComparisonValue<T> for Expr<T> {
     }
 }
 
+impl<T> ComparisonValue<Option<T>> for Expr<T> {
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(self.node)
+    }
+}
+
 impl<M, T> IntoExpr<T> for Column<M, T> {
     fn into_expr(self) -> Expr<T> {
         Expr::new(ExprNode::Column(self.as_ref()))
@@ -372,11 +378,23 @@ impl<M, T> ComparisonValue<T> for Column<M, T> {
     }
 }
 
+impl<M, T> ComparisonValue<Option<T>> for Column<M, T> {
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(ExprNode::Column(self.as_ref()))
+    }
+}
+
 macro_rules! impl_value_expr_traits {
     ($ty:ty, $value_ty:ty) => {
         impl ComparisonValue<$value_ty> for $ty {
             fn into_comparison_expr(self) -> Expr<$value_ty> {
                 self.into_expr()
+            }
+        }
+
+        impl ComparisonValue<Option<$value_ty>> for $ty {
+            fn into_comparison_expr(self) -> Expr<Option<$value_ty>> {
+                Expr::new(self.into_expr().node)
             }
         }
     };
