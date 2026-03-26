@@ -1,4 +1,4 @@
-use crate::expr::{Expr, ExprNode, IntervalField, IntoExpr};
+use crate::expr::{Expr, ExprNode, IntervalField, IntoExpr, NumericExprType};
 use crate::PgInterval;
 
 fn interval_part<T>(field: IntervalField, value: impl IntoExpr<T>) -> Expr<PgInterval> {
@@ -21,6 +21,9 @@ pub fn minutes(value: impl IntoExpr<i32>) -> Expr<PgInterval> {
     interval_part(IntervalField::Minutes, value)
 }
 
-pub fn seconds(value: impl IntoExpr<f64>) -> Expr<PgInterval> {
+pub fn seconds<T>(value: impl IntoExpr<T>) -> Expr<PgInterval>
+where
+    T: NumericExprType,
+{
     interval_part(IntervalField::Seconds, value)
 }

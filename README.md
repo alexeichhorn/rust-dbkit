@@ -90,6 +90,9 @@ let rows = Record::query()
     .await?;
 ```
 
+Arithmetic expressions also support `*` and compose with typed SQL helpers like
+`dbkit::func::least`, `dbkit::func::greatest`, and `dbkit::func::power`.
+
 Row locking:
 
 ```rust
@@ -144,6 +147,9 @@ let rows = Schedule::query()
     .all(&db)
     .await?;
 ```
+
+Dynamic interval math is supported too, including `dbkit::interval::seconds(expr)` and
+timestamp comparisons like `Schedule::updated_at.le(now - dbkit::interval::seconds(retry_seconds))`.
 
 Insert / update / delete:
 
@@ -558,6 +564,7 @@ Built-in typed query/insert/update bindings currently support:
 Notes:
 - `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
 - Interval expressions are available via `dbkit::interval::{days, hours, minutes, seconds}`.
+- Comparison operators can take literal values or typed expressions on the right-hand side.
 - Enum binds are emitted as typed placeholders (`$n::your_enum_type`) for Postgres enum columns.
 - For types outside this list, use raw `sqlx` queries or add explicit dbkit support first.
 

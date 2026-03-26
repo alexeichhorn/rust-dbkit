@@ -1,4 +1,4 @@
-use crate::expr::{Expr, ExprNode, IntoExpr, VectorBinaryOp};
+use crate::expr::{Expr, ExprNode, IntoExpr, NumericExprType, VectorBinaryOp};
 use crate::PgVector;
 
 pub trait StringUnaryExpr {
@@ -90,6 +90,37 @@ pub fn coalesce<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     Expr::new(ExprNode::Func {
         name: "COALESCE",
         args: vec![left.node, right.node],
+    })
+}
+
+pub fn least<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+    let left = a.into_expr();
+    let right = b.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "LEAST",
+        args: vec![left.node, right.node],
+    })
+}
+
+pub fn greatest<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+    let left = a.into_expr();
+    let right = b.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "GREATEST",
+        args: vec![left.node, right.node],
+    })
+}
+
+pub fn power<B, E>(base: impl IntoExpr<B>, exponent: impl IntoExpr<E>) -> Expr<f64>
+where
+    B: NumericExprType,
+    E: NumericExprType,
+{
+    let base = base.into_expr();
+    let exponent = exponent.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "POWER",
+        args: vec![base.node, exponent.node],
     })
 }
 

@@ -19,6 +19,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "basic.rs".into(),
         "pass_datetime_utc.rs".into(),
         "pass_arithmetic_api.rs".into(),
+        "pass_ordered_comparison_value_api.rs".into(),
+        "pass_dynamic_interval_math_api.rs".into(),
         "pass_locking_api.rs".into(),
         "fail_unloaded.rs".into(),
         "fail_conflict_cross_model.rs".into(),
