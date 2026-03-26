@@ -65,6 +65,8 @@ impl SqlBuilder {
 
         while idx < bytes.len() {
             if bytes[idx] == b'$' {
+                // Scan bytewise and only interpret ASCII placeholder syntax (`$` + digits).
+                // Everything else is copied through verbatim below.
                 let prev_is_ident = idx > 0 && is_bind_ident_char(bytes[idx - 1]);
                 let start = idx + 1;
                 let mut end = start;
@@ -76,6 +78,9 @@ impl SqlBuilder {
                 if end > start && !prev_is_ident && !next_is_ident {
                     let bind_idx = compiled.sql[start..end].parse::<usize>().expect("valid bind index");
                     let value = compiled.binds[bind_idx - 1].clone();
+                    // Rebind only the placeholder token. Any suffix text such as `::vector`,
+                    // `::interval`, or `::schema.enum_type` remains in `compiled.sql` and is
+                    // copied verbatim by the fallback branch after this placeholder is emitted.
                     self.push_placeholder(value);
                     idx = end;
                     continue;
