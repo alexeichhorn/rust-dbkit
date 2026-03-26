@@ -132,6 +132,33 @@ let page = User::query()
 println!("page {} of {}", page.page, page.total_pages());
 ```
 
+Correlated `EXISTS` / `NOT EXISTS` filters:
+
+```rust
+let active_projects = Project::query()
+    .where_exists(
+        Task::query()
+            .select_only()
+            .column(Task::id)
+            .filter(Task::project_id.eq_col(Project::id))
+            .filter(Task::state.eq("active")),
+    )
+    .order_by(dbkit::Order::asc(Project::id))
+    .all(&db)
+    .await?;
+
+let projects_without_archived_tasks = Project::query()
+    .where_not_exists(
+        Task::query()
+            .select_only()
+            .column(Task::id)
+            .filter(Task::project_id.eq_col(Project::id))
+            .filter(Task::state.eq("archived")),
+    )
+    .all(&db)
+    .await?;
+```
+
 Interval expressions:
 
 ```rust
