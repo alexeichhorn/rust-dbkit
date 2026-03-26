@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Mul, Sub};
 
 use crate::compile::CompiledSql;
 use crate::schema::{Column, ColumnRef};
@@ -206,6 +206,7 @@ where
 pub enum BinaryOp {
     Add,
     Sub,
+    Mul,
     Eq,
     Ne,
     IsDistinctFrom,
@@ -317,6 +318,16 @@ pub trait ExprOperand {
     fn into_operand_expr(self) -> Expr<Self::Value>;
 }
 
+#[doc(hidden)]
+pub struct ValueComparisonMarker;
+
+#[doc(hidden)]
+pub struct ExprComparisonMarker;
+
+pub trait ComparisonValue<T, Marker = ValueComparisonMarker> {
+    fn into_comparison_expr(self) -> Expr<T>;
+}
+
 pub trait SqlAdd<Rhs> {
     type Output;
 }
@@ -324,6 +335,12 @@ pub trait SqlAdd<Rhs> {
 pub trait SqlSub<Rhs> {
     type Output;
 }
+
+pub trait SqlMul<Rhs> {
+    type Output;
+}
+
+pub trait NumericExprType {}
 
 impl<T> IntoExpr<T> for Expr<T> {
     fn into_expr(self) -> Expr<T> {
@@ -339,6 +356,18 @@ impl<T> ExprOperand for Expr<T> {
     }
 }
 
+impl<T> ComparisonValue<T, ExprComparisonMarker> for Expr<T> {
+    fn into_comparison_expr(self) -> Expr<T> {
+        self
+    }
+}
+
+impl<T> ComparisonValue<Option<T>, ExprComparisonMarker> for Expr<T> {
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(self.node)
+    }
+}
+
 impl<M, T> IntoExpr<T> for Column<M, T> {
     fn into_expr(self) -> Expr<T> {
         Expr::new(ExprNode::Column(self.as_ref()))
@@ -350,6 +379,27 @@ impl<M, T> ExprOperand for Column<M, T> {
 
     fn into_operand_expr(self) -> Expr<Self::Value> {
         self.into_expr()
+    }
+}
+
+impl<M, T> ComparisonValue<T, ExprComparisonMarker> for Column<M, T> {
+    fn into_comparison_expr(self) -> Expr<T> {
+        self.into_expr()
+    }
+}
+
+impl<M, T> ComparisonValue<Option<T>, ExprComparisonMarker> for Column<M, T> {
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(ExprNode::Column(self.as_ref()))
+    }
+}
+
+impl<T, V> ComparisonValue<T, ValueComparisonMarker> for V
+where
+    V: Into<Value>,
+{
+    fn into_comparison_expr(self) -> Expr<T> {
+        Expr::new(ExprNode::Value(self.into()))
     }
 }
 
@@ -409,6 +459,8 @@ impl ExprOperand for i16 {
     }
 }
 
+impl NumericExprType for i16 {}
+
 impl IntoExpr<i32> for i32 {
     fn into_expr(self) -> Expr<i32> {
         Expr::new(ExprNode::Value(Value::I32(self)))
@@ -422,6 +474,8 @@ impl ExprOperand for i32 {
         self.into_expr()
     }
 }
+
+impl NumericExprType for i32 {}
 
 impl IntoExpr<i64> for i64 {
     fn into_expr(self) -> Expr<i64> {
@@ -437,6 +491,8 @@ impl ExprOperand for i64 {
     }
 }
 
+impl NumericExprType for i64 {}
+
 impl IntoExpr<f32> for f32 {
     fn into_expr(self) -> Expr<f32> {
         Expr::new(ExprNode::Value(Value::F32(self)))
@@ -451,6 +507,8 @@ impl ExprOperand for f32 {
     }
 }
 
+impl NumericExprType for f32 {}
+
 impl IntoExpr<f64> for f64 {
     fn into_expr(self) -> Expr<f64> {
         Expr::new(ExprNode::Value(Value::F64(self)))
@@ -464,6 +522,8 @@ impl ExprOperand for f64 {
         self.into_expr()
     }
 }
+
+impl NumericExprType for f64 {}
 
 impl IntoExpr<uuid::Uuid> for uuid::Uuid {
     fn into_expr(self) -> Expr<uuid::Uuid> {
@@ -601,6 +661,10 @@ macro_rules! impl_numeric_arithmetic {
             impl SqlSub<$ty> for $ty {
                 type Output = $ty;
             }
+
+            impl SqlMul<$ty> for $ty {
+                type Output = $ty;
+            }
         )*
     };
 }
@@ -610,6 +674,10 @@ impl SqlAdd<i16> for i16 {
 }
 
 impl SqlSub<i16> for i16 {
+    type Output = i32;
+}
+
+impl SqlMul<i16> for i16 {
     type Output = i32;
 }
 
@@ -629,6 +697,38 @@ impl SqlAdd<PgInterval> for chrono::DateTime<chrono::Utc> {
 
 impl SqlSub<PgInterval> for chrono::DateTime<chrono::Utc> {
     type Output = chrono::DateTime<chrono::Utc>;
+}
+
+impl Add<Expr<PgInterval>> for chrono::NaiveDateTime {
+    type Output = Expr<chrono::NaiveDateTime>;
+
+    fn add(self, rhs: Expr<PgInterval>) -> Self::Output {
+        arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
+    }
+}
+
+impl Sub<Expr<PgInterval>> for chrono::NaiveDateTime {
+    type Output = Expr<chrono::NaiveDateTime>;
+
+    fn sub(self, rhs: Expr<PgInterval>) -> Self::Output {
+        arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
+    }
+}
+
+impl Add<Expr<PgInterval>> for chrono::DateTime<chrono::Utc> {
+    type Output = Expr<chrono::DateTime<chrono::Utc>>;
+
+    fn add(self, rhs: Expr<PgInterval>) -> Self::Output {
+        arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
+    }
+}
+
+impl Sub<Expr<PgInterval>> for chrono::DateTime<chrono::Utc> {
+    type Output = Expr<chrono::DateTime<chrono::Utc>>;
+
+    fn sub(self, rhs: Expr<PgInterval>) -> Self::Output {
+        arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
+    }
 }
 
 fn arithmetic_expr<Out>(left: ExprNode, op: BinaryOp, right: ExprNode) -> Expr<Out> {
@@ -663,6 +763,18 @@ where
     }
 }
 
+impl<Lhs, RhsExpr> Mul<RhsExpr> for Expr<Lhs>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlMul<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlMul<RhsExpr::Value>>::Output>;
+
+    fn mul(self, rhs: RhsExpr) -> Self::Output {
+        arithmetic_expr(self.node, BinaryOp::Mul, rhs.into_operand_expr().node)
+    }
+}
+
 impl<M, Lhs, RhsExpr> Add<RhsExpr> for Column<M, Lhs>
 where
     RhsExpr: ExprOperand,
@@ -684,6 +796,18 @@ where
 
     fn sub(self, rhs: RhsExpr) -> Self::Output {
         arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Sub, rhs.into_operand_expr().node)
+    }
+}
+
+impl<M, Lhs, RhsExpr> Mul<RhsExpr> for Column<M, Lhs>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlMul<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlMul<RhsExpr::Value>>::Output>;
+
+    fn mul(self, rhs: RhsExpr) -> Self::Output {
+        arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Mul, rhs.into_operand_expr().node)
     }
 }
 
@@ -1023,14 +1147,14 @@ where
         }
     }
 
-    pub fn lt<V>(self, value: V) -> Expr<bool>
+    pub fn lt<V, Marker>(self, value: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Lt,
-            right: Box::new(ExprNode::Value(value.into())),
+            right: Box::new(value.into_comparison_expr().node),
         })
     }
 
@@ -1042,14 +1166,14 @@ where
         })
     }
 
-    pub fn le<V>(self, value: V) -> Expr<bool>
+    pub fn le<V, Marker>(self, value: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Le,
-            right: Box::new(ExprNode::Value(value.into())),
+            right: Box::new(value.into_comparison_expr().node),
         })
     }
 
@@ -1061,14 +1185,14 @@ where
         })
     }
 
-    pub fn gt<V>(self, value: V) -> Expr<bool>
+    pub fn gt<V, Marker>(self, value: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Gt,
-            right: Box::new(ExprNode::Value(value.into())),
+            right: Box::new(value.into_comparison_expr().node),
         })
     }
 
@@ -1080,14 +1204,14 @@ where
         })
     }
 
-    pub fn ge<V>(self, value: V) -> Expr<bool>
+    pub fn ge<V, Marker>(self, value: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ge,
-            right: Box::new(ExprNode::Value(value.into())),
+            right: Box::new(value.into_comparison_expr().node),
         })
     }
 
