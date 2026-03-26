@@ -142,3 +142,24 @@ fn compiles_where_exists_for_self_correlated_subquery_with_alias() {
     );
     assert_eq!(sql.binds, vec![Value::String("Ava".to_string())]);
 }
+
+#[test]
+fn exists_subquery_does_not_treat_dollar_suffix_in_alias_as_bind_token() {
+    let reports_table = employees_table().with_alias("reports$1");
+    let report_id: Column<Employee, i64> = Column::new(reports_table, "id");
+    let report_manager_id: Column<Employee, i64> = Column::new(reports_table, "manager_id");
+
+    let subquery: Select<Employee> = Select::new(reports_table)
+        .select_only()
+        .column(report_id)
+        .filter(report_manager_id.eq_col(employee_id()));
+
+    let query: Select<Employee> = Select::new(employees_table()).where_exists(subquery);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT employees.* FROM employees WHERE EXISTS (SELECT reports$1.id FROM employees reports$1 WHERE (reports$1.manager_id = employees.id))"
+    );
+    assert!(sql.binds.is_empty());
+}
