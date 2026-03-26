@@ -163,3 +163,24 @@ fn exists_subquery_does_not_treat_dollar_suffix_in_alias_as_bind_token() {
     );
     assert!(sql.binds.is_empty());
 }
+
+#[test]
+fn exists_subquery_preserves_utf8_alias_text() {
+    let reports_table = employees_table().with_alias("caf\u{e9}");
+    let report_id: Column<Employee, i64> = Column::new(reports_table, "id");
+    let report_manager_id: Column<Employee, i64> = Column::new(reports_table, "manager_id");
+
+    let subquery: Select<Employee> = Select::new(reports_table)
+        .select_only()
+        .column(report_id)
+        .filter(report_manager_id.eq_col(employee_id()));
+
+    let query: Select<Employee> = Select::new(employees_table()).where_exists(subquery);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT employees.* FROM employees WHERE EXISTS (SELECT caf\u{e9}.id FROM employees caf\u{e9} WHERE (caf\u{e9}.manager_id = employees.id))"
+    );
+    assert!(sql.binds.is_empty());
+}
