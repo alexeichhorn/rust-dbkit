@@ -3,6 +3,8 @@
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
 use dbkit::{model, Database, Executor, Order};
+use std::sync::atomic::{AtomicU64, Ordering};
+use uuid::Uuid;
 
 #[model(table = "accounts_exists")]
 pub struct AccountExists {
@@ -23,11 +25,37 @@ pub struct SubscriptionExists {
     pub state: String,
 }
 
+#[model(table = "account_exists_lock_groups")]
+pub struct AccountExistsLockGroup {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub token: Uuid,
+    pub name: String,
+}
+
+#[model(table = "account_exists_lock_rows")]
+pub struct AccountExistsLockRow {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub token: Uuid,
+    pub group_id: i64,
+    pub state: String,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("DB_URL or DATABASE_URL must be set for integration tests")
+}
+
+fn unique_lock_token() -> Uuid {
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+    let pid = std::process::id() as u128;
+    Uuid::from_u128((pid << 64) | seq)
 }
 
 async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Error> {
@@ -52,6 +80,45 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
     Ok(())
 }
 
+async fn setup_locking_schema(db: &Database) -> Result<(), dbkit::Error> {
+    let tx = db.begin().await?;
+    tx.execute("SELECT pg_advisory_xact_lock(816726, 2)", PgArguments::default())
+        .await?;
+    tx.execute(
+        "CREATE TABLE IF NOT EXISTS account_exists_lock_groups (\
+            id BIGSERIAL PRIMARY KEY,\
+            token UUID NOT NULL,\
+            name TEXT NOT NULL\
+        )",
+        PgArguments::default(),
+    )
+    .await?;
+    tx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_account_exists_lock_groups_token \
+         ON account_exists_lock_groups(token)",
+        PgArguments::default(),
+    )
+    .await?;
+    tx.execute(
+        "CREATE TABLE IF NOT EXISTS account_exists_lock_rows (\
+            id BIGSERIAL PRIMARY KEY,\
+            token UUID NOT NULL,\
+            group_id BIGINT NOT NULL,\
+            state TEXT NOT NULL\
+        )",
+        PgArguments::default(),
+    )
+    .await?;
+    tx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_account_exists_lock_rows_token \
+         ON account_exists_lock_rows(token)",
+        PgArguments::default(),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 async fn seed_account<E: Executor + Send + Sync>(ex: &E, name: &str, tier: &str) -> Result<AccountExists, dbkit::Error> {
     let account = AccountExists::insert(AccountExistsInsert {
         name: name.to_string(),
@@ -62,6 +129,48 @@ async fn seed_account<E: Executor + Send + Sync>(ex: &E, name: &str, tier: &str)
     .await?
     .expect("inserted account");
     Ok(account)
+}
+
+async fn seed_lock_group<E: Executor + Send + Sync>(ex: &E, token: Uuid, name: &str) -> Result<AccountExistsLockGroup, dbkit::Error> {
+    let row = AccountExistsLockGroup::insert(AccountExistsLockGroupInsert {
+        token,
+        name: name.to_string(),
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted lock group");
+    Ok(row)
+}
+
+async fn seed_lock_row<E: Executor + Send + Sync>(
+    ex: &E,
+    token: Uuid,
+    group_id: i64,
+    state: &str,
+) -> Result<AccountExistsLockRow, dbkit::Error> {
+    let row = AccountExistsLockRow::insert(AccountExistsLockRowInsert {
+        token,
+        group_id,
+        state: state.to_string(),
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted lock row");
+    Ok(row)
+}
+
+async fn cleanup_lock_rows<E: Executor + Send + Sync>(ex: &E, token: Uuid) -> Result<(), dbkit::Error> {
+    AccountExistsLockRow::delete()
+        .filter(AccountExistsLockRow::token.eq(token))
+        .execute(ex)
+        .await?;
+    AccountExistsLockGroup::delete()
+        .filter(AccountExistsLockGroup::token.eq(token))
+        .execute(ex)
+        .await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -162,5 +271,50 @@ async fn where_not_exists_returns_rows_without_matching_children() -> Result<(),
     assert_eq!(names, vec!["Birch".to_string(), "Cinder".to_string()]);
 
     tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn where_exists_preserves_skip_locked_subquery_semantics() -> Result<(), dbkit::Error> {
+    let db_a = Database::connect(&db_url()).await?;
+    let db_b = Database::connect(&db_url()).await?;
+    setup_locking_schema(&db_a).await?;
+
+    let token = unique_lock_token();
+    let group = seed_lock_group(&db_a, token, "alpha").await?;
+    let row = seed_lock_row(&db_a, token, group.id, "ready").await?;
+
+    let tx1 = db_a.begin().await?;
+    let locked = AccountExistsLockRow::query()
+        .filter(AccountExistsLockRow::id.eq(row.id))
+        .for_update()
+        .one(&tx1)
+        .await?;
+    assert!(locked.is_some(), "row should be locked by tx1");
+
+    let tx2 = db_b.begin().await?;
+    let rows = AccountExistsLockGroup::query()
+        .filter(AccountExistsLockGroup::token.eq(token))
+        .where_exists(
+            AccountExistsLockRow::query()
+                .select_only()
+                .column(AccountExistsLockRow::id)
+                .filter(AccountExistsLockRow::group_id.eq_col(AccountExistsLockGroup::id))
+                .filter(AccountExistsLockRow::token.eq(token))
+                .filter(AccountExistsLockRow::state.eq("ready"))
+                .for_update()
+                .skip_locked(),
+        )
+        .all(&tx2)
+        .await?;
+
+    assert!(
+        rows.is_empty(),
+        "skip locked subquery should not match rows locked by another transaction"
+    );
+
+    tx2.rollback().await?;
+    tx1.rollback().await?;
+    cleanup_lock_rows(&db_a, token).await?;
     Ok(())
 }
