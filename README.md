@@ -160,6 +160,17 @@ let projects_without_archived_tasks = Project::query()
     )
     .all(&db)
     .await?;
+
+let archived_tasks = Task::delete()
+    .where_exists(
+        Project::query()
+            .select_only()
+            .column(Project::id)
+            .filter(Project::id.eq_col(Task::project_id))
+            .filter(Project::state.eq("archived")),
+    )
+    .execute(&db)
+    .await?;
 ```
 
 Interval expressions:

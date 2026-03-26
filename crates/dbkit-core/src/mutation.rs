@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
 use crate::expr::{ColumnValue, Expr, Value};
+use crate::func;
+use crate::query::Select;
 use crate::schema::{Column, ColumnRef, Table};
 
 #[derive(Debug, Clone)]
@@ -362,6 +364,20 @@ impl<Out> Update<Out> {
         self
     }
 
+    pub fn where_exists<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>(
+        self,
+        subquery: Select<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>,
+    ) -> Self {
+        self.filter(func::exists(subquery))
+    }
+
+    pub fn where_not_exists<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>(
+        self,
+        subquery: Select<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>,
+    ) -> Self {
+        self.filter(func::exists(subquery).not())
+    }
+
     pub fn returning(mut self, columns: Vec<ColumnRef>) -> Self {
         self.returning = Some(columns);
         self.returning_all = false;
@@ -434,6 +450,20 @@ impl Delete {
     pub fn filter(mut self, expr: Expr<bool>) -> Self {
         self.filters.push(expr);
         self
+    }
+
+    pub fn where_exists<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>(
+        self,
+        subquery: Select<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>,
+    ) -> Self {
+        self.filter(func::exists(subquery))
+    }
+
+    pub fn where_not_exists<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>(
+        self,
+        subquery: Select<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>,
+    ) -> Self {
+        self.filter(func::exists(subquery).not())
     }
 
     pub fn returning(mut self, columns: Vec<ColumnRef>) -> Self {

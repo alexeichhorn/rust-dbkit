@@ -5,6 +5,10 @@ use dbkit_core::{Delete, Insert, Table, Update, Value};
 struct User;
 #[derive(Debug)]
 struct RunPayload;
+#[derive(Debug)]
+struct Team;
+#[derive(Debug)]
+struct TeamMember;
 
 fn user_table() -> Table {
     Table::new("users")
@@ -60,6 +64,38 @@ fn run_source() -> Column<RunPayload, String> {
 
 fn run_version() -> Column<RunPayload, i64> {
     Column::new(run_payload_table(), "version")
+}
+
+fn teams_table() -> Table {
+    Table::new("teams")
+}
+
+fn team_members_table() -> Table {
+    Table::new("team_members")
+}
+
+fn team_id() -> Column<Team, i64> {
+    Column::new(teams_table(), "id")
+}
+
+fn team_owner_id() -> Column<Team, i64> {
+    Column::new(teams_table(), "owner_id")
+}
+
+fn team_state() -> Column<Team, String> {
+    Column::new(teams_table(), "state")
+}
+
+fn team_member_id() -> Column<TeamMember, i64> {
+    Column::new(team_members_table(), "id")
+}
+
+fn team_member_team_id() -> Column<TeamMember, i64> {
+    Column::new(team_members_table(), "team_id")
+}
+
+fn team_member_role() -> Column<TeamMember, String> {
+    Column::new(team_members_table(), "role")
 }
 
 #[test]
@@ -288,10 +324,106 @@ fn compiles_update_set_null() {
 }
 
 #[test]
+fn compiles_update_where_exists_with_correlated_subquery_and_returning_all() {
+    let subquery: dbkit_core::Select<Team> = dbkit_core::Select::new(teams_table())
+        .select_only()
+        .column(team_id())
+        .filter(team_id().eq_col(team_member_team_id()))
+        .filter(team_owner_id().eq(7_i64))
+        .filter(team_state().eq("active"));
+
+    let query: Update<TeamMember> = Update::new(team_members_table())
+        .set(team_member_role(), "observer")
+        .where_exists(subquery)
+        .returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "UPDATE team_members SET role = $1 WHERE EXISTS (SELECT teams.id FROM teams WHERE (teams.id = team_members.team_id) AND (teams.owner_id = $2) AND (teams.state = $3)) RETURNING team_members.*"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("observer".to_string()),
+            Value::I64(7),
+            Value::String("active".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_update_where_not_exists_with_correlated_subquery() {
+    let subquery: dbkit_core::Select<TeamMember> = dbkit_core::Select::new(team_members_table())
+        .select_only()
+        .column(team_member_id())
+        .filter(team_member_team_id().eq_col(team_id()))
+        .filter(team_member_role().eq("lead"));
+
+    let query: Update<Team> = Update::new(teams_table())
+        .set(team_state(), "inactive")
+        .where_not_exists(subquery)
+        .filter(team_owner_id().eq(9_i64));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "UPDATE teams SET state = $1 WHERE NOT (EXISTS (SELECT team_members.id FROM team_members WHERE (team_members.team_id = teams.id) AND (team_members.role = $2))) AND (teams.owner_id = $3)"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("inactive".to_string()),
+            Value::String("lead".to_string()),
+            Value::I64(9),
+        ]
+    );
+}
+
+#[test]
 fn compiles_delete_with_filter() {
     let query = Delete::new(user_table()).filter(user_id().eq(42_i64));
 
     let sql = query.compile();
     assert_eq!(sql.sql, "DELETE FROM users WHERE (users.id = $1)");
     assert_eq!(sql.binds, vec![Value::I64(42)]);
+}
+
+#[test]
+fn compiles_delete_where_exists_with_correlated_subquery_and_returning_all() {
+    let subquery: dbkit_core::Select<Team> = dbkit_core::Select::new(teams_table())
+        .select_only()
+        .column(team_id())
+        .filter(team_id().eq_col(team_member_team_id()))
+        .filter(team_owner_id().eq(11_i64))
+        .filter(team_state().eq("archived"));
+
+    let query = Delete::new(team_members_table()).where_exists(subquery).returning_all();
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "DELETE FROM team_members WHERE EXISTS (SELECT teams.id FROM teams WHERE (teams.id = team_members.team_id) AND (teams.owner_id = $1) AND (teams.state = $2)) RETURNING team_members.*"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(11), Value::String("archived".to_string())]);
+}
+
+#[test]
+fn compiles_delete_where_not_exists_with_correlated_subquery() {
+    let subquery: dbkit_core::Select<TeamMember> = dbkit_core::Select::new(team_members_table())
+        .select_only()
+        .column(team_member_id())
+        .filter(team_member_team_id().eq_col(team_id()))
+        .filter(team_member_role().eq("maintainer"));
+
+    let query = Delete::new(teams_table())
+        .where_not_exists(subquery)
+        .filter(team_owner_id().eq(3_i64));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "DELETE FROM teams WHERE NOT (EXISTS (SELECT team_members.id FROM team_members WHERE (team_members.team_id = teams.id) AND (team_members.role = $1))) AND (teams.owner_id = $2)"
+    );
+    assert_eq!(sql.binds, vec![Value::String("maintainer".to_string()), Value::I64(3)]);
 }
