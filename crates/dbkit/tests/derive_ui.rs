@@ -38,6 +38,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "pass_conflict_update_tuple4.rs".into(),
         "pass_conflict_update_tuple32.rs".into(),
         "pass_pgvector.rs".into(),
+        "pass_exists_subquery.rs".into(),
         "fail_pgvector_dimension_mismatch.rs".into(),
         "fail_pgvector_raw_vec.rs".into(),
         "pass_interval_api.rs".into(),
