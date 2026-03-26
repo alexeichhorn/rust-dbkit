@@ -105,7 +105,7 @@ impl SqlBuilder {
 }
 
 fn is_bind_ident_char(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+    !byte.is_ascii() || byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
 }
 
 pub trait ToSql {
