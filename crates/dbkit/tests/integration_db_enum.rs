@@ -30,6 +30,14 @@ pub enum IntegrationMode {
     WebhookHTTP,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
+#[dbkit(type_name = "pg_temp.qualified_run_state", rename_all = "snake_case")]
+pub enum QualifiedRunState {
+    Scheduled,
+    Running,
+    Completed,
+}
+
 #[model(table = "workflow_runs")]
 pub struct WorkflowRun {
     #[key]
@@ -50,6 +58,23 @@ pub struct IntegrationEvent {
     pub ext_id: String,
     pub mode: IntegrationMode,
     pub fallback_mode: Option<IntegrationMode>,
+}
+
+#[model(table = "workflow_groups")]
+pub struct WorkflowGroup {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub name: String,
+}
+
+#[model(table = "workflow_group_runs")]
+pub struct WorkflowGroupRun {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub group_id: i64,
+    pub state: QualifiedRunState,
 }
 
 fn db_url() -> String {
@@ -88,11 +113,33 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
     )
     .await?;
     ex.execute(
+        "CREATE TYPE pg_temp.qualified_run_state AS ENUM ('scheduled', 'running', 'completed')",
+        PgArguments::default(),
+    )
+    .await?;
+    ex.execute(
         "CREATE TEMP TABLE integration_events (\
             id BIGSERIAL PRIMARY KEY,\
             ext_id TEXT NOT NULL UNIQUE,\
             mode integration_mode NOT NULL,\
             fallback_mode integration_mode NULL\
+        )",
+        PgArguments::default(),
+    )
+    .await?;
+    ex.execute(
+        "CREATE TEMP TABLE workflow_groups (\
+            id BIGSERIAL PRIMARY KEY,\
+            name TEXT NOT NULL\
+        )",
+        PgArguments::default(),
+    )
+    .await?;
+    ex.execute(
+        "CREATE TEMP TABLE workflow_group_runs (\
+            id BIGSERIAL PRIMARY KEY,\
+            group_id BIGINT NOT NULL,\
+            state qualified_run_state NOT NULL\
         )",
         PgArguments::default(),
     )
@@ -119,6 +166,15 @@ async fn seed_run<E: Executor + Send + Sync>(
     .one(ex)
     .await?
     .expect("inserted workflow run");
+    Ok(row)
+}
+
+async fn seed_group<E: Executor + Send + Sync>(ex: &E, name: &str) -> Result<WorkflowGroup, dbkit::Error> {
+    let row = WorkflowGroup::insert(WorkflowGroupInsert { name: name.to_string() })
+        .returning_all()
+        .one(ex)
+        .await?
+        .expect("inserted workflow group");
     Ok(row)
 }
 
@@ -221,6 +277,49 @@ async fn enum_upsert_updates_selected_enum_columns_and_preserves_unselected_fiel
     assert_eq!(fetched.state, RunState::Failed);
     assert_eq!(fetched.outcome, Some(RunOutcome::Timeout));
     assert_eq!(fetched.attempts, 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn where_exists_works_with_schema_qualified_enum_casts() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let alpha = seed_group(&tx, "alpha").await?;
+    let _beta = seed_group(&tx, "beta").await?;
+
+    WorkflowGroupRun::insert_many(vec![
+        WorkflowGroupRunInsert {
+            group_id: alpha.id,
+            state: QualifiedRunState::Running,
+        },
+        WorkflowGroupRunInsert {
+            group_id: alpha.id,
+            state: QualifiedRunState::Completed,
+        },
+        WorkflowGroupRunInsert {
+            group_id: alpha.id + 1,
+            state: QualifiedRunState::Scheduled,
+        },
+    ])
+    .execute(&tx)
+    .await?;
+
+    let rows = WorkflowGroup::query()
+        .where_exists(
+            WorkflowGroupRun::query()
+                .select_only()
+                .column(WorkflowGroupRun::id)
+                .filter(WorkflowGroupRun::group_id.eq_col(WorkflowGroup::id))
+                .filter(WorkflowGroupRun::state.eq(QualifiedRunState::Running)),
+        )
+        .all(&tx)
+        .await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "alpha");
 
     Ok(())
 }

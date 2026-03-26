@@ -1,3 +1,5 @@
+use crate::compile::CompiledSql;
+use crate::query::Select;
 use crate::expr::{Expr, ExprNode, IntoExpr, NumericExprType, VectorBinaryOp};
 use crate::PgVector;
 
@@ -131,6 +133,14 @@ pub fn date_trunc<T>(part: impl IntoExpr<String>, value: impl IntoExpr<T>) -> Ex
         name: "DATE_TRUNC",
         args: vec![part.node, value.node],
     })
+}
+
+fn exists_expr(subquery: CompiledSql) -> Expr<bool> {
+    Expr::new(ExprNode::Exists { subquery })
+}
+
+pub fn exists<Out, Loads, Lock, DistinctState, GroupState>(subquery: Select<Out, Loads, Lock, DistinctState, GroupState>) -> Expr<bool> {
+    exists_expr(subquery.compile_for_exists())
 }
 
 /// Marker trait for values that can participate in vector distance/similarity expressions.

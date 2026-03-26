@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
 use crate::expr::{Expr, ExprNode, IntoExpr};
+use crate::func;
 use crate::load::{ApplyLoad, LoadChain, NoLoad};
 use crate::rel::RelationInfo;
 use crate::schema::{ColumnRef, Table};
@@ -180,6 +181,20 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         self
     }
 
+    pub fn where_exists<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>(
+        self,
+        subquery: Select<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>,
+    ) -> Self {
+        self.filter(func::exists(subquery))
+    }
+
+    pub fn where_not_exists<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>(
+        self,
+        subquery: Select<SubOut, SubLoads, SubLock, SubDistinctState, SubGroupState>,
+    ) -> Self {
+        self.filter(func::exists(subquery).not())
+    }
+
     pub fn join<R>(mut self, rel: R) -> Self
     where
         R: RelationInfo<Parent = Out>,
@@ -306,6 +321,10 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
 
     pub fn compile_without_pagination(&self) -> CompiledSql {
         self.compile_inner(false, false, false)
+    }
+
+    pub(crate) fn compile_for_exists(&self) -> CompiledSql {
+        self.compile_inner(true, true, true)
     }
 
     pub fn compile_with_extra(&self, extra_columns: &[SelectItem], extra_joins: &[Join]) -> CompiledSql {
