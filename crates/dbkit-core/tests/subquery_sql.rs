@@ -1,4 +1,4 @@
-use dbkit_core::{expr::Value, Column, Order, Select, Table};
+use dbkit_core::{expr::Value, func, Column, Order, Select, Table};
 
 #[derive(Debug)]
 struct Account;
@@ -94,6 +94,29 @@ fn compiles_where_not_exists_with_correlated_subquery_and_ordering() {
     assert_eq!(
         sql.binds,
         vec![Value::String("active".to_string()), Value::String("void".to_string())]
+    );
+}
+
+#[test]
+fn compiles_exists_expression_via_func_helper() {
+    let subquery: Select<Invoice> = Select::new(invoices_table())
+        .select_only()
+        .column(invoice_id())
+        .filter(invoice_account_id().eq_col(account_id()))
+        .filter(invoice_status().eq("overdue"));
+
+    let query: Select<Account> = Select::new(accounts_table())
+        .filter(account_status().eq("active"))
+        .filter(func::exists(subquery).not());
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT accounts.* FROM accounts WHERE (accounts.status = $1) AND NOT (EXISTS (SELECT invoices.id FROM invoices WHERE (invoices.account_id = accounts.id) AND (invoices.status = $2)))"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String("active".to_string()), Value::String("overdue".to_string())]
     );
 }
 

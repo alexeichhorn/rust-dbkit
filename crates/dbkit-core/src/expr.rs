@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
+use crate::compile::CompiledSql;
 use crate::schema::{Column, ColumnRef};
 use crate::types::{PgInterval, PgVector};
 
@@ -285,6 +286,9 @@ pub enum ExprNode {
         expr: Box<ExprNode>,
         pattern: Value,
         case_insensitive: bool,
+    },
+    Exists {
+        subquery: CompiledSql,
     },
 }
 

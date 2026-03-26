@@ -55,6 +55,40 @@ impl SqlBuilder {
         self.sql.push_str(&col.qualified_name());
     }
 
+    pub fn push_compiled_sql(&mut self, compiled: &CompiledSql) {
+        let bytes = compiled.sql.as_bytes();
+        let mut idx = 0;
+
+        while idx < bytes.len() {
+            if bytes[idx] == b'$' {
+                let start = idx + 1;
+                let mut end = start;
+                while end < bytes.len() && bytes[end].is_ascii_digit() {
+                    end += 1;
+                }
+
+                if end > start {
+                    let bind_idx = compiled.sql[start..end].parse::<usize>().expect("valid bind index");
+                    let value = compiled.binds[bind_idx - 1].clone();
+                    self.push_value(value);
+                    idx = end;
+
+                    if compiled.sql[idx..].starts_with("::") {
+                        idx += 2;
+                        while idx < bytes.len() && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_') {
+                            idx += 1;
+                        }
+                    }
+
+                    continue;
+                }
+            }
+
+            self.sql.push(bytes[idx] as char);
+            idx += 1;
+        }
+    }
+
     pub fn finish(self) -> CompiledSql {
         CompiledSql {
             sql: self.sql,
@@ -176,6 +210,11 @@ impl ToSql for ExprNode {
                 expr.to_sql(builder);
                 builder.push_sql(if *case_insensitive { " ILIKE " } else { " LIKE " });
                 builder.push_value(pattern.clone());
+                builder.push_sql(")");
+            }
+            ExprNode::Exists { subquery } => {
+                builder.push_sql("EXISTS (");
+                builder.push_compiled_sql(subquery);
                 builder.push_sql(")");
             }
         }
