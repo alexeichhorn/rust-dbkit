@@ -19,9 +19,7 @@ state_dir="$repo_root/.codex/hooks/state"
 mkdir -p "$state_dir"
 
 safe_session_id="$(printf '%s' "$session_id" | tr -c 'A-Za-z0-9._-' '_')"
-baseline_file="$state_dir/$safe_session_id.baseline"
 current_file="$state_dir/$safe_session_id.current"
-new_file="$state_dir/$safe_session_id.new"
 rust_list="$state_dir/$safe_session_id.rust"
 
 (
@@ -33,13 +31,7 @@ rust_list="$state_dir/$safe_session_id.rust"
   } | sed '/^$/d' | LC_ALL=C sort -u
 ) > "$current_file"
 
-if [[ -f "$baseline_file" ]]; then
-  grep -F -x -v -f "$baseline_file" "$current_file" > "$new_file" || true
-else
-  cp "$current_file" "$new_file"
-fi
-
-if [[ ! -s "$new_file" ]]; then
+if [[ ! -s "$current_file" ]]; then
   exit 0
 fi
 
@@ -77,7 +69,7 @@ while IFS= read -r rel_path; do
       fi
       ;;
   esac
-done < "$new_file"
+done < "$current_file"
 
 if [[ ! -s "$rust_list" ]]; then
   exit 0
