@@ -93,6 +93,18 @@ let rows = Record::query()
 Arithmetic expressions also support `*` and compose with typed SQL helpers like
 `dbkit::func::least`, `dbkit::func::greatest`, and `dbkit::func::power`.
 
+Row-value filters for composite lookups:
+
+```rust
+let rows = LookupRow::query()
+    .filter(dbkit::row((LookupRow::scope, LookupRow::external_key, LookupRow::locale)).in_([
+        (LookupScope::Public, "alpha", "en"),
+        (LookupScope::Internal, "beta", "de"),
+    ]))
+    .all(&db)
+    .await?;
+```
+
 Row locking:
 
 ```rust
