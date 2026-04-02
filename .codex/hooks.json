@@ -1,24 +1,12 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start_snapshot.sh\"",
-            "statusMessage": "Snapshotting repo changes"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/format_on_stop.sh\"",
-            "statusMessage": "Formatting changed Rust files",
+            "statusMessage": "Formatting dirty Rust files",
             "timeout": 120
           }
         ]
