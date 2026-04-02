@@ -99,16 +99,19 @@ after_hashes="$(hash_files_from_list "$rust_list")"
 if [[ "$before_hashes" != "$after_hashes" ]]; then
   changed_files="$(
     awk -F '\t' '
+      BEGIN {
+        seen = 0
+      }
       NR == FNR {
         before[$1] = $2
         next
       }
       before[$1] != $2 {
-        if (!first) {
+        if (seen) {
           printf ", "
         }
         printf "%s", $1
-        first = 0
+        seen = 1
       }
     ' <(printf '%s\n' "$before_hashes") <(printf '%s\n' "$after_hashes")
   )"
