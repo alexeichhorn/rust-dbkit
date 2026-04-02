@@ -50,7 +50,7 @@ hash_files_from_list() {
   while IFS= read -r rel_path; do
     [[ -n "$rel_path" ]] || continue
     if [[ -f "$repo_root/$rel_path" ]]; then
-      shasum "$repo_root/$rel_path"
+      printf '%s\t%s\n' "$rel_path" "$(shasum "$repo_root/$rel_path" | awk '{print $1}')"
     fi
   done < "$list_file" | LC_ALL=C sort
 }
@@ -97,7 +97,21 @@ fi
 
 after_hashes="$(hash_files_from_list "$rust_list")"
 if [[ "$before_hashes" != "$after_hashes" ]]; then
-  changed_files="$(awk 'BEGIN { first = 1 } { if (!first) printf ", "; printf "%s", $0; first = 0 }' "$rust_list")"
+  changed_files="$(
+    awk -F '\t' '
+      NR == FNR {
+        before[$1] = $2
+        next
+      }
+      before[$1] != $2 {
+        if (!first) {
+          printf ", "
+        }
+        printf "%s", $1
+        first = 0
+      }
+    ' <(printf '%s\n' "$before_hashes") <(printf '%s\n' "$after_hashes")
+  )"
   emit_block "Auto-formatting changed Rust files: $changed_files. Review the updated diff, then finish the turn."
   exit 0
 fi
