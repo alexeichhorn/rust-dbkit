@@ -97,7 +97,7 @@ fi
 
 after_hashes="$(hash_files_from_list "$rust_list")"
 if [[ "$before_hashes" != "$after_hashes" ]]; then
-  changed_files="$(paste -sd ', ' "$rust_list")"
+  changed_files="$(awk 'BEGIN { first = 1 } { if (!first) printf ", "; printf "%s", $0; first = 0 }' "$rust_list")"
   emit_block "Auto-formatting changed Rust files: $changed_files. Review the updated diff, then finish the turn."
   exit 0
 fi
