@@ -12,5 +12,5 @@ pub struct LookupItem {
 
 fn main() {
     let _query = LookupItem::query()
-        .filter(dbkit::row((LookupItem::namespace, LookupItem::external_key, LookupItem::locale)).in_([("public", "alpha"), ("internal", "beta")])); //~ ERROR: row
+        .filter(dbkit::row((LookupItem::namespace, LookupItem::external_key, LookupItem::locale)).in_([("public", "alpha"), ("internal", "beta")])); //~ ERROR: type mismatch resolving
 }

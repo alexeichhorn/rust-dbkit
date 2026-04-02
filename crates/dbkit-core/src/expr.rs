@@ -248,6 +248,9 @@ pub enum IntervalField {
 pub enum ExprNode {
     Column(ColumnRef),
     Value(Value),
+    Row {
+        values: Vec<ExprNode>,
+    },
     Func {
         name: &'static str,
         args: Vec<ExprNode>,
@@ -279,6 +282,10 @@ pub enum ExprNode {
         expr: Box<ExprNode>,
         values: Vec<Value>,
     },
+    RowIn {
+        expr: Box<ExprNode>,
+        rows: Vec<Vec<Value>>,
+    },
     IsNull {
         expr: Box<ExprNode>,
         negated: bool,
@@ -299,7 +306,22 @@ pub struct Expr<T> {
     _marker: PhantomData<T>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RowExpr<T> {
+    node: ExprNode,
+    _marker: PhantomData<T>,
+}
+
 impl<T> Expr<T> {
+    pub fn new(node: ExprNode) -> Self {
+        Self {
+            node,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> RowExpr<T> {
     pub fn new(node: ExprNode) -> Self {
         Self {
             node,
@@ -341,6 +363,23 @@ pub trait SqlMul<Rhs> {
 }
 
 pub trait NumericExprType {}
+
+mod row_columns_private {
+    pub trait Sealed {}
+}
+
+pub trait RowColumns: row_columns_private::Sealed {
+    type ValueTuple;
+
+    fn into_row_expr(self) -> RowExpr<Self::ValueTuple>;
+}
+
+pub fn row<R>(columns: R) -> RowExpr<R::ValueTuple>
+where
+    R: RowColumns,
+{
+    columns.into_row_expr()
+}
 
 impl<T> IntoExpr<T> for Expr<T> {
     fn into_expr(self) -> Expr<T> {
@@ -393,6 +432,61 @@ impl<M, T> ComparisonValue<Option<T>, ExprComparisonMarker> for Column<M, T> {
         Expr::new(ExprNode::Column(self.as_ref()))
     }
 }
+
+macro_rules! impl_row_tuple_support {
+    ($(($($model:ident:$col_ty:ident:$col_ident:ident:$value_ty:ident:$value_ident:ident),+)),+ $(,)?) => {
+        $(
+            impl<$($model, $col_ty),+> RowColumns for ($(Column<$model, $col_ty>,)+) {
+                type ValueTuple = ($($col_ty,)+);
+
+                fn into_row_expr(self) -> RowExpr<Self::ValueTuple> {
+                    let ($($col_ident,)+) = self;
+                    RowExpr::new(ExprNode::Row {
+                        values: vec![$(ExprNode::Column($col_ident.as_ref())),+],
+                    })
+                }
+            }
+
+            impl<$($model, $col_ty),+> row_columns_private::Sealed for ($(Column<$model, $col_ty>,)+) {}
+
+            impl<$($col_ty),+> RowExpr<($($col_ty,)+)> {
+                pub fn in_<I, $($value_ty),+>(self, values: I) -> Expr<bool>
+                where
+                    I: IntoIterator<Item = ($($value_ty,)+)>,
+                    $($value_ty: ColumnValue<$col_ty>,)+
+                {
+                    let rows = values
+                        .into_iter()
+                        .map(|($($value_ident,)+)| vec![$($value_ident.into_value().unwrap_or(Value::Null)),+])
+                        .collect();
+
+                    Expr::new(ExprNode::RowIn {
+                        expr: Box::new(self.node),
+                        rows,
+                    })
+                }
+            }
+        )+
+    };
+}
+
+impl_row_tuple_support!(
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9, M10:T10:c10:V10:v10),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9, M10:T10:c10:V10:v10, M11:T11:c11:V11:v11),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9, M10:T10:c10:V10:v10, M11:T11:c11:V11:v11, M12:T12:c12:V12:v12),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9, M10:T10:c10:V10:v10, M11:T11:c11:V11:v11, M12:T12:c12:V12:v12, M13:T13:c13:V13:v13),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9, M10:T10:c10:V10:v10, M11:T11:c11:V11:v11, M12:T12:c12:V12:v12, M13:T13:c13:V13:v13, M14:T14:c14:V14:v14),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9, M10:T10:c10:V10:v10, M11:T11:c11:V11:v11, M12:T12:c12:V12:v12, M13:T13:c13:V13:v13, M14:T14:c14:V14:v14, M15:T15:c15:V15:v15),
+    (M1:T1:c1:V1:v1, M2:T2:c2:V2:v2, M3:T3:c3:V3:v3, M4:T4:c4:V4:v4, M5:T5:c5:V5:v5, M6:T6:c6:V6:v6, M7:T7:c7:V7:v7, M8:T8:c8:V8:v8, M9:T9:c9:V9:v9, M10:T10:c10:V10:v10, M11:T11:c11:V11:v11, M12:T12:c12:V12:v12, M13:T13:c13:V13:v13, M14:T14:c14:V14:v14, M15:T15:c15:V15:v15, M16:T16:c16:V16:v16)
+);
 
 impl<T, V> ComparisonValue<T, ValueComparisonMarker> for V
 where

@@ -12,5 +12,5 @@ pub struct LookupItem {
 
 fn main() {
     let _query =
-        LookupItem::query().filter(dbkit::row((LookupItem::namespace, LookupItem::external_key)).in_([(1_i64, "alpha"), (2_i64, "beta")])); //~ ERROR: row
+        LookupItem::query().filter(dbkit::row((LookupItem::namespace, LookupItem::external_key)).in_([(1_i64, "alpha"), (2_i64, "beta")])); //~ ERROR: ColumnValue
 }

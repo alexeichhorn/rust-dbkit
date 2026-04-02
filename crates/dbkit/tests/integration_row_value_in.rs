@@ -2,8 +2,11 @@
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
-use dbkit::sqlx::postgres::PgArguments;
-use dbkit::{model, row, Database, DbEnum, Executor, Order};
+use dbkit::executor::BoxFuture;
+use dbkit::sqlx::postgres::{PgArguments, PgPoolOptions, PgRow};
+use dbkit::{model, row, DbEnum, Executor, Order};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DbEnum)]
 #[dbkit(type_name = "lookup_scope", rename_all = "snake_case")]
@@ -32,6 +35,110 @@ pub struct RevisionSnapshot {
     pub revision: i32,
     pub captured_at: NaiveDateTime,
     pub note: String,
+}
+
+struct TestTx<'t> {
+    inner: Arc<Mutex<Option<sqlx::Transaction<'t, sqlx::Postgres>>>>,
+}
+
+impl<'t> TestTx<'t> {
+    fn new(tx: sqlx::Transaction<'t, sqlx::Postgres>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Some(tx))),
+        }
+    }
+
+    async fn rollback(self) -> Result<(), dbkit::Error> {
+        let tx = {
+            let mut guard = self.inner.lock().await;
+            guard
+                .take()
+                .ok_or_else(|| dbkit::Error::Decode("transaction already completed".to_string()))?
+        };
+        tx.rollback().await?;
+        Ok(())
+    }
+}
+
+// This wrapper is intentionally test-local.
+//
+// These integration tests create temporary enum/table objects with stable names and may reuse pooled
+// connections across cases. SQLx prepared statement caching can then hit Postgres plan-cache errors like
+// "cached plan must not change result type" when a later test recreates temp objects under the same names.
+//
+// The row-value feature itself works with enums; the problem is the temp-schema test setup combined with
+// prepared statement reuse on the same connection. To keep the production/runtime executor behavior unchanged,
+// only this test wrapper disables statement persistence.
+impl<'t> dbkit::Executor for TestTx<'t> {
+    fn fetch_all<'e, T>(&'e self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<T>, dbkit::Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
+    {
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut guard = inner.lock().await;
+            let tx = guard
+                .as_mut()
+                .ok_or_else(|| dbkit::Error::Decode("transaction already completed".to_string()))?;
+            let conn = tx.as_mut();
+            let rows = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .persistent(false)
+                .fetch_all(conn)
+                .await?;
+            Ok(rows)
+        })
+    }
+
+    fn fetch_optional<'e, T>(&'e self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Option<T>, dbkit::Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
+    {
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut guard = inner.lock().await;
+            let tx = guard
+                .as_mut()
+                .ok_or_else(|| dbkit::Error::Decode("transaction already completed".to_string()))?;
+            let conn = tx.as_mut();
+            let row = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .persistent(false)
+                .fetch_optional(conn)
+                .await?;
+            Ok(row)
+        })
+    }
+
+    fn fetch_rows<'e>(&'e self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<PgRow>, dbkit::Error>> {
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut guard = inner.lock().await;
+            let tx = guard
+                .as_mut()
+                .ok_or_else(|| dbkit::Error::Decode("transaction already completed".to_string()))?;
+            let conn = tx.as_mut();
+            let rows = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .persistent(false)
+                .fetch_all(conn)
+                .await?;
+            Ok(rows)
+        })
+    }
+
+    fn execute<'e>(&'e self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, dbkit::Error>> {
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut guard = inner.lock().await;
+            let tx = guard
+                .as_mut()
+                .ok_or_else(|| dbkit::Error::Decode("transaction already completed".to_string()))?;
+            let conn = tx.as_mut();
+            let result = sqlx::query_with::<sqlx::Postgres, _>(sql, args)
+                .persistent(false)
+                .execute(conn)
+                .await?;
+            Ok(result.rows_affected())
+        })
+    }
 }
 
 fn db_url() -> String {
@@ -116,8 +223,8 @@ async fn seed_revision_snapshot<E: Executor + Send + Sync>(
 
 #[tokio::test]
 async fn row_value_in_returns_rows_matching_requested_composite_keys() -> Result<(), dbkit::Error> {
-    let db = Database::connect(&db_url()).await?;
-    let tx = db.begin().await?;
+    let pool = PgPoolOptions::new().connect(&db_url()).await?;
+    let tx = TestTx::new(pool.begin().await?);
     setup_schema(&tx).await?;
 
     let alpha_en = seed_row(&tx, LookupScope::Public, "alpha", "en", "Alpha").await?;
@@ -143,8 +250,8 @@ async fn row_value_in_returns_rows_matching_requested_composite_keys() -> Result
 
 #[tokio::test]
 async fn row_value_in_empty_input_returns_no_rows() -> Result<(), dbkit::Error> {
-    let db = Database::connect(&db_url()).await?;
-    let tx = db.begin().await?;
+    let pool = PgPoolOptions::new().connect(&db_url()).await?;
+    let tx = TestTx::new(pool.begin().await?);
     setup_schema(&tx).await?;
 
     seed_row(&tx, LookupScope::Public, "alpha", "en", "Alpha").await?;
@@ -163,8 +270,8 @@ async fn row_value_in_empty_input_returns_no_rows() -> Result<(), dbkit::Error> 
 
 #[tokio::test]
 async fn row_value_in_duplicate_requested_keys_do_not_duplicate_rows() -> Result<(), dbkit::Error> {
-    let db = Database::connect(&db_url()).await?;
-    let tx = db.begin().await?;
+    let pool = PgPoolOptions::new().connect(&db_url()).await?;
+    let tx = TestTx::new(pool.begin().await?);
     setup_schema(&tx).await?;
 
     let alpha_en = seed_row(&tx, LookupScope::Public, "alpha", "en", "Alpha").await?;
@@ -188,8 +295,8 @@ async fn row_value_in_duplicate_requested_keys_do_not_duplicate_rows() -> Result
 
 #[tokio::test]
 async fn row_value_in_composes_with_additional_filters() -> Result<(), dbkit::Error> {
-    let db = Database::connect(&db_url()).await?;
-    let tx = db.begin().await?;
+    let pool = PgPoolOptions::new().connect(&db_url()).await?;
+    let tx = TestTx::new(pool.begin().await?);
     setup_schema(&tx).await?;
 
     let alpha_en = seed_row(&tx, LookupScope::Public, "alpha", "en", "Alpha").await?;
@@ -215,8 +322,8 @@ async fn row_value_in_composes_with_additional_filters() -> Result<(), dbkit::Er
 
 #[tokio::test]
 async fn row_value_in_supports_integer_and_timestamp_columns() -> Result<(), dbkit::Error> {
-    let db = Database::connect(&db_url()).await?;
-    let tx = db.begin().await?;
+    let pool = PgPoolOptions::new().connect(&db_url()).await?;
+    let tx = TestTx::new(pool.begin().await?);
     setup_schema(&tx).await?;
 
     let first = NaiveDateTime::new(

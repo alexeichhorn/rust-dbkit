@@ -131,6 +131,16 @@ impl ToSql for ExprNode {
         match self {
             ExprNode::Column(col) => builder.push_column(*col),
             ExprNode::Value(value) => builder.push_value(value.clone()),
+            ExprNode::Row { values } => {
+                builder.push_sql("(");
+                for (idx, value) in values.iter().enumerate() {
+                    if idx > 0 {
+                        builder.push_sql(", ");
+                    }
+                    value.to_sql(builder);
+                }
+                builder.push_sql(")");
+            }
             ExprNode::Func { name, args } => {
                 builder.push_sql(name);
                 builder.push_sql("(");
@@ -215,6 +225,29 @@ impl ToSql for ExprNode {
                         builder.push_sql(", ");
                     }
                     builder.push_value(value.clone());
+                }
+                builder.push_sql("))");
+            }
+            ExprNode::RowIn { expr, rows } => {
+                if rows.is_empty() {
+                    builder.push_sql("(FALSE)");
+                    return;
+                }
+                builder.push_sql("(");
+                expr.to_sql(builder);
+                builder.push_sql(" IN (");
+                for (row_idx, row) in rows.iter().enumerate() {
+                    if row_idx > 0 {
+                        builder.push_sql(", ");
+                    }
+                    builder.push_sql("(");
+                    for (value_idx, value) in row.iter().enumerate() {
+                        if value_idx > 0 {
+                            builder.push_sql(", ");
+                        }
+                        builder.push_value(value.clone());
+                    }
+                    builder.push_sql(")");
                 }
                 builder.push_sql("))");
             }
