@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/format_on_stop.sh\"",
+            "statusMessage": "Formatting dirty Rust files",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
