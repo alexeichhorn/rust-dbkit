@@ -12,10 +12,10 @@ pub struct Sale {
 }
 
 fn main() {
-    let first_sale_at = dbkit::func::min(Sale::created_at);
-    let last_sale_at = dbkit::func::max(Sale::created_at);
-    let min_amount = dbkit::func::min(Sale::amount);
-    let max_amount = dbkit::func::max(Sale::amount);
+    let first_sale_at: dbkit::Expr<Option<NaiveDateTime>> = dbkit::func::min(Sale::created_at);
+    let last_sale_at: dbkit::Expr<Option<NaiveDateTime>> = dbkit::func::max(Sale::created_at);
+    let min_amount: dbkit::Expr<Option<i64>> = dbkit::func::min(Sale::amount);
+    let max_amount: dbkit::Expr<Option<i64>> = dbkit::func::max(Sale::amount);
 
     let _query = Sale::query()
         .select_only()

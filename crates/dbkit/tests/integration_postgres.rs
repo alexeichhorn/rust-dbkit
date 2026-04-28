@@ -1162,6 +1162,14 @@ struct SaleExtremaAgg {
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct EmptySaleExtremaAgg {
+    first_sale_at: Option<NaiveDateTime>,
+    last_sale_at: Option<NaiveDateTime>,
+    min_amount: Option<i64>,
+    max_amount: Option<i64>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct UserTodoAgg {
     name: String,
     todo_count: i64,
@@ -1322,6 +1330,22 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     );
     assert_eq!(extrema_rows[2].min_amount, 40);
     assert_eq!(extrema_rows[2].max_amount, 70);
+
+    let empty_extrema: EmptySaleExtremaAgg = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::min(Sale::created_at), "first_sale_at")
+        .column_as(dbkit::func::max(Sale::created_at), "last_sale_at")
+        .column_as(dbkit::func::min(Sale::amount), "min_amount")
+        .column_as(dbkit::func::max(Sale::amount), "max_amount")
+        .filter(Sale::region.eq("missing"))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(empty_extrema.first_sale_at, None);
+    assert_eq!(empty_extrema.last_sale_at, None);
+    assert_eq!(empty_extrema.min_amount, None);
+    assert_eq!(empty_extrema.max_amount, None);
 
     let user = seed_user(&tx, "AggUser", "agg@db.com").await?;
     let _todo1 = seed_todo(&tx, user.id, "Alpha").await?;
