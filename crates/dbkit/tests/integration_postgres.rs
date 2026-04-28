@@ -1157,8 +1157,8 @@ struct SaleExtremaAgg {
     region: String,
     first_sale_at: NaiveDateTime,
     last_sale_at: NaiveDateTime,
-    min_amount: dbkit::sqlx::types::BigDecimal,
-    max_amount: dbkit::sqlx::types::BigDecimal,
+    min_amount: i64,
+    max_amount: i64,
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
@@ -1309,8 +1309,8 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
         extrema_rows[0].last_sale_at,
         NaiveDateTime::new(day2, NaiveTime::from_hms_opt(9, 0, 0).expect("time"))
     );
-    assert_eq!(extrema_rows[0].min_amount.to_string(), "200");
-    assert_eq!(extrema_rows[0].max_amount.to_string(), "200");
+    assert_eq!(extrema_rows[0].min_amount, 200);
+    assert_eq!(extrema_rows[0].max_amount, 200);
     assert_eq!(extrema_rows[2].region, "us");
     assert_eq!(
         extrema_rows[2].first_sale_at,
@@ -1320,8 +1320,8 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
         extrema_rows[2].last_sale_at,
         NaiveDateTime::new(day1, NaiveTime::from_hms_opt(12, 0, 0).expect("time"))
     );
-    assert_eq!(extrema_rows[2].min_amount.to_string(), "40");
-    assert_eq!(extrema_rows[2].max_amount.to_string(), "70");
+    assert_eq!(extrema_rows[2].min_amount, 40);
+    assert_eq!(extrema_rows[2].max_amount, 70);
 
     let user = seed_user(&tx, "AggUser", "agg@db.com").await?;
     let _todo1 = seed_todo(&tx, user.id, "Alpha").await?;
