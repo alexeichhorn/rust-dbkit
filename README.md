@@ -32,6 +32,27 @@ struct Todo {
     #[belongs_to(key = user_id, references = id)]
     user: dbkit::BelongsTo<User>,
     title: String,
+    #[many_to_many(through = TodoTag, left_key = todo_id, right_key = tag_id)]
+    tags: dbkit::ManyToMany<Tag>,
+}
+
+#[model(table = "tags")]
+#[derive(Debug)]
+struct Tag {
+    #[key]
+    id: i64,
+    name: String,
+    #[many_to_many(through = TodoTag, left_key = tag_id, right_key = todo_id)]
+    todos: dbkit::ManyToMany<Todo>,
+}
+
+#[model(table = "todo_tags")]
+#[derive(Debug)]
+struct TodoTag {
+    #[key]
+    todo_id: i64,
+    #[key]
+    tag_id: i64,
 }
 
 #[tokio::main]
@@ -44,15 +65,35 @@ async fn main() -> Result<(), dbkit::Error> {
     )
     .await?;
 
-    let users = User::query()
-        .filter(User::email.eq("a@b.com"))
-        .with(User::todos.selectin())
+    // Parent -> children -> grandchildren, all reflected in the result type.
+    let users: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
+        .filter(User::email.ilike("%@example.com"))
+        .with(User::todos.selectin().with(Todo::tags.selectin()))
         .all(&db)
         .await?;
 
-    for u in &users {
-        for t in &u.todos {
-            println!("{}", t.title);
+    for user in &users {
+        for todo in &user.todos {
+            for tag in &todo.tags {
+                println!("{} / {} / {}", user.name, todo.title, tag.name);
+            }
+        }
+    }
+
+    // Child -> parent works the same way, and the parent can load its graph too.
+    let todos: Vec<TodoModel<Option<UserModel<Vec<Todo>>>, dbkit::NotLoaded>> = Todo::query()
+        .with(Todo::user.selectin().with(User::todos.selectin()))
+        .all(&db)
+        .await?;
+
+    for todo in &todos {
+        if let Some(owner) = &todo.user {
+            println!(
+                "{} belongs to {} with {} todos",
+                todo.title,
+                owner.name,
+                owner.todos.len()
+            );
         }
     }
 
@@ -63,6 +104,10 @@ async fn main() -> Result<(), dbkit::Error> {
     Ok(())
 }
 ```
+
+The loaded graph is part of the Rust type. If a relation is not requested, that
+field stays `dbkit::NotLoaded`; once you add `.with(...)`, normal field access is
+available at the matching depth (`user.todos`, `todo.tags`, `todo.user`, etc.).
 
 If a Rust field needs a different DB column name, use `#[dbkit(column = "...")]`:
 
