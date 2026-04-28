@@ -136,6 +136,34 @@ pub struct RunPayload {
     pub version: i64,
 }
 
+#[model(table = "renamed_parents")]
+pub struct RenamedParent {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    #[dbkit(column = "type")]
+    pub type_: String,
+    #[dbkit(column = "external_ref")]
+    pub external_reference: String,
+    pub label: String,
+    #[has_many]
+    pub children: dbkit::HasMany<RenamedChild>,
+}
+
+#[model(table = "renamed_children")]
+pub struct RenamedChild {
+    #[key]
+    #[autoincrement]
+    pub id: i64,
+    pub parent_id: i64,
+    #[dbkit(column = "type")]
+    pub type_: String,
+    #[dbkit(column = "sort_key")]
+    pub rank_key: i64,
+    #[belongs_to(key = parent_id, references = id)]
+    pub parent: dbkit::BelongsTo<RenamedParent>,
+}
+
 #[model(table = "dbkit_lock_rows")]
 pub struct LockRow {
     #[key]
@@ -223,6 +251,19 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
             source TEXT NOT NULL,\
             version BIGINT NOT NULL,\
             PRIMARY KEY (target_id, run_id)\
+        )",
+        "CREATE TEMP TABLE renamed_parents (\
+            id BIGSERIAL PRIMARY KEY,\
+            type TEXT NOT NULL,\
+            external_ref TEXT NOT NULL,\
+            label TEXT NOT NULL,\
+            UNIQUE (type)\
+        )",
+        "CREATE TEMP TABLE renamed_children (\
+            id BIGSERIAL PRIMARY KEY,\
+            parent_id BIGINT NOT NULL,\
+            type TEXT NOT NULL,\
+            sort_key BIGINT NOT NULL\
         )",
     ];
 
@@ -411,6 +452,42 @@ async fn seed_run_payload<E: Executor + Send + Sync>(
     Ok(row)
 }
 
+async fn seed_renamed_parent<E: Executor + Send + Sync>(
+    ex: &E,
+    type_: &str,
+    external_reference: &str,
+    label: &str,
+) -> Result<RenamedParent, dbkit::Error> {
+    let row = RenamedParent::insert(RenamedParentInsert {
+        type_: type_.to_string(),
+        external_reference: external_reference.to_string(),
+        label: label.to_string(),
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted renamed parent");
+    Ok(row)
+}
+
+async fn seed_renamed_child<E: Executor + Send + Sync>(
+    ex: &E,
+    parent_id: i64,
+    type_: &str,
+    rank_key: i64,
+) -> Result<RenamedChild, dbkit::Error> {
+    let row = RenamedChild::insert(RenamedChildInsert {
+        parent_id,
+        type_: type_.to_string(),
+        rank_key,
+    })
+    .returning_all()
+    .one(ex)
+    .await?
+    .expect("inserted renamed child");
+    Ok(row)
+}
+
 #[tokio::test]
 async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
@@ -435,6 +512,57 @@ async fn insert_update_delete_roundtrip() -> Result<(), dbkit::Error> {
 
     let remaining = User::query().all(&tx).await?;
     assert!(remaining.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn renamed_columns_roundtrip_through_crud_filters_and_joined_loads() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let parent = seed_renamed_parent(&tx, "primary", "ref-1", "Example").await?;
+    assert_eq!(parent.type_, "primary");
+    assert_eq!(parent.external_reference, "ref-1");
+    assert_eq!(parent.label, "Example");
+
+    let child = seed_renamed_child(&tx, parent.id, "child", 10).await?;
+    assert_eq!(child.type_, "child");
+    assert_eq!(child.rank_key, 10);
+
+    let filtered = RenamedParent::query()
+        .filter(RenamedParent::type_.eq("primary"))
+        .filter(RenamedParent::external_reference.eq("ref-1"))
+        .one(&tx)
+        .await?
+        .expect("filtered parent");
+    assert_eq!(filtered.id, parent.id);
+    assert_eq!(filtered.type_, "primary");
+
+    let updated_rows = RenamedParent::update()
+        .set(RenamedParent::type_, "secondary")
+        .set(RenamedParent::external_reference, "ref-2")
+        .filter(RenamedParent::id.eq(parent.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated_rows.len(), 1);
+    let updated = &updated_rows[0];
+    assert_eq!(updated.type_, "secondary");
+    assert_eq!(updated.external_reference, "ref-2");
+
+    let loaded = RenamedParent::query()
+        .filter(RenamedParent::id.eq(parent.id))
+        .with(RenamedParent::children.joined())
+        .one(&tx)
+        .await?
+        .expect("joined parent");
+    assert_eq!(loaded.type_, "secondary");
+    assert_eq!(loaded.external_reference, "ref-2");
+    assert_eq!(loaded.children_loaded().len(), 1);
+    assert_eq!(loaded.children_loaded()[0].type_, "child");
+    assert_eq!(loaded.children_loaded()[0].rank_key, 10);
 
     Ok(())
 }
