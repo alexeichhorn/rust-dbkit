@@ -64,6 +64,13 @@ async fn main() -> Result<(), dbkit::Error> {
 }
 ```
 
+If a Rust field needs a different DB column name, use `#[dbkit(column = "...")]`:
+
+```rust
+#[dbkit(column = "type")]
+type_: String,
+```
+
 ## More examples
 
 Basic query + ordering:
