@@ -86,7 +86,7 @@ pub fn sum<T>(arg: impl IntoExpr<T>) -> Expr<T> {
     })
 }
 
-pub fn min<T>(arg: impl IntoExpr<T>) -> Expr<T> {
+pub fn min<T>(arg: impl IntoExpr<T>) -> Expr<Option<T>> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
         name: "MIN",
@@ -94,7 +94,7 @@ pub fn min<T>(arg: impl IntoExpr<T>) -> Expr<T> {
     })
 }
 
-pub fn max<T>(arg: impl IntoExpr<T>) -> Expr<T> {
+pub fn max<T>(arg: impl IntoExpr<T>) -> Expr<Option<T>> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
         name: "MAX",
