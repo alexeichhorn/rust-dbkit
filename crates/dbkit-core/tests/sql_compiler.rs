@@ -329,6 +329,27 @@ fn compiles_group_by_expression() {
 }
 
 #[test]
+fn compiles_min_max_aggregate_projections() {
+    let query = Select::<Sale>::new(sales_table())
+        .select_only()
+        .column_as(sales_region(), "region")
+        .column_as(func::min(sales_created_at()), "first_sale_at")
+        .column_as(func::max(sales_created_at()), "last_sale_at")
+        .column_as(func::min(sales_amount()), "min_amount")
+        .column_as(func::max(sales_amount()), "max_amount")
+        .group_by(sales_region())
+        .having(func::max(sales_amount()).gt(100_i64))
+        .order_by(Order::asc(func::min(sales_created_at())));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT sales.region AS region, MIN(sales.created_at) AS first_sale_at, MAX(sales.created_at) AS last_sale_at, MIN(sales.amount) AS min_amount, MAX(sales.amount) AS max_amount FROM sales GROUP BY sales.region HAVING (MAX(sales.amount) > $1) ORDER BY MIN(sales.created_at) ASC"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(100)]);
+}
+
+#[test]
 fn compiles_order_by_expression() {
     let query: Select<Sale> = Select::new(sales_table())
         .select_only()
