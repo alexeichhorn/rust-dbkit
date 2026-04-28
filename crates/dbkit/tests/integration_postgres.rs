@@ -1281,6 +1281,29 @@ struct BucketAgg {
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct SaleExtremaAgg {
+    region: String,
+    first_sale_at: NaiveDateTime,
+    last_sale_at: NaiveDateTime,
+    min_amount: i64,
+    max_amount: i64,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct EmptySaleExtremaAgg {
+    first_sale_at: Option<NaiveDateTime>,
+    last_sale_at: Option<NaiveDateTime>,
+    min_amount: Option<i64>,
+    max_amount: Option<i64>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableNoteExtremaAgg {
+    min_note: Option<String>,
+    max_note: Option<String>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct UserTodoAgg {
     name: String,
     todo_count: i64,
@@ -1405,6 +1428,59 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(ordered_regions[2].region, "eu");
     assert_eq!(ordered_regions[2].total.to_string(), "30");
 
+    let mut extrema_rows: Vec<SaleExtremaAgg> = Sale::query()
+        .select_only()
+        .column(Sale::region)
+        .column_as(dbkit::func::min(Sale::created_at), "first_sale_at")
+        .column_as(dbkit::func::max(Sale::created_at), "last_sale_at")
+        .column_as(dbkit::func::min(Sale::amount), "min_amount")
+        .column_as(dbkit::func::max(Sale::amount), "max_amount")
+        .group_by(Sale::region)
+        .order_by(dbkit::Order::asc(Sale::region.as_ref()))
+        .into_model()
+        .all(&tx)
+        .await?;
+    extrema_rows.sort_by(|a, b| a.region.cmp(&b.region));
+    assert_eq!(extrema_rows.len(), 3);
+    assert_eq!(extrema_rows[0].region, "apac");
+    assert_eq!(
+        extrema_rows[0].first_sale_at,
+        NaiveDateTime::new(day2, NaiveTime::from_hms_opt(9, 0, 0).expect("time"))
+    );
+    assert_eq!(
+        extrema_rows[0].last_sale_at,
+        NaiveDateTime::new(day2, NaiveTime::from_hms_opt(9, 0, 0).expect("time"))
+    );
+    assert_eq!(extrema_rows[0].min_amount, 200);
+    assert_eq!(extrema_rows[0].max_amount, 200);
+    assert_eq!(extrema_rows[2].region, "us");
+    assert_eq!(
+        extrema_rows[2].first_sale_at,
+        NaiveDateTime::new(day1, NaiveTime::from_hms_opt(10, 0, 0).expect("time"))
+    );
+    assert_eq!(
+        extrema_rows[2].last_sale_at,
+        NaiveDateTime::new(day1, NaiveTime::from_hms_opt(12, 0, 0).expect("time"))
+    );
+    assert_eq!(extrema_rows[2].min_amount, 40);
+    assert_eq!(extrema_rows[2].max_amount, 70);
+
+    let empty_extrema: EmptySaleExtremaAgg = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::min(Sale::created_at), "first_sale_at")
+        .column_as(dbkit::func::max(Sale::created_at), "last_sale_at")
+        .column_as(dbkit::func::min(Sale::amount), "min_amount")
+        .column_as(dbkit::func::max(Sale::amount), "max_amount")
+        .filter(Sale::region.eq("missing"))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(empty_extrema.first_sale_at, None);
+    assert_eq!(empty_extrema.last_sale_at, None);
+    assert_eq!(empty_extrema.min_amount, None);
+    assert_eq!(empty_extrema.max_amount, None);
+
     let user = seed_user(&tx, "AggUser", "agg@db.com").await?;
     let _todo1 = seed_todo(&tx, user.id, "Alpha").await?;
     let _todo2 = seed_todo(&tx, user.id, "Beta").await?;
@@ -1422,6 +1498,42 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(joined_rows.len(), 1);
     assert_eq!(joined_rows[0].name, "AggUser");
     assert_eq!(joined_rows[0].todo_count, 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn min_max_nullable_text_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_nullable_row(&tx, None).await?;
+    seed_nullable_row(&tx, Some("gamma".to_string())).await?;
+    seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+
+    let extrema: NullableNoteExtremaAgg = NullableRow::query()
+        .select_only()
+        .column_as(dbkit::func::min(NullableRow::note), "min_note")
+        .column_as(dbkit::func::max(NullableRow::note), "max_note")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(extrema.min_note.as_deref(), Some("alpha"));
+    assert_eq!(extrema.max_note.as_deref(), Some("gamma"));
+
+    let all_null_extrema: NullableNoteExtremaAgg = NullableRow::query()
+        .select_only()
+        .column_as(dbkit::func::min(NullableRow::note), "min_note")
+        .column_as(dbkit::func::max(NullableRow::note), "max_note")
+        .filter(NullableRow::note.is_null())
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(all_null_extrema.min_note, None);
+    assert_eq!(all_null_extrema.max_note, None);
 
     Ok(())
 }

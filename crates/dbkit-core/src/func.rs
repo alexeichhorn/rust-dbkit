@@ -1,6 +1,6 @@
 use crate::compile::CompiledSql;
-use crate::query::Select;
 use crate::expr::{Expr, ExprNode, IntoExpr, NumericExprType, VectorBinaryOp};
+use crate::query::Select;
 use crate::PgVector;
 
 pub trait StringUnaryExpr {
@@ -82,6 +82,61 @@ pub fn sum<T>(arg: impl IntoExpr<T>) -> Expr<T> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
         name: "SUM",
+        args: vec![expr.node],
+    })
+}
+
+pub trait NullableAggregateOutput {
+    type Output;
+}
+
+macro_rules! impl_nullable_aggregate_output {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl NullableAggregateOutput for $ty {
+                type Output = Option<$ty>;
+            }
+
+            impl NullableAggregateOutput for Option<$ty> {
+                type Output = Option<$ty>;
+            }
+        )+
+    };
+}
+
+impl_nullable_aggregate_output!(
+    String,
+    i16,
+    i32,
+    i64,
+    f32,
+    f64,
+    uuid::Uuid,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::Utc>,
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    crate::PgInterval,
+);
+
+pub fn min<T>(arg: impl IntoExpr<T>) -> Expr<<T as NullableAggregateOutput>::Output>
+where
+    T: NullableAggregateOutput,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "MIN",
+        args: vec![expr.node],
+    })
+}
+
+pub fn max<T>(arg: impl IntoExpr<T>) -> Expr<<T as NullableAggregateOutput>::Output>
+where
+    T: NullableAggregateOutput,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "MAX",
         args: vec![expr.node],
     })
 }

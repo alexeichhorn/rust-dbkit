@@ -580,6 +580,7 @@ let rows: Vec<UserTodoAgg> = User::query()
 Notes:
 - `select_only()` switches from `SELECT *` to projections via `column(...)` or `column_as(...)`.
 - Use `into_model::<T>()` to map into a custom `sqlx::FromRow` struct.
+- Aggregate helpers include `sum`, `count`, `min`, and `max`.
 - `SUM` over integer columns returns `NUMERIC` in Postgres; use `BigDecimal` (or cast) for totals.
 - Aggregations work across joins; order-by currently expects a real column/expr rather than an alias.
 
@@ -728,7 +729,7 @@ tx.commit().await?;
 ## TODOs
 
 - [x] Implement true joined eager loading (single-query join decoding).
-- [x] Add aggregation/projection support: `select_only`, `column_as`, `group_by`, `sum`, `count`, and mapping into custom result structs (e.g., `into_model::<T>()` for aggregates).
+- [x] Add aggregation/projection support: `select_only`, `column_as`, `group_by`, `sum`, `count`, `min`, `max`, and mapping into custom result structs (e.g., `into_model::<T>()` for aggregates).
 - [x] Add SQL function expressions in queries (e.g., `COALESCE`, `DATE_TRUNC`, `UPPER`).
 - [x] Add JSON column support (`serde_json::Value`) for insert/update/filter.
 - [x] Add Postgres array column support (e.g., `Vec<String>`) for insert/update/filter.
