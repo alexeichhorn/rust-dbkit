@@ -1298,6 +1298,12 @@ struct EmptySaleExtremaAgg {
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableNoteExtremaAgg {
+    min_note: Option<String>,
+    max_note: Option<String>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct UserTodoAgg {
     name: String,
     todo_count: i64,
@@ -1492,6 +1498,42 @@ async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(joined_rows.len(), 1);
     assert_eq!(joined_rows[0].name, "AggUser");
     assert_eq!(joined_rows[0].todo_count, 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn min_max_nullable_text_roundtrip() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_nullable_row(&tx, None).await?;
+    seed_nullable_row(&tx, Some("gamma".to_string())).await?;
+    seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+
+    let extrema: NullableNoteExtremaAgg = NullableRow::query()
+        .select_only()
+        .column_as(dbkit::func::min(NullableRow::note), "min_note")
+        .column_as(dbkit::func::max(NullableRow::note), "max_note")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(extrema.min_note.as_deref(), Some("alpha"));
+    assert_eq!(extrema.max_note.as_deref(), Some("gamma"));
+
+    let all_null_extrema: NullableNoteExtremaAgg = NullableRow::query()
+        .select_only()
+        .column_as(dbkit::func::min(NullableRow::note), "min_note")
+        .column_as(dbkit::func::max(NullableRow::note), "max_note")
+        .filter(NullableRow::note.is_null())
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(all_null_extrema.min_note, None);
+    assert_eq!(all_null_extrema.max_note, None);
 
     Ok(())
 }
