@@ -3,7 +3,10 @@ use quote::{format_ident, quote};
 use syn::parse::Parser;
 use syn::{parse_macro_input, Attribute, Field, Fields, Ident, ItemStruct, Meta, Type};
 
-#[proc_macro_derive(Model, attributes(model, key, autoincrement, unique, index, has_many, belongs_to, many_to_many))]
+#[proc_macro_derive(
+    Model,
+    attributes(model, key, autoincrement, unique, index, has_many, belongs_to, many_to_many, dbkit)
+)]
 pub fn derive_model(_input: TokenStream) -> TokenStream {
     TokenStream::from(quote! {
         compile_error!("dbkit: use #[model] instead of #[derive(Model)]");
