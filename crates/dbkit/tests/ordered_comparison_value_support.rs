@@ -47,11 +47,5 @@ fn ordered_comparison_preserves_value_convertible_rhs_support() {
         compiled.sql,
         "SELECT articles.* FROM articles WHERE (articles.attempts >= $1) AND (articles.published_at < $2)"
     );
-    assert_eq!(
-        compiled.binds,
-        vec![
-            Value::I64(3),
-            Value::DateTime(published_cutoff.0),
-        ]
-    );
+    assert_eq!(compiled.binds, vec![Value::I64(3), Value::DateTime(published_cutoff.0),]);
 }

@@ -1,6 +1,6 @@
 use crate::compile::CompiledSql;
-use crate::query::Select;
 use crate::expr::{Expr, ExprNode, IntoExpr, NumericExprType, VectorBinaryOp};
+use crate::query::Select;
 use crate::PgVector;
 
 pub trait StringUnaryExpr {
@@ -82,6 +82,22 @@ pub fn sum<T>(arg: impl IntoExpr<T>) -> Expr<T> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
         name: "SUM",
+        args: vec![expr.node],
+    })
+}
+
+pub fn min<T>(arg: impl IntoExpr<T>) -> Expr<T> {
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "MIN",
+        args: vec![expr.node],
+    })
+}
+
+pub fn max<T>(arg: impl IntoExpr<T>) -> Expr<T> {
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "MAX",
         args: vec![expr.node],
     })
 }
