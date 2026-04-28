@@ -49,6 +49,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_pgvector_raw_vec.rs".into(),
         "pass_interval_api.rs".into(),
         "pass_string_func_api.rs".into(),
+        "pass_column_rename_api.rs".into(),
+        "fail_derive_model_with_dbkit_field_attr.rs".into(),
         "fail_interval_string_hours.rs".into(),
         "fail_interval_float_hours.rs".into(),
         "fail_trim_non_text.rs".into(),

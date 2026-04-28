@@ -3,7 +3,10 @@ use quote::{format_ident, quote};
 use syn::parse::Parser;
 use syn::{parse_macro_input, Attribute, Field, Fields, Ident, ItemStruct, Meta, Type};
 
-#[proc_macro_derive(Model, attributes(model, key, autoincrement, unique, index, has_many, belongs_to, many_to_many))]
+#[proc_macro_derive(
+    Model,
+    attributes(model, key, autoincrement, unique, index, has_many, belongs_to, many_to_many, dbkit)
+)]
 pub fn derive_model(_input: TokenStream) -> TokenStream {
     TokenStream::from(quote! {
         compile_error!("dbkit: use #[model] instead of #[derive(Model)]");
@@ -54,6 +57,7 @@ struct ScalarFieldInfo {
     field: Field,
     ident: Ident,
     ty: Type,
+    column_name: String,
     is_key: bool,
     is_autoincrement: bool,
 }
@@ -80,7 +84,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let table_name = args.table.unwrap_or_else(|| to_snake_case(&struct_ident.to_string()));
     let schema_name = args.schema;
 
-    let mut primary_keys: Vec<(Ident, Type)> = Vec::new();
+    let mut primary_keys: Vec<(Ident, Type, String)> = Vec::new();
     let mut relation_fields = Vec::new();
     let mut output_fields = Vec::new();
     let mut insert_fields = Vec::new();
@@ -110,11 +114,13 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let is_key = has_attr(&field.attrs, "key");
         let is_autoincrement = has_attr(&field.attrs, "autoincrement");
 
-        if is_key {
-            primary_keys.push((field_ident.clone(), field.ty.clone()));
-        }
-
         if is_relation {
+            if parse_field_column_name(&field.attrs)?.is_some() {
+                return Err(syn::Error::new_spanned(
+                    &field,
+                    "dbkit: `#[dbkit(column = \"...\")]` is only supported on scalar fields",
+                ));
+            }
             let (kind, child_type) = relation_type(&field)?;
             let state_mod_ident = format_ident!("{}_{}_state", to_snake_case(&struct_ident.to_string()), field_ident);
             let param_ident = format_ident!("{}Rel", to_camel_case(&field_ident.to_string()));
@@ -153,6 +159,12 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             continue;
         }
 
+        let column_name = parse_field_column_name(&field.attrs)?.unwrap_or_else(|| field_ident.to_string());
+
+        if is_key {
+            primary_keys.push((field_ident.clone(), field.ty.clone(), column_name.clone()));
+        }
+
         let cleaned_field = Field {
             attrs: filter_field_attrs(&field.attrs),
             ..field.clone()
@@ -167,6 +179,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             field: cleaned_field,
             ident: field_ident,
             ty: field.ty.clone(),
+            column_name,
             is_key,
             is_autoincrement,
         });
@@ -228,7 +241,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .filter(|field| !is_relation_field(field, &relation_fields))
         .map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
-            let name = ident.to_string();
+            let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
             let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
             quote!(pub const #ident: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
         })
@@ -249,7 +262,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let primary_key_refs = primary_keys
         .iter()
-        .map(|(ident, _)| quote!(Self::#ident.as_ref()))
+        .map(|(ident, _, _)| quote!(Self::#ident.as_ref()))
         .collect::<Vec<_>>();
 
     let primary_keys_const = if primary_keys.is_empty() {
@@ -335,7 +348,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
     );
 
-    let pk_idents = primary_keys.iter().map(|(ident, _)| ident.clone()).collect::<Vec<_>>();
+    let pk_idents = primary_keys.iter().map(|(ident, _, _)| ident.clone()).collect::<Vec<_>>();
 
     let active_update_fn = if !primary_keys.is_empty() {
         let pk_vars = primary_keys
@@ -343,7 +356,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             .enumerate()
             .map(|(idx, _)| format_ident!("pk_value_{}", idx))
             .collect::<Vec<_>>();
-        let pk_extracts = primary_keys.iter().zip(pk_vars.iter()).map(|((ident, _), var)| {
+        let pk_extracts = primary_keys.iter().zip(pk_vars.iter()).map(|((ident, _, _), var)| {
             let pk_name = ident.to_string();
             quote!(
                 let #var = match #ident {
@@ -360,7 +373,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let pk_filters = primary_keys
             .iter()
             .zip(pk_vars.iter())
-            .map(|((ident, _), var)| quote!(update = update.filter(#struct_ident::#ident.eq(#var));));
+            .map(|((ident, _, _), var)| quote!(update = update.filter(#struct_ident::#ident.eq(#var));));
         let update_steps = scalar_fields.iter().filter(|field| !field.is_key).map(|field| {
             let ident = &field.ident;
             let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
@@ -408,7 +421,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             .enumerate()
             .map(|(idx, _)| format_ident!("pk_value_{}", idx))
             .collect::<Vec<_>>();
-        let pk_extracts = primary_keys.iter().zip(pk_vars.iter()).map(|((ident, _), var)| {
+        let pk_extracts = primary_keys.iter().zip(pk_vars.iter()).map(|((ident, _, _), var)| {
             let pk_name = ident.to_string();
             quote!(
                 let #var = match #ident {
@@ -425,7 +438,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let pk_filters = primary_keys
             .iter()
             .zip(pk_vars.iter())
-            .map(|((ident, _), var)| quote!(delete = delete.filter(#struct_ident::#ident.eq(#var));));
+            .map(|((ident, _, _), var)| quote!(delete = delete.filter(#struct_ident::#ident.eq(#var));));
         quote!(
             pub async fn delete(
                 self,
@@ -533,7 +546,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let model_delete_impl = if !primary_keys.is_empty() {
         let pk_filters = primary_keys
             .iter()
-            .map(|(ident, _)| quote!(delete = delete.filter(Self::#ident.eq(#ident));));
+            .map(|(ident, _, _)| quote!(delete = delete.filter(Self::#ident.eq(#ident));));
         quote!(
             impl #impl_generics ::dbkit::ModelDelete for #model_ident #struct_type_args {
                 fn delete<'e, E>(self, ex: &'e E) -> ::dbkit::executor::BoxFuture<'e, Result<u64, ::dbkit::Error>>
@@ -561,15 +574,14 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     );
 
     let primary_key_const = if primary_keys.len() == 1 {
-        let (ident, ty) = primary_keys.first().expect("primary key length checked");
-        let name = ident.to_string();
+        let (_, ty, name) = primary_keys.first().expect("primary key length checked");
         Some(quote!(pub const PRIMARY_KEY: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);))
     } else {
         None
     };
 
     let by_id_fn = if primary_keys.len() == 1 {
-        let (ident, ty) = primary_keys.first().expect("primary key length checked");
+        let (ident, ty, _) = primary_keys.first().expect("primary key length checked");
         Some(quote!(
             pub fn by_id(id: #ty) -> ::dbkit::Select<#struct_ident> {
                 Self::query().filter(Self::#ident.eq(id)).limit(1)
@@ -671,7 +683,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .filter(|field| !is_relation_field(field, &relation_fields))
         .map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
-            let name = ident.to_string();
+            let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
             quote!(#name => Some(self.#ident.clone().into()),)
         });
 
@@ -706,7 +718,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         if is_relation_field(field, &relation_fields) {
             quote!(#ident: Default::default())
         } else {
-            let name = ident.to_string();
+            let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
             quote!(#ident: ::dbkit::sqlx::Row::try_get(row, #name)?)
         }
     });
@@ -728,7 +740,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         if is_relation_field(field, &relation_fields) {
             quote!(#ident: Default::default())
         } else {
-            let name = ident.to_string();
+            let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
             quote!(
                 #ident: {
                     let column = format!("{}{}", prefix, #name);
@@ -740,7 +752,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let joined_pk_checks = if primary_keys.is_empty() {
         if let Some(first_field) = scalar_fields.first() {
-            let name = first_field.ident.to_string();
+            let name = &first_field.column_name;
             let ty = option_inner_type(&first_field.ty).unwrap_or_else(|| first_field.ty.clone());
             quote!(
                 let value: Option<#ty> = {
@@ -753,8 +765,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             quote!(Ok(false))
         }
     } else {
-        let checks = primary_keys.iter().map(|(ident, ty)| {
-            let name = ident.to_string();
+        let checks = primary_keys.iter().map(|(_, ty, name)| {
             let ty = option_inner_type(ty).unwrap_or_else(|| ty.clone());
             quote!(
                 let value: Option<#ty> = {
@@ -1062,7 +1073,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 let through = rel.many_to_many_through.as_ref().expect("many-to-many through");
                 let left_key = rel.many_to_many_left_key.as_ref().expect("many-to-many left_key");
                 let right_key = rel.many_to_many_right_key.as_ref().expect("many-to-many right_key");
-                let parent_pk = primary_keys.first().map(|(ident, _)| ident).expect("many-to-many parent pk");
+                let parent_pk = primary_keys.first().map(|(ident, _, _)| ident).expect("many-to-many parent pk");
                 Some(quote!(
                     pub const #field_ident: ::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through> =
                         ::dbkit::rel::ManyToMany::new(
@@ -1473,6 +1484,34 @@ fn extract_ident(expr: &syn::Expr) -> Option<Ident> {
     }
 }
 
+fn parse_field_column_name(attrs: &[Attribute]) -> syn::Result<Option<String>> {
+    let mut column_name = None;
+    for attr in attrs {
+        if !attr.path().is_ident("dbkit") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("column") {
+                if column_name.is_some() {
+                    return Err(meta.error("dbkit: duplicate field column rename"));
+                }
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                column_name = Some(lit.value());
+                return Ok(());
+            }
+            Err(meta.error("dbkit: unsupported field option; expected `column`"))
+        })?;
+    }
+    Ok(column_name)
+}
+
+fn scalar_column_name<'a>(fields: &'a [ScalarFieldInfo], ident: &Ident) -> Option<&'a str> {
+    fields
+        .iter()
+        .find(|field| field.ident == *ident)
+        .map(|field| field.column_name.as_str())
+}
+
 fn option_inner_type(ty: &Type) -> Option<Type> {
     let path = match ty {
         Type::Path(path) => path,
@@ -1531,7 +1570,14 @@ fn is_field_orm_attr(attr: &Attribute) -> bool {
     let name = attr.path().get_ident().map(|ident| ident.to_string());
     matches!(
         name.as_deref(),
-        Some("key") | Some("autoincrement") | Some("unique") | Some("index") | Some("has_many") | Some("belongs_to") | Some("many_to_many")
+        Some("key")
+            | Some("autoincrement")
+            | Some("unique")
+            | Some("index")
+            | Some("has_many")
+            | Some("belongs_to")
+            | Some("many_to_many")
+            | Some("dbkit")
     )
 }
 
