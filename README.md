@@ -775,11 +775,10 @@ Transaction-local Postgres settings:
 
 ```rust
 let tx = db.begin().await?;
-tx.set_local("hnsw.ef_search", 1000).await?;
+tx.set_local("statement_timeout", "5s").await?;
 
-let rows = EmbeddingRow::query()
-    .order_by(dbkit::Order::asc(dbkit::func::l2_distance(EmbeddingRow::embedding, query)))
-    .limit(1000)
+let users = User::query()
+    .filter(User::email.like("%@example.com"))
     .all(&tx)
     .await?;
 
