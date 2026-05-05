@@ -771,6 +771,24 @@ let users = User::query().all(&tx).await?;
 tx.commit().await?;
 ```
 
+Transaction-local Postgres settings:
+
+```rust
+let tx = db.begin().await?;
+tx.set_local("hnsw.ef_search", 1000).await?;
+
+let rows = EmbeddingRow::query()
+    .order_by(dbkit::Order::asc(dbkit::func::l2_distance(EmbeddingRow::embedding, query)))
+    .limit(1000)
+    .all(&tx)
+    .await?;
+
+tx.commit().await?;
+```
+
+`set_local` uses PostgreSQL `set_config(..., true)`, so the setting is scoped to the current transaction
+instead of leaking across pooled connection reuse.
+
 ## TODOs
 
 - [x] Implement true joined eager loading (single-query join decoding).
