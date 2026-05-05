@@ -771,6 +771,23 @@ let users = User::query().all(&tx).await?;
 tx.commit().await?;
 ```
 
+Transaction-local Postgres settings:
+
+```rust
+let tx = db.begin().await?;
+tx.set_local("statement_timeout", "5s").await?;
+
+let users = User::query()
+    .filter(User::email.like("%@example.com"))
+    .all(&tx)
+    .await?;
+
+tx.commit().await?;
+```
+
+`set_local` uses PostgreSQL `set_config(..., true)`, so the setting is scoped to the current transaction
+instead of leaking across pooled connection reuse.
+
 ## TODOs
 
 - [x] Implement true joined eager loading (single-query join decoding).

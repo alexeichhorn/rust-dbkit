@@ -48,6 +48,22 @@ impl<'t> DbTransaction<'t> {
         }
     }
 
+    pub async fn set_local(&self, name: impl AsRef<str>, value: impl ToString) -> Result<(), Error> {
+        let name = name.as_ref().to_string();
+        let value = value.to_string();
+        let mut guard = self.inner.lock().await;
+        let tx = guard
+            .as_mut()
+            .ok_or_else(|| Error::Decode("transaction already completed".to_string()))?;
+        let conn = tx.as_mut();
+        sqlx::query("SELECT set_config($1, $2, true)")
+            .bind(name)
+            .bind(value)
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
     pub async fn commit(self) -> Result<(), Error> {
         let tx = {
             let mut guard = self.inner.lock().await;
