@@ -83,7 +83,7 @@ impl Executor for CaptureExecutor {
 #[tokio::test]
 async fn joined_has_many_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<UserModel<Vec<Todo>>> = User::query().with(User::todos.joined()).all(&ex).await?;
+    let _rows: Vec<User<Vec<Todo>>> = User::query().with(User::todos.joined()).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);
@@ -97,7 +97,7 @@ async fn joined_has_many_uses_single_join_query() -> Result<(), dbkit::Error> {
 #[tokio::test]
 async fn joined_belongs_to_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<TodoModel<Option<User>>> = Todo::query().with(Todo::user.joined()).all(&ex).await?;
+    let _rows: Vec<Todo<Option<User>>> = Todo::query().with(Todo::user.joined()).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);
@@ -111,7 +111,7 @@ async fn joined_belongs_to_uses_single_join_query() -> Result<(), dbkit::Error> 
 #[tokio::test]
 async fn joined_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query().with(Todo::tags.joined()).all(&ex).await?;
+    let _rows: Vec<Todo<dbkit::NotLoaded, Vec<Tag>>> = Todo::query().with(Todo::tags.joined()).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);
@@ -126,7 +126,7 @@ async fn joined_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error
 #[tokio::test]
 async fn joined_nested_many_to_many_uses_single_join_query() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> =
+    let _rows: Vec<User<Vec<Todo<dbkit::NotLoaded, Vec<Tag>>>>> =
         User::query().with(User::todos.joined().with(Todo::tags.joined())).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
@@ -143,7 +143,7 @@ async fn joined_nested_many_to_many_uses_single_join_query() -> Result<(), dbkit
 #[tokio::test]
 async fn joined_for_update_scopes_lock_to_base_table() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<UserModel<Vec<Todo>>> = User::query().with(User::todos.joined()).for_update().nowait().all(&ex).await?;
+    let _rows: Vec<User<Vec<Todo>>> = User::query().with(User::todos.joined()).for_update().nowait().all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);

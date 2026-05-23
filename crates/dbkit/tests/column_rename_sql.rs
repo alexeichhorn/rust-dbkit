@@ -150,7 +150,7 @@ fn renamed_columns_are_used_in_mutation_sql() {
 #[tokio::test]
 async fn joined_loading_sql_aliases_renamed_columns_by_database_name() -> Result<(), dbkit::Error> {
     let ex = CaptureExecutor::new();
-    let _rows: Vec<RenamedParentModel<Vec<RenamedChild>>> = RenamedParent::query().with(RenamedParent::children.joined()).all(&ex).await?;
+    let _rows: Vec<RenamedParent<Vec<RenamedChild>>> = RenamedParent::query().with(RenamedParent::children.joined()).all(&ex).await?;
 
     let sqls = ex.sqls.lock().expect("lock");
     assert_eq!(sqls.len(), 1);

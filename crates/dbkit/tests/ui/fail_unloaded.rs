@@ -19,7 +19,7 @@ pub struct Todo {
 }
 
 fn main() {
-    let unloaded = UserModel {
+    let unloaded = User {
         id: 1,
         todos: dbkit::NotLoaded,
     };
