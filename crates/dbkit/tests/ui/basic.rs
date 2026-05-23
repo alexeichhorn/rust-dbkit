@@ -37,12 +37,11 @@ fn main() {
     let _rel = User::todos;
     let _rel2 = Todo::user;
     let _load = User::todos.selectin();
-    let _loaded_query: dbkit::Select<UserModel<Vec<Todo>>, _> =
-        User::query().with(User::todos.selectin());
-    let _nested_query: dbkit::Select<UserModel<Vec<TodoModel<Option<User>>>>, _> = User::query()
-        .with(User::todos.selectin().with(Todo::user.joined()));
+    let _loaded_query: dbkit::Select<User<Vec<Todo>>, _> = User::query().with(User::todos.selectin());
+    let _nested_query: dbkit::Select<User<Vec<Todo<Option<User>>>>, _> =
+        User::query().with(User::todos.selectin().with(Todo::user.joined()));
 
-    let loaded = UserModel::<Vec<Todo>> {
+    let loaded = User::<Vec<Todo>> {
         id: 1,
         name: "Alex".to_string(),
         email: "a@b.com".to_string(),
@@ -91,7 +90,7 @@ fn main() {
         }
     }
 
-    let unloaded = UserModel {
+    let unloaded = User {
         id: 1,
         name: "Alex".to_string(),
         email: "a@b.com".to_string(),

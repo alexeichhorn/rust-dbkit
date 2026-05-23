@@ -734,7 +734,7 @@ async fn selectin_has_many_loads_children() -> Result<(), dbkit::Error> {
     let _todo1 = seed_todo(&tx, user.id, "Write tests").await?;
     let _todo2 = seed_todo(&tx, user.id, "Ship code").await?;
 
-    let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    let users: Vec<User<Vec<Todo>>> = User::query()
         .filter(User::id.eq(user.id))
         .with(User::todos.selectin())
         .all(&tx)
@@ -757,7 +757,7 @@ async fn selectin_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
     let user = seed_user(&tx, "Dana", "d@b.com").await?;
     let todo = seed_todo(&tx, user.id, "Map relations").await?;
 
-    let todos: Vec<TodoModel<Option<User>>> = Todo::query()
+    let todos: Vec<Todo<Option<User>>> = Todo::query()
         .filter(Todo::id.eq(todo.id))
         .with(Todo::user.selectin())
         .all(&tx)
@@ -781,7 +781,7 @@ async fn joined_has_many_loads_children() -> Result<(), dbkit::Error> {
     let _todo1 = seed_todo(&tx, user.id, "Joined A").await?;
     let _todo2 = seed_todo(&tx, user.id, "Joined B").await?;
 
-    let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    let users: Vec<User<Vec<Todo>>> = User::query()
         .filter(User::id.eq(user.id))
         .with(User::todos.joined())
         .all(&tx)
@@ -803,7 +803,7 @@ async fn joined_has_many_includes_empty_children() -> Result<(), dbkit::Error> {
 
     let user = seed_user(&tx, "Empty", "empty@db.com").await?;
 
-    let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    let users: Vec<User<Vec<Todo>>> = User::query()
         .filter(User::id.eq(user.id))
         .with(User::todos.joined())
         .all(&tx)
@@ -825,7 +825,7 @@ async fn joined_has_many_filters_children_when_join_filtered() -> Result<(), dbk
     let _todo_keep = seed_todo(&tx, user.id, "Keep").await?;
     let _todo_drop = seed_todo(&tx, user.id, "Drop").await?;
 
-    let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    let users: Vec<User<Vec<Todo>>> = User::query()
         .join(User::todos)
         .filter(Todo::title.eq("Keep"))
         .distinct()
@@ -849,7 +849,7 @@ async fn joined_belongs_to_loads_parent() -> Result<(), dbkit::Error> {
     let user = seed_user(&tx, "Joined Parent", "joined-parent@db.com").await?;
     let todo = seed_todo(&tx, user.id, "Joined child").await?;
 
-    let todos: Vec<TodoModel<Option<User>>> = Todo::query()
+    let todos: Vec<Todo<Option<User>>> = Todo::query()
         .filter(Todo::id.eq(todo.id))
         .with(Todo::user.joined())
         .all(&tx)
@@ -879,7 +879,7 @@ async fn joined_nested_filters_children_when_join_filtered() -> Result<(), dbkit
     let _keep_a = seed_todo_tag(&tx, todo_keep.id, tag_a.id).await?;
     let _drop_b = seed_todo_tag(&tx, todo_drop.id, tag_b.id).await?;
 
-    let users: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
+    let users: Vec<User<Vec<Todo<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
         .join(User::todos)
         .filter(Todo::title.eq("Keep"))
         .distinct()
@@ -911,7 +911,7 @@ async fn joined_many_to_many_filters_children_when_join_filtered() -> Result<(),
     let _link_a = seed_todo_tag(&tx, todo.id, tag_a.id).await?;
     let _link_b = seed_todo_tag(&tx, todo.id, tag_b.id).await?;
 
-    let todos: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
+    let todos: Vec<Todo<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
         .join(Todo::tags)
         .filter(Tag::name.eq("A"))
         .distinct()
@@ -935,7 +935,7 @@ async fn nested_selectin_loads() -> Result<(), dbkit::Error> {
     let user = seed_user(&tx, "Jo", "jo@b.com").await?;
     let _todo = seed_todo(&tx, user.id, "Chain loads").await?;
 
-    let users = User::query() // should be Vec<UserModel<Vec<TodoModel<Option<User>>>>>
+    let users = User::query() // should be Vec<User<Vec<Todo<Option<User>>>>>
         .filter(User::id.eq(user.id))
         .with(User::todos.selectin().with(Todo::user.selectin()))
         .all(&tx)
@@ -1606,7 +1606,7 @@ async fn many_to_many_selectin_loads_children() -> Result<(), dbkit::Error> {
     let _t1b = seed_todo_tag(&tx, todo1.id, tag_b.id).await?;
     let _t2b = seed_todo_tag(&tx, todo2.id, tag_b.id).await?;
 
-    let todos: Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
+    let todos: Vec<Todo<dbkit::NotLoaded, Vec<Tag>>> = Todo::query()
         .filter(Todo::user_id.eq(user.id))
         .with(Todo::tags.selectin())
         .all(&tx)
@@ -1655,7 +1655,7 @@ async fn many_to_many_selectin_reverse_loads_parents() -> Result<(), dbkit::Erro
     let _t1b = seed_todo_tag(&tx, todo1.id, tag_b.id).await?;
     let _t2b = seed_todo_tag(&tx, todo2.id, tag_b.id).await?;
 
-    let tags: Vec<TagModel<Vec<Todo>>> = Tag::query().with(Tag::todos.selectin()).all(&tx).await?;
+    let tags: Vec<Tag<Vec<Todo>>> = Tag::query().with(Tag::todos.selectin()).all(&tx).await?;
 
     let tag_a_loaded = tags.iter().find(|tag| tag.id == tag_a.id).expect("tag a");
     let mut todos_a: Vec<String> = tag_a_loaded.todos.iter().map(|todo| todo.title.clone()).collect();

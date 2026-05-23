@@ -66,7 +66,7 @@ async fn main() -> Result<(), dbkit::Error> {
     .await?;
 
     // Parent -> children -> grandchildren, all reflected in the result type.
-    let users: Vec<UserModel<Vec<TodoModel<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
+    let users: Vec<User<Vec<Todo<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
         .filter(User::email.ilike("%@example.com"))
         .with(User::todos.selectin().with(Todo::tags.selectin()))
         .all(&db)
@@ -81,7 +81,7 @@ async fn main() -> Result<(), dbkit::Error> {
     }
 
     // Child -> parent works the same way, and the parent can load its graph too.
-    let todos: Vec<TodoModel<Option<UserModel<Vec<Todo>>>, dbkit::NotLoaded>> = Todo::query()
+    let todos: Vec<Todo<Option<User<Vec<Todo>>>, dbkit::NotLoaded>> = Todo::query()
         .with(Todo::user.selectin().with(User::todos.selectin()))
         .all(&db)
         .await?;
@@ -424,12 +424,12 @@ let updated = active.save(&db).await?;
 Eager loading and join filtering:
 
 ```rust
-let users: Vec<UserModel<Vec<Todo>>> = User::query()
+let users: Vec<User<Vec<Todo>>> = User::query()
     .with(User::todos.selectin())
     .all(&db)
     .await?;
 
-let users: Vec<UserModel<Vec<Todo>>> = User::query()
+let users: Vec<User<Vec<Todo>>> = User::query()
     .with(User::todos.joined())
     .all(&db)
     .await?;
@@ -446,14 +446,14 @@ Select-in vs joined eager loading:
 
 ```rust
 // selectin = 1 query for parents, then 1 query per relation (per level)
-let users: Vec<UserModel<Vec<Todo>>> = User::query()
+let users: Vec<User<Vec<Todo>>> = User::query()
     .limit(10)
     .with(User::todos.selectin())
     .all(&db)
     .await?;
 
 // joined = single SQL query with LEFT JOINs + row decoding
-let users: Vec<UserModel<Vec<Todo>>> = User::query()
+let users: Vec<User<Vec<Todo>>> = User::query()
     .with(User::todos.joined())
     .all(&db)
     .await?;
@@ -531,24 +531,24 @@ let stale = Job::query()
 Type-level loaded relations:
 
 ```rust
-// `User` is the "bare row" alias: all relations are `NotLoaded`.
+// `User` with default generic params is the bare row: all relations are `NotLoaded`.
 fn accepts_unloaded(user: &User) {
     println!("{}", user.name);
 }
 
-// Use the generic model type to require loaded relations in APIs.
-fn needs_loaded(user: &UserModel<Vec<Todo>>) {
+// Use the model type's generic params to require loaded relations in APIs.
+fn needs_loaded(user: &User<Vec<Todo>>) {
     // safe: todos are guaranteed to be loaded
     println!("todos: {}", user.todos.len());
 }
 
 // For multiple relations, generic params follow relation-field order.
 // In this repo, `Todo` declares `user` then `tags`, so:
-// - user loaded, tags not loaded => TodoModel<Option<User>, dbkit::NotLoaded>
-// - user loaded, tags loaded     => TodoModel<Option<User>, Vec<Tag>>
+// - user loaded, tags not loaded => Todo<Option<User>, dbkit::NotLoaded>
+// - user loaded, tags loaded     => Todo<Option<User>, Vec<Tag>>
 //
 // Nested loaded relations compose too:
-// `UserModel<Vec<TodoModel<Option<User>, Vec<Tag>>>>`
+// `User<Vec<Todo<Option<User>, Vec<Tag>>>>`
 // (i.e., users with todos loaded, and each todo has its user + tags loaded)
 ```
 
@@ -803,7 +803,7 @@ instead of leaking across pooled connection reuse.
 - [x] Add locking options: `for_update`, `skip_locked`, `nowait`.
 - [x] Add optional helpers: `count()`, `exists()`, `paginate()`.
 - [x] Add typed conflict helpers: `on_conflict_do_nothing`, `on_conflict_do_update`.
-- [x] Add ActiveModel `save()` that chooses insert vs update.
+- [x] Add active model `save()` that chooses insert vs update.
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
 ## Deviations from spec

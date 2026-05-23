@@ -34,7 +34,7 @@ where
 }
 
 fn main() {
-    assert_from_row::<ArticleModel>();
+    assert_from_row::<Article>();
 
     let _query = Article::query()
         .filter(Article::state.eq(PublicationState::Draft))

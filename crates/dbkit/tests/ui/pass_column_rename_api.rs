@@ -52,7 +52,7 @@ fn main() {
         .set(RenamedParent::type_, "secondary")
         .set(RenamedParent::external_reference, "ref-2");
 
-    let loaded = RenamedParentModel::<Vec<RenamedChild>> {
+    let loaded = RenamedParent::<Vec<RenamedChild>> {
         id: 1,
         type_: "primary".to_string(),
         external_reference: "ref-1".to_string(),
