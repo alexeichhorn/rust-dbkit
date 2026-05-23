@@ -2,6 +2,186 @@
 
 All notable changes to `dbkit` will be documented in this file.
 
+## 0.2.1
+
+This release adds more typed SQL expression support, row-value filters, correlated `EXISTS` queries, column rename attributes, transaction-local settings, and a set of SQL compiler fixes around subqueries, nullable expressions, and enum casts.
+
+### New Features
+
+#### Column rename attributes via `#[dbkit(column = "...")]`
+
+Model fields can now map to database columns with different names. This is useful for reserved words, legacy schemas, or Rust naming conventions.
+
+Minimal example:
+
+```rust
+#[dbkit::model(table = "events")]
+struct Event {
+    #[key]
+    id: i64,
+
+    #[dbkit(column = "type")]
+    type_: String,
+
+    #[dbkit(column = "external_ref")]
+    external_reference: String,
+}
+```
+
+Queries, inserts, updates, joined loading, and row decoding all use the configured database column name.
+
+#### Row-value filters for composite lookups
+
+`dbkit::row((...)).in_(...)` can now express multi-column `IN` filters with typed values.
+
+Minimal example:
+
+```rust
+let rows = LookupRow::query()
+    .filter(dbkit::row((
+        LookupRow::scope,
+        LookupRow::external_key,
+        LookupRow::locale,
+    )).in_([
+        (LookupScope::Public, "alpha", "en"),
+        (LookupScope::Internal, "beta", "de"),
+    ]))
+    .all(&db)
+    .await?;
+```
+
+This also supports enum casts and reuses repeated bind values where possible.
+
+#### Correlated `EXISTS` / `NOT EXISTS` filters
+
+Select, update, and delete builders now support `where_exists(...)` and `where_not_exists(...)`.
+
+Minimal example:
+
+```rust
+let projects = Project::query()
+    .where_exists(
+        Task::query()
+            .select_only()
+            .column(Task::id)
+            .filter(Task::project_id.eq_col(Project::id))
+            .filter(Task::state.eq("active")),
+    )
+    .all(&db)
+    .await?;
+```
+
+The same pattern works for mutations:
+
+```rust
+let deleted = Task::delete()
+    .where_exists(
+        Project::query()
+            .select_only()
+            .column(Project::id)
+            .filter(Project::id.eq_col(Task::project_id))
+            .filter(Project::state.eq("archived")),
+    )
+    .execute(&db)
+    .await?;
+```
+
+#### More typed SQL functions
+
+This release adds typed helpers for common string, aggregate, comparison, and math expressions.
+
+Available helpers include:
+
+- `dbkit::func::trim`
+- `dbkit::func::char_length`
+- `dbkit::func::min`
+- `dbkit::func::max`
+- `dbkit::func::least`
+- `dbkit::func::greatest`
+- `dbkit::func::power`
+
+Minimal example:
+
+```rust
+let rows = TextSample::query()
+    .filter(dbkit::func::char_length(dbkit::func::trim(TextSample::body)).ge(5))
+    .all(&db)
+    .await?;
+```
+
+#### Dynamic interval math
+
+Interval expressions now accept typed expressions, not only literal values. This makes retry windows, stale-row queries, and exponential backoff filters easier to express without raw SQL.
+
+Minimal example:
+
+```rust
+let retry_seconds = dbkit::func::least(
+    3600.0_f64,
+    dbkit::func::power(2.0_f64, WorkRun::attempts - 1_i32) * 60.0_f64,
+);
+
+let rows = WorkRun::query()
+    .filter(WorkRun::updated_at.le(now - dbkit::interval::seconds(retry_seconds)))
+    .all(&db)
+    .await?;
+```
+
+#### Transaction-local Postgres settings
+
+`DbTransaction::set_local(...)` can now set PostgreSQL settings scoped to the current transaction.
+
+Minimal example:
+
+```rust
+let tx = db.begin().await?;
+tx.set_local("statement_timeout", "5s").await?;
+
+let rows = User::query().all(&tx).await?;
+
+tx.commit().await?;
+```
+
+`set_local` uses PostgreSQL `set_config(..., true)`, so settings do not leak across pooled connection reuse.
+
+### Behavior And Safety Improvements
+
+#### Safer subquery placeholder rebinding
+
+Subquery SQL rebinding is now more robust around quoted identifiers, UTF-8 aliases, aliases containing `$`, and schema-qualified enum casts.
+
+This improves generated SQL for nested and correlated queries, especially when subqueries include enum values or unusual table aliases.
+
+#### Nullable aggregate typing for `min` and `max`
+
+`min` and `max` now model PostgreSQL aggregate behavior more accurately by returning nullable output types.
+
+Minimal example:
+
+```rust
+let row = Sale::query()
+    .select_only()
+    .column_as(dbkit::func::min(Sale::created_at), "first_sale_at")
+    .column_as(dbkit::func::max(Sale::created_at), "last_sale_at")
+    .into_model::<SaleExtrema>()
+    .one(&db)
+    .await?;
+```
+
+#### Nullable comparison value support
+
+Ordered comparison helpers now work better with nullable expressions and typed expression values, which helps dynamic interval math and other composed filters.
+
+#### Row-value SQL generation fixes
+
+Row-value `IN` filters handle empty input, repeated values, enum casts, and mixed typed columns correctly.
+
+### Upgrade Notes
+
+- There are no intended user-facing breaking changes in this release.
+- If you use only the high-level model/query APIs, this should be a normal dependency bump.
+- Low-level expression internals gained variants to support the new SQL features; code matching directly on `ExprNode` or `BinaryOp` may need additional arms.
+
 ## 0.2.0
 
 This is the first substantial release since `0.1.1`. It includes first-class Postgres enums, `pgvector` support, row locking, migrations, arithmetic and interval expressions, column-to-column comparisons, wider typed `ON CONFLICT` support, configurable pool options, and `sqlx` 0.8.
