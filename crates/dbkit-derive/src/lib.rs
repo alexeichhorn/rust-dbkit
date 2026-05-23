@@ -77,7 +77,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     }
 
     let struct_ident = input.ident;
-    let model_ident = format_ident!("{}Model", struct_ident);
+    let model_ident = struct_ident.clone();
     let insert_ident = format_ident!("{}Insert", struct_ident);
     let vis = input.vis;
 
@@ -236,6 +236,22 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         quote!(<#(#generic_idents),*>)
     };
 
+    let default_state_args = relation_fields.iter().map(|_| quote!(::dbkit::NotLoaded)).collect::<Vec<_>>();
+
+    let default_type_args = if default_state_args.is_empty() {
+        quote!()
+    } else {
+        quote!(<#(#default_state_args),*>)
+    };
+
+    let default_model_ty = quote!(#model_ident #default_type_args);
+
+    let default_model_path = if default_state_args.is_empty() {
+        quote!(#model_ident)
+    } else {
+        quote!(#model_ident::<#(#default_state_args),*>)
+    };
+
     let columns = output_fields
         .iter()
         .filter(|field| !is_relation_field(field, &relation_fields))
@@ -243,7 +259,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             let ident = field.ident.as_ref().expect("field ident");
             let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
             let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
-            quote!(pub const #ident: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
+            quote!(pub const #ident: ::dbkit::Column<#default_model_ty, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
         })
         .collect::<Vec<_>>();
 
@@ -319,16 +335,16 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                     #required_check
                 }
                 ::dbkit::ActiveValue::Set(value) => {
-                    insert = insert.value(#struct_ident::#ident, value);
+                    insert = insert.value(#default_model_path::#ident, value);
                 }
                 ::dbkit::ActiveValue::Unchanged(value) => {
-                    insert = insert.value(#struct_ident::#ident, value);
+                    insert = insert.value(#default_model_path::#ident, value);
                 }
                 ::dbkit::ActiveValue::UnchangedNull => {
-                    insert = insert.value(#struct_ident::#ident, None::<#ty>);
+                    insert = insert.value(#default_model_path::#ident, None::<#ty>);
                 }
                 ::dbkit::ActiveValue::Null => {
-                    insert = insert.value(#struct_ident::#ident, None::<#ty>);
+                    insert = insert.value(#default_model_path::#ident, None::<#ty>);
                 }
             }
         )
@@ -338,9 +354,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         pub async fn insert(
             self,
             ex: &(impl ::dbkit::Executor + Send + Sync),
-        ) -> Result<#struct_ident, ::dbkit::Error> {
+        ) -> Result<#default_model_ty, ::dbkit::Error> {
             let Self { #(#active_destructure,)* } = self;
-            let mut insert = ::dbkit::Insert::new(#struct_ident::TABLE);
+            let mut insert = ::dbkit::Insert::new(#default_model_path::TABLE);
             #(#active_insert_steps)*
             let insert = insert.returning_all();
             let row = ::dbkit::InsertExt::one(insert, ex).await?;
@@ -373,7 +389,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let pk_filters = primary_keys
             .iter()
             .zip(pk_vars.iter())
-            .map(|((ident, _, _), var)| quote!(update = update.filter(#struct_ident::#ident.eq(#var));));
+            .map(|((ident, _, _), var)| quote!(update = update.filter(#default_model_path::#ident.eq(#var));));
         let update_steps = scalar_fields.iter().filter(|field| !field.is_key).map(|field| {
             let ident = &field.ident;
             let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
@@ -381,12 +397,12 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 match #ident {
                     ::dbkit::ActiveValue::Unset => {}
                     ::dbkit::ActiveValue::Set(value) => {
-                        update = update.set(#struct_ident::#ident, value);
+                        update = update.set(#default_model_path::#ident, value);
                         any_set = true;
                     }
                     ::dbkit::ActiveValue::Unchanged(_) | ::dbkit::ActiveValue::UnchangedNull => {}
                     ::dbkit::ActiveValue::Null => {
-                        update = update.set(#struct_ident::#ident, None::<#ty>);
+                        update = update.set(#default_model_path::#ident, None::<#ty>);
                         any_set = true;
                     }
                 }
@@ -396,10 +412,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             pub async fn update(
                 self,
                 ex: &(impl ::dbkit::Executor + Send + Sync),
-            ) -> Result<#struct_ident, ::dbkit::Error> {
+            ) -> Result<#default_model_ty, ::dbkit::Error> {
                 let Self { #(#active_destructure,)* } = self;
                 #(#pk_extracts)*
-                let mut update = ::dbkit::Update::new(#struct_ident::TABLE);
+                let mut update = ::dbkit::Update::new(#default_model_path::TABLE);
                 let mut any_set = false;
                 #(#update_steps)*
                 if !any_set {
@@ -438,7 +454,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let pk_filters = primary_keys
             .iter()
             .zip(pk_vars.iter())
-            .map(|((ident, _, _), var)| quote!(delete = delete.filter(#struct_ident::#ident.eq(#var));));
+            .map(|((ident, _, _), var)| quote!(delete = delete.filter(#default_model_path::#ident.eq(#var));));
         quote!(
             pub async fn delete(
                 self,
@@ -446,7 +462,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             ) -> Result<u64, ::dbkit::Error> {
                 let Self { #(#pk_idents,)* .. } = self;
                 #(#pk_extracts)*
-                let mut delete = ::dbkit::Delete::new(#struct_ident::TABLE);
+                let mut delete = ::dbkit::Delete::new(#default_model_path::TABLE);
                 #(#pk_filters)*
                 ::dbkit::DeleteExt::execute(delete, ex).await
             }
@@ -522,7 +538,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         pub async fn save(
             self,
             ex: &(impl ::dbkit::Executor + Send + Sync),
-        ) -> Result<#struct_ident, ::dbkit::Error> {
+        ) -> Result<#default_model_ty, ::dbkit::Error> {
             let Self { #(#active_destructure,)* } = self;
             let mut any_loaded = false;
             let mut any_changed = false;
@@ -532,7 +548,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 if any_changed {
                     #active_save_update_branch
                 }
-                let model = #struct_ident {
+                let model = #default_model_path {
                     #(#active_save_model_fields)*
                     #(#active_save_relation_defaults)*
                 };
@@ -546,7 +562,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let model_delete_impl = if !primary_keys.is_empty() {
         let pk_filters = primary_keys
             .iter()
-            .map(|(ident, _, _)| quote!(delete = delete.filter(Self::#ident.eq(#ident));));
+            .map(|(ident, _, _)| quote!(delete = delete.filter(#default_model_path::#ident.eq(#ident));));
         quote!(
             impl #impl_generics ::dbkit::ModelDelete for #model_ident #struct_type_args {
                 fn delete<'e, E>(self, ex: &'e E) -> ::dbkit::executor::BoxFuture<'e, Result<u64, ::dbkit::Error>>
@@ -554,7 +570,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                     E: ::dbkit::Executor + Send + Sync + 'e,
                 {
                     let Self { #(#pk_idents,)* .. } = self;
-                    let mut delete = ::dbkit::Delete::new(Self::TABLE);
+                    let mut delete = ::dbkit::Delete::new(#default_model_path::TABLE);
                     #(#pk_filters)*
                     ::dbkit::DeleteExt::execute(delete, ex)
                 }
@@ -575,7 +591,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
 
     let primary_key_const = if primary_keys.len() == 1 {
         let (_, ty, name) = primary_keys.first().expect("primary key length checked");
-        Some(quote!(pub const PRIMARY_KEY: ::dbkit::Column<#struct_ident, #ty> = ::dbkit::Column::new(Self::TABLE, #name);))
+        Some(quote!(pub const PRIMARY_KEY: ::dbkit::Column<#default_model_ty, #ty> = ::dbkit::Column::new(Self::TABLE, #name);))
     } else {
         None
     };
@@ -583,7 +599,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let by_id_fn = if primary_keys.len() == 1 {
         let (ident, ty, _) = primary_keys.first().expect("primary key length checked");
         Some(quote!(
-            pub fn by_id(id: #ty) -> ::dbkit::Select<#struct_ident> {
+            pub fn by_id(id: #ty) -> ::dbkit::Select<#default_model_ty> {
                 Self::query().filter(Self::#ident.eq(id)).limit(1)
             }
         ))
@@ -690,7 +706,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let model_value_impl = quote!(
         impl #impl_generics ::dbkit::ModelValue for #model_ident #struct_type_args {
             fn column_value(&self, column: ::dbkit::ColumnRef) -> Option<::dbkit::Value> {
-                if column.table.name != Self::TABLE.name {
+                if column.table.name != #default_model_path::TABLE.name {
                     return None;
                 }
                 match column.name {
@@ -786,11 +802,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let joined_model_impl = quote!(
         impl #from_row_impl_generics ::dbkit::JoinedModel for #model_ident #struct_type_args {
             fn joined_columns() -> &'static [::dbkit::ColumnRef] {
-                Self::COLUMNS
+                #default_model_path::COLUMNS
             }
 
             fn joined_primary_keys() -> &'static [::dbkit::ColumnRef] {
-                Self::PRIMARY_KEYS
+                #default_model_path::PRIMARY_KEYS
             }
 
             fn joined_from_row_prefixed(
@@ -816,17 +832,20 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let child_type = &rel.child_type;
         let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
         let (value_ty, rel_ty) = match rel.kind {
-            RelationKind::HasMany => (quote!(Vec<#item_ident>), quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>)),
+            RelationKind::HasMany => (
+                quote!(Vec<#item_ident>),
+                quote!(::dbkit::rel::HasMany<#default_model_ty, #child_type>),
+            ),
             RelationKind::ManyToMany => {
                 let through = rel.many_to_many_through.as_ref().expect("many-to-many through");
                 (
                     quote!(Vec<#item_ident>),
-                    quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>),
+                    quote!(::dbkit::rel::ManyToMany<#default_model_ty, #child_type, #through>),
                 )
             }
             RelationKind::BelongsTo => (
                 quote!(Option<#item_ident>),
-                quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+                quote!(::dbkit::rel::BelongsTo<#default_model_ty, #child_type>),
             ),
         };
 
@@ -873,17 +892,20 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let child_type = &rel.child_type;
         let item_ident = format_ident!("{}Item", to_camel_case(&field_ident.to_string()));
         let (value_ty, rel_ty) = match rel.kind {
-            RelationKind::HasMany => (quote!(Vec<#item_ident>), quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>)),
+            RelationKind::HasMany => (
+                quote!(Vec<#item_ident>),
+                quote!(::dbkit::rel::HasMany<#default_model_ty, #child_type>),
+            ),
             RelationKind::ManyToMany => {
                 let through = rel.many_to_many_through.as_ref().expect("many-to-many through");
                 (
                     quote!(Vec<#item_ident>),
-                    quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>),
+                    quote!(::dbkit::rel::ManyToMany<#default_model_ty, #child_type, #through>),
                 )
             }
             RelationKind::BelongsTo => (
                 quote!(Option<#item_ident>),
-                quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+                quote!(::dbkit::rel::BelongsTo<#default_model_ty, #child_type>),
             ),
         };
 
@@ -945,11 +967,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let field_ident = rel.field.ident.as_ref().expect("field ident");
         let child_type = &rel.child_type;
         let rel_type = match rel.kind {
-            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
-            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#default_model_ty, #child_type>),
+            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#default_model_ty, #child_type>),
             RelationKind::ManyToMany => {
                 let through = rel.many_to_many_through.as_ref().expect("many-to-many through");
-                quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>)
+                quote!(::dbkit::rel::ManyToMany<#default_model_ty, #child_type, #through>)
             }
         };
         let loaded_type = match rel.kind {
@@ -1048,19 +1070,19 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let child_type = &rel.child_type;
         match rel.kind {
             RelationKind::HasMany => Some(quote!(
-                pub const #field_ident: ::dbkit::rel::HasMany<#struct_ident, #child_type> =
+                pub const #field_ident: ::dbkit::rel::HasMany<#default_model_ty, #child_type> =
                     ::dbkit::rel::HasMany::new(
-                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::PARENT_TABLE,
-                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::CHILD_TABLE,
-                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::PARENT_KEY,
-                        <#child_type as ::dbkit::rel::BelongsToSpec<#struct_ident>>::CHILD_KEY,
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#default_model_ty>>::PARENT_TABLE,
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#default_model_ty>>::CHILD_TABLE,
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#default_model_ty>>::PARENT_KEY,
+                        <#child_type as ::dbkit::rel::BelongsToSpec<#default_model_ty>>::CHILD_KEY,
                     );
             )),
             RelationKind::BelongsTo => {
                 let key = rel.belongs_to_key.as_ref().expect("belongs_to key");
                 let references = rel.belongs_to_ref.as_ref().expect("belongs_to references");
                 Some(quote!(
-                    pub const #field_ident: ::dbkit::rel::BelongsTo<#struct_ident, #child_type> =
+                    pub const #field_ident: ::dbkit::rel::BelongsTo<#default_model_ty, #child_type> =
                         ::dbkit::rel::BelongsTo::new(
                             Self::TABLE,
                             #child_type::TABLE,
@@ -1075,7 +1097,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 let right_key = rel.many_to_many_right_key.as_ref().expect("many-to-many right_key");
                 let parent_pk = primary_keys.first().map(|(ident, _, _)| ident).expect("many-to-many parent pk");
                 Some(quote!(
-                    pub const #field_ident: ::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through> =
+                    pub const #field_ident: ::dbkit::rel::ManyToMany<#default_model_ty, #child_type, #through> =
                         ::dbkit::rel::ManyToMany::new(
                             Self::TABLE,
                             #child_type::TABLE,
@@ -1099,9 +1121,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let references = rel.belongs_to_ref.as_ref().expect("belongs_to references");
         Some(quote!(
             impl #impl_generics ::dbkit::rel::BelongsToSpec<#parent_type> for #model_ident #struct_type_args {
-                const CHILD_TABLE: ::dbkit::Table = Self::TABLE;
+                const CHILD_TABLE: ::dbkit::Table = #default_model_path::TABLE;
                 const PARENT_TABLE: ::dbkit::Table = #parent_type::TABLE;
-                const CHILD_KEY: ::dbkit::ColumnRef = Self::#key.as_ref();
+                const CHILD_KEY: ::dbkit::ColumnRef = #default_model_path::#key.as_ref();
                 const PARENT_KEY: ::dbkit::ColumnRef = #parent_type::#references.as_ref();
             }
         ))
@@ -1110,11 +1132,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let apply_load_impls = relation_fields.iter().flat_map(|rel| {
         let child_type = &rel.child_type;
         let rel_type = match rel.kind {
-            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
-            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#default_model_ty, #child_type>),
+            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#default_model_ty, #child_type>),
             RelationKind::ManyToMany => {
                 let through = rel.many_to_many_through.as_ref().expect("many-to-many through");
-                quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>)
+                quote!(::dbkit::rel::ManyToMany<#default_model_ty, #child_type, #through>)
             }
         };
 
@@ -1177,11 +1199,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let child_type = &rel.child_type;
         let through = rel.many_to_many_through.as_ref();
         let rel_type = match rel.kind {
-            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#struct_ident, #child_type>),
-            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#struct_ident, #child_type>),
+            RelationKind::HasMany => quote!(::dbkit::rel::HasMany<#default_model_ty, #child_type>),
+            RelationKind::BelongsTo => quote!(::dbkit::rel::BelongsTo<#default_model_ty, #child_type>),
             RelationKind::ManyToMany => {
                 let through = through.expect("many-to-many through");
-                quote!(::dbkit::rel::ManyToMany<#struct_ident, #child_type, #through>)
+                quote!(::dbkit::rel::ManyToMany<#default_model_ty, #child_type, #through>)
             }
         };
 
@@ -1296,14 +1318,12 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             #(#output_fields,)*
         }
 
-        #vis type #struct_ident = #model_ident;
-
         #(#relation_state_modules)*
 
         #vis trait #any_state_ident {}
         impl #impl_generics #any_state_ident for #model_ident #struct_type_args {}
 
-        impl #impl_generics #model_ident #struct_type_args {
+        impl #model_ident #default_type_args {
             pub const TABLE: ::dbkit::Table = #table_expr;
             #(#columns)*
             #columns_const
@@ -1311,19 +1331,19 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             #primary_keys_const
             #(#relation_consts)*
 
-            pub fn query() -> ::dbkit::Select<#struct_ident> {
+            pub fn query() -> ::dbkit::Select<#default_model_ty> {
                 ::dbkit::Select::new(Self::TABLE)
             }
 
             #by_id_fn
 
-            pub fn insert(values: #insert_ident) -> ::dbkit::Insert<#struct_ident> {
+            pub fn insert(values: #insert_ident) -> ::dbkit::Insert<#default_model_ty> {
                 let mut insert = ::dbkit::Insert::new(Self::TABLE);
                 #(#insert_values)*
                 insert
             }
 
-            pub fn insert_many(values: Vec<#insert_ident>) -> ::dbkit::Insert<#struct_ident> {
+            pub fn insert_many(values: Vec<#insert_ident>) -> ::dbkit::Insert<#default_model_ty> {
                 let mut insert = ::dbkit::Insert::new(Self::TABLE);
                 for value in values {
                     insert = insert.row(|row| {
@@ -1337,7 +1357,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 insert
             }
 
-            pub fn update() -> ::dbkit::Update<#struct_ident> {
+            pub fn update() -> ::dbkit::Update<#default_model_ty> {
                 ::dbkit::Update::new(Self::TABLE)
             }
 
@@ -1348,7 +1368,9 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             pub fn new_active() -> #active_ident {
                 #active_ident::new()
             }
+        }
 
+        impl #impl_generics #model_ident #struct_type_args {
             #into_active_fn
             #load_method
         }

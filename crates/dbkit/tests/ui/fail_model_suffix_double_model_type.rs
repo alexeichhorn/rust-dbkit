@@ -10,7 +10,7 @@ pub struct UserModel {
 
 fn main() {
     let _row = UserModelModel {
-        //~ ERROR: cannot find struct, variant or union type `UserModelModel`
+        //~^ ERROR: cannot find struct, variant or union type `UserModelModel`
         id: 1,
         email: "a@b.com".to_string(),
     };
