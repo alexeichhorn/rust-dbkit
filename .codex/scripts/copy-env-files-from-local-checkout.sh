@@ -9,6 +9,9 @@ repo_root="$(cd "$repo_root" && pwd -P)"
 
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 codex_home="${codex_home%/}"
+if [[ -d "$codex_home" ]]; then
+  codex_home="$(cd "$codex_home" && pwd -P)"
+fi
 codex_worktrees_dir="$codex_home/worktrees"
 
 case "$repo_root" in
