@@ -2,3 +2,5 @@
 .env
 .dev.vars
 .codex/environments
+
+.env*.local

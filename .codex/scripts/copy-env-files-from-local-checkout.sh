@@ -36,7 +36,7 @@ while IFS= read -r -d '' source_file; do
 
   mkdir -p "$(dirname "$target_file")"
   install -m 600 "$source_file" "$target_file"
-  echo "Copied $relative_path"
+  echo "Copied $relative_path" >&2
 done < <(
   find "$source_root" \
     \( -type d \( \
@@ -49,5 +49,5 @@ done < <(
       -name target -o \
       -name .wrangler \
     \) -prune \) -o \
-    \( -type f \( -name .env -o -name .dev.vars \) -print0 \)
+    \( -type f \( -name .env -o -name .dev.vars -o -name ".env*.local" \) -print0 \)
 )
