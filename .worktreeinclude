@@ -4,3 +4,10 @@
 **/.dev.vars
 .env*.local
 **/.env*.local
+!node_modules/**
+!.wrangler/**
+!dist/**
+!build/**
+!.next/**
+!target/**
+!.venv/**
