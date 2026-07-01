@@ -2,7 +2,13 @@
 
 A small, Postgres-first async ORM-ish library with type-level loaded/unloaded relations.
 
-## Quick intro
+## Usage
+
+```rust
+use dbkit::prelude::*;
+```
+
+## Quick Intro
 
 Define models with `#[model]` and use the generated query and relation APIs:
 
@@ -32,82 +38,31 @@ struct Todo {
     #[belongs_to(key = user_id, references = id)]
     user: dbkit::BelongsTo<User>,
     title: String,
-    #[many_to_many(through = TodoTag, left_key = todo_id, right_key = tag_id)]
-    tags: dbkit::ManyToMany<Tag>,
-}
-
-#[model(table = "tags")]
-#[derive(Debug)]
-struct Tag {
-    #[key]
-    id: i64,
-    name: String,
-    #[many_to_many(through = TodoTag, left_key = tag_id, right_key = todo_id)]
-    todos: dbkit::ManyToMany<Todo>,
-}
-
-#[model(table = "todo_tags")]
-#[derive(Debug)]
-struct TodoTag {
-    #[key]
-    todo_id: i64,
-    #[key]
-    tag_id: i64,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), dbkit::Error> {
     let db = Database::connect("postgres://...").await?;
-    // Optional: customize sqlx pool options when needed.
-    let _db_tuned = Database::connect_with_options(
-        "postgres://...",
-        dbkit::PgPoolOptions::new().max_connections(20),
-    )
-    .await?;
 
-    // Parent -> children -> grandchildren, all reflected in the result type.
-    let users: Vec<User<Vec<Todo<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
+    let users: Vec<User<Vec<Todo>>> = User::query()
         .filter(User::email.ilike("%@example.com"))
-        .with(User::todos.selectin().with(Todo::tags.selectin()))
+        .with(User::todos.selectin())
         .all(&db)
         .await?;
 
     for user in &users {
         for todo in &user.todos {
-            for tag in &todo.tags {
-                println!("{} / {} / {}", user.name, todo.title, tag.name);
-            }
+            println!("{} / {}", user.name, todo.title);
         }
     }
-
-    // Child -> parent works the same way, and the parent can load its graph too.
-    let todos: Vec<Todo<Option<User<Vec<Todo>>>, dbkit::NotLoaded>> = Todo::query()
-        .with(Todo::user.selectin().with(User::todos.selectin()))
-        .all(&db)
-        .await?;
-
-    for todo in &todos {
-        if let Some(owner) = &todo.user {
-            println!(
-                "{} belongs to {} with {} todos",
-                todo.title,
-                owner.name,
-                owner.todos.len()
-            );
-        }
-    }
-
-    let user = User::by_id(1).one(&db).await?.unwrap();
-    let user = user.load(User::todos, &db).await?;
-    println!("{}", user.todos.len());
 
     Ok(())
 }
 ```
 
-The loaded graph is part of the Rust type. If a relation is not requested, that
-field stays `dbkit::NotLoaded`; once you add `.with(...)`, normal field access is
-available at the matching depth (`user.todos`, `todo.tags`, `todo.user`, etc.).
+The loaded graph is part of the Rust type. If a relation is not requested, that field stays
+`dbkit::NotLoaded`; once you add `.with(...)`, normal field access is available at the matching
+depth.
 
 If a Rust field needs a different DB column name, use `#[dbkit(column = "...")]`:
 
@@ -116,147 +71,9 @@ If a Rust field needs a different DB column name, use `#[dbkit(column = "...")]`
 type_: String,
 ```
 
-## More examples
+## Common Mutations
 
-Basic query + ordering:
-
-```rust
-use dbkit::prelude::*;
-
-let users = User::query()
-    .filter(User::email.ilike("%@example.com"))
-    .order_by(dbkit::Order::asc(User::name.as_ref()))
-    .limit(20)
-    .all(&db)
-    .await?;
-```
-
-Arithmetic expressions:
-
-```rust
-let rows = Record::query()
-    .filter((Record::left_value + 1_i64).lt_col(Record::baseline_value))
-    .filter((Record::right_value - Record::left_value).gt(0_i64))
-    .order_by(dbkit::Order::desc(Record::baseline_value + Record::left_value))
-    .all(&db)
-    .await?;
-```
-
-Arithmetic expressions also support `*` and compose with typed SQL helpers like
-`dbkit::func::least`, `dbkit::func::greatest`, and `dbkit::func::power`.
-
-Row-value filters for composite lookups:
-
-```rust
-let rows = LookupRow::query()
-    .filter(dbkit::row((LookupRow::scope, LookupRow::external_key, LookupRow::locale)).in_([
-        (LookupScope::Public, "alpha", "en"),
-        (LookupScope::Internal, "beta", "de"),
-    ]))
-    .all(&db)
-    .await?;
-```
-
-Row locking:
-
-```rust
-let rows = User::query().for_update().all(&tx).await?;
-let rows = User::query().for_update().skip_locked().all(&tx).await?;
-let rows = User::query().for_update().nowait().all(&tx).await?;
-```
-
-Migrations (optional, via `sqlx`):
-
-```toml
-# Cargo.toml
-dbkit = { version = "0.2", features = ["migrations"] }
-```
-
-```rust
-use dbkit::{Database, migrate::Migrator};
-
-static MIGRATOR: Migrator = dbkit::sqlx::migrate!("./migrations");
-
-let db = Database::connect("postgres://...").await?;
-db.migrate(&MIGRATOR).await?;
-```
-
-`dbkit` keeps migration execution thin and delegates migration file parsing/running to `sqlx`.
-
-Count / exists / pagination:
-
-```rust
-let total = User::query().count(&db).await?;
-let exists = User::query()
-    .filter(User::email.eq("a@b.com"))
-    .exists(&db)
-    .await?;
-
-let page = User::query()
-    .order_by(dbkit::Order::asc(User::id.as_ref()))
-    .paginate(1, 20, &db)
-    .await?;
-println!("page {} of {}", page.page, page.total_pages());
-```
-
-Correlated `EXISTS` / `NOT EXISTS` filters:
-
-```rust
-let active_projects = Project::query()
-    .where_exists(
-        Task::query()
-            .select_only()
-            .column(Task::id)
-            .filter(Task::project_id.eq_col(Project::id))
-            .filter(Task::state.eq("active")),
-    )
-    .order_by(dbkit::Order::asc(Project::id))
-    .all(&db)
-    .await?;
-
-let projects_without_archived_tasks = Project::query()
-    .where_not_exists(
-        Task::query()
-            .select_only()
-            .column(Task::id)
-            .filter(Task::project_id.eq_col(Project::id))
-            .filter(Task::state.eq("archived")),
-    )
-    .all(&db)
-    .await?;
-
-let archived_tasks = Task::delete()
-    .where_exists(
-        Project::query()
-            .select_only()
-            .column(Project::id)
-            .filter(Project::id.eq_col(Task::project_id))
-            .filter(Project::state.eq("archived")),
-    )
-    .execute(&db)
-    .await?;
-```
-
-Interval expressions:
-
-```rust
-let rows = Schedule::query()
-    .filter(dbkit::interval::hours(Schedule::base_interval_hours).eq_col(Schedule::lease_window))
-    .order_by(dbkit::Order::asc(dbkit::interval::minutes(dbkit::func::coalesce(
-        Schedule::backoff_minutes,
-        15_i32,
-    ))))
-    .all(&db)
-    .await?;
-```
-
-Dynamic interval math is supported too, including `dbkit::interval::seconds(expr)` and
-timestamp comparisons like `Schedule::updated_at.le(now - dbkit::interval::seconds(retry_seconds))`.
-
-Insert / update / delete:
-
-**Insert:** use the generated insert type. This is usually the clearest path because required
-fields stay explicit:
+Insert with the generated insert type:
 
 ```rust
 let created = User::insert(UserInsert {
@@ -269,8 +86,7 @@ let created = User::insert(UserInsert {
 .expect("inserted");
 ```
 
-**Update:** for one loaded row, prefer `into_active()`. It marks existing fields as unchanged, so the
-update only writes fields you explicitly set or null out:
+Update one loaded row with `into_active()`:
 
 ```rust
 let mut active = created.into_active();
@@ -278,526 +94,22 @@ active.name = "Renamed".into();
 let updated = active.update(&db).await?;
 ```
 
-Use the query-builder update for bulk updates or conditional updates where loading the row first
-would be the wrong shape:
-
-```rust
-let updated = User::update()
-    .set(User::name, "Updated")
-    .filter(User::id.eq(created.id))
-    .returning_all()
-    .all(&db)
-    .await?;
-```
-
-**Delete:** for one loaded row, use the active model delete:
+Delete one loaded row with the active model:
 
 ```rust
 let deleted = created.into_active().delete(&db).await?;
 ```
 
-Use the query builder for bulk deletes or conditional deletes:
-
-```rust
-let deleted = User::delete()
-    .filter(User::id.eq(created.id))
-    .execute(&db)
-    .await?;
-```
-
-Active model save is available when code genuinely needs one path that inserts new rows and updates
-loaded rows:
-
-```rust
-let mut active = User::new_active();
-active.name = "Saved".into();
-active.email = "saved@db.com".into();
-let created = active.save(&db).await?;
-
-let mut active = created.into_active();
-active.name = "Renamed".into();
-let updated = active.save(&db).await?;
-```
-
-Bulk insert:
-
-```rust
-let inserted = User::insert_many(vec![
-    UserInsert {
-        name: "Alpha".to_string(),
-        email: "alpha@db.com".to_string(),
-    },
-    UserInsert {
-        name: "Beta".to_string(),
-        email: "beta@db.com".to_string(),
-    },
-])
-.execute(&db)
-.await?;
-assert_eq!(inserted, 2);
-```
-
-Insert conflict handling (`ON CONFLICT`):
-
-```rust
-let ignored = User::insert(UserInsert {
-    name: "Alex".to_string(),
-    email: "a@b.com".to_string(),
-})
-.on_conflict_do_nothing(User::email)
-.execute(&db)
-.await?;
-
-let updated = OrderLine::insert(OrderLineInsert {
-    order_id: 7,
-    line_id: 8,
-    note: "Updated via upsert".to_string(),
-})
-.on_conflict_do_update(
-    (OrderLine::order_id, OrderLine::line_id),
-    OrderLine::note,
-)
-.returning_all()
-.one(&db)
-.await?;
-```
-
-`pgvector` embeddings:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-```rust
-#[model(table = "embedding_rows")]
-#[derive(Debug)]
-struct EmbeddingRow {
-    #[key]
-    id: i64,
-    label: String,
-    embedding: dbkit::PgVector<3>,
-    embedding_optional: Option<dbkit::PgVector<3>>,
-}
-
-let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0])?;
-
-// ANN/index-friendly top-k retrieval
-let ann_top_k = EmbeddingRow::query()
-    .filter(EmbeddingRow::embedding_optional.is_not_null())
-    .order_by(dbkit::Order::asc(dbkit::func::inner_product_distance(
-        EmbeddingRow::embedding_optional,
-        query.clone(),
-    )))
-    .limit(5)
-    .all(&db)
-    .await?;
-
-// True inner product score (semantic ranking), may not use ANN index
-let semantic_top_k = EmbeddingRow::query()
-    .filter(EmbeddingRow::embedding_optional.is_not_null())
-    .order_by(dbkit::Order::desc(dbkit::func::inner_product(
-        EmbeddingRow::embedding_optional,
-        query.clone(),
-    )))
-    .limit(5)
-    .all(&db)
-    .await?;
-
-let high_similarity = EmbeddingRow::query()
-    .filter(dbkit::func::cosine_distance(EmbeddingRow::embedding, query.clone()).lt(0.1_f32))
-    .order_by(dbkit::Order::asc(dbkit::func::cosine_distance(
-        EmbeddingRow::embedding,
-        query,
-    )))
-    .all(&db)
-    .await?;
-```
-
-Available vector distance/similarity functions:
-- `dbkit::func::l2_distance`
-- `dbkit::func::cosine_distance`
-- `dbkit::func::inner_product`
-- `dbkit::func::l1_distance`
-- `dbkit::func::inner_product_distance`
-
-Notes:
-- Dimension is part of the Rust type (`PgVector<3>`, `PgVector<1536>`, etc.).
-- Optional embeddings are supported via `Option<PgVector<N>>`.
-- `cosine_distance` is a distance metric (lower means more similar), so use `.lt(...)` thresholds.
-- Operator-based helpers (`l2_distance`, `cosine_distance`, `l1_distance`, `inner_product_distance`)
-  are ANN-index compatible for `ORDER BY ... LIMIT` with pgvector indexes.
-- `inner_product` preserves true score semantics (higher is better), but as a function expression it
-  may not use pgvector ANN indexes for `ORDER BY ... LIMIT`.
-- `inner_product_distance` uses negative inner-product distance, so `inner_product > 0.9`
-  corresponds to `inner_product_distance < -0.9`.
-- For CI, use a Postgres image with pgvector installed (for example `pgvector/pgvector:pg16`).
-
-Eager loading and join filtering:
-
-```rust
-let users: Vec<User<Vec<Todo>>> = User::query()
-    .with(User::todos.selectin())
-    .all(&db)
-    .await?;
-
-let users: Vec<User<Vec<Todo>>> = User::query()
-    .with(User::todos.joined())
-    .all(&db)
-    .await?;
-
-let filtered = User::query()
-    .join(User::todos)
-    .filter(Todo::title.eq("Keep me"))
-    .distinct()
-    .all(&db)
-    .await?;
-```
-
-Select-in vs joined eager loading:
-
-```rust
-// selectin = 1 query for parents, then 1 query per relation (per level)
-let users: Vec<User<Vec<Todo>>> = User::query()
-    .limit(10)
-    .with(User::todos.selectin())
-    .all(&db)
-    .await?;
-
-// joined = single SQL query with LEFT JOINs + row decoding
-let users: Vec<User<Vec<Todo>>> = User::query()
-    .with(User::todos.joined())
-    .all(&db)
-    .await?;
-```
-
-Notes:
-- `selectin()` is best when you need stable parent pagination (`LIMIT`/`OFFSET`) or large child fan-out.
-- `joined()` is best when you want a single query and you can tolerate row multiplication.
-- If you filter on joined tables (e.g. `filter(Todo::title.eq("foo"))`), `joined()` will only load
-  the matching child rows because the filter is part of the join query.
-
-Dynamic conditions:
-
-```rust
-let mut cond = dbkit::Condition::any()
-    .add(User::region.eq("us"))
-    .add(User::region.is_null().and(Creator::region.eq("us")));
-
-if let Some(expr) = cond.into_expr() {
-    query = query.filter(expr);
-}
-```
-
-Column-to-column comparisons:
-
-```rust
-let changed = Job::query()
-    .filter(Job::content_hash.ne_col(Job::last_content_hash))
-    .all(&db)
-    .await?;
-
-let retryable = Job::query()
-    .filter(Job::retry_count.lt_col(Job::max_retries))
-    .all(&db)
-    .await?;
-```
-
-Supported column comparison helpers:
-- `eq_col`
-- `ne_col`
-- `is_distinct_from_col`
-- `is_not_distinct_from_col`
-- `lt_col`
-- `le_col`
-- `gt_col`
-- `ge_col`
-
-Stale-embedding predicate (nullable hash vs non-null content hash):
-
-```rust
-let stale = Job::query()
-    .filter(
-        Job::embedding
-            .is_null()
-            .or(Job::embedding_hash.is_null())
-            .or(dbkit::func::coalesce(Job::embedding_hash, "").ne_col(Job::content_hash)),
-    )
-    .all(&db)
-    .await?;
-```
-
-Null-safe hash mismatch (Postgres `IS DISTINCT FROM` semantics):
-
-```rust
-let stale = Job::query()
-    .filter(
-        Job::embedding
-            .is_null()
-            .or(Job::embedding_hash.is_distinct_from_col(Job::content_hash)),
-    )
-    .all(&db)
-    .await?;
-```
-
-Type-level loaded relations:
-
-```rust
-// `User` with default generic params is the bare row: all relations are `NotLoaded`.
-fn accepts_unloaded(user: &User) {
-    println!("{}", user.name);
-}
-
-// Use the model type's generic params to require loaded relations in APIs.
-fn needs_loaded(user: &User<Vec<Todo>>) {
-    // safe: todos are guaranteed to be loaded
-    println!("todos: {}", user.todos.len());
-}
-
-// For multiple relations, generic params follow relation-field order.
-// In this repo, `Todo` declares `user` then `tags`, so:
-// - user loaded, tags not loaded => Todo<Option<User>, dbkit::NotLoaded>
-// - user loaded, tags loaded     => Todo<Option<User>, Vec<Tag>>
-//
-// Nested loaded relations compose too:
-// `User<Vec<Todo<Option<User>, Vec<Tag>>>>`
-// (i.e., users with todos loaded, and each todo has its user + tags loaded)
-```
-
-Lazy loading:
-
-```rust
-let user = User::by_id(1).one(&db).await?.unwrap();
-let user = user.load(User::todos, &db).await?;
-println!("todos: {}", user.todos.len());
-```
-
-Aggregation and projections:
-
-```rust
-use dbkit::prelude::*;
-
-#[derive(sqlx::FromRow, Debug)]
-struct RegionTotal {
-    region: String,
-    total: dbkit::sqlx::types::BigDecimal,
-}
-
-let totals: Vec<RegionTotal> = Sale::query()
-    .select_only()
-    .column_as(Sale::region, "region")
-    .column_as(dbkit::func::sum(Sale::amount), "total")
-    .group_by(Sale::region)
-    .having(dbkit::func::sum(Sale::amount).gt(0_i64))
-    .into_model()
-    .all(&db)
-    .await?;
-```
-
-SQL functions and expression-based grouping:
-
-```rust
-#[derive(sqlx::FromRow, Debug)]
-struct BucketTotal {
-    bucket: chrono::NaiveDateTime,
-    total: dbkit::sqlx::types::BigDecimal,
-}
-
-let buckets: Vec<BucketTotal> = Sale::query()
-    .select_only()
-    .column_as(dbkit::func::date_trunc("day", Sale::created_at), "bucket")
-    .column_as(dbkit::func::sum(Sale::amount), "total")
-    .group_by(dbkit::func::date_trunc("day", Sale::created_at))
-    .into_model()
-    .all(&db)
-    .await?;
-```
-
-Join + aggregation:
-
-```rust
-#[derive(sqlx::FromRow, Debug)]
-struct UserTodoAgg {
-    name: String,
-    todo_count: i64,
-}
-
-let rows: Vec<UserTodoAgg> = User::query()
-    .select_only()
-    .column_as(User::name, "name")
-    .column_as(dbkit::func::count(Todo::id), "todo_count")
-    .join(User::todos)
-    .group_by(User::name)
-    .order_by(dbkit::Order::desc(User::name.as_ref()))
-    .into_model()
-    .all(&db)
-    .await?;
-```
-
-Notes:
-- `select_only()` switches from `SELECT *` to projections via `column(...)` or `column_as(...)`.
-- Use `into_model::<T>()` to map into a custom `sqlx::FromRow` struct.
-- Aggregate helpers include `sum`, `count`, `min`, and `max`.
-- `SUM` over integer columns returns `NUMERIC` in Postgres; use `BigDecimal` (or cast) for totals.
-- Aggregations work across joins; order-by currently expects a real column/expr rather than an alias.
-
-NULL handling with `Option<T>`:
-
-```rust
-// assuming `NullableRow { note: Option<String> }`
-let row = NullableRow::insert(NullableRowInsert { note: None })
-    .returning_all()
-    .one(&db)
-    .await?;
-
-let rows = NullableRow::query()
-    .filter(NullableRow::note.eq(None))
-    .all(&db)
-    .await?;
-```
-
-## Supported types
-
-Built-in typed query/insert/update bindings currently support:
-
-- `bool`
-- `i16`, `i32`, `i64`
-- `f32`, `f64`
-- `String` (and `&str` where string expressions are accepted)
-- `uuid::Uuid`
-- `chrono::NaiveDateTime` (`TIMESTAMP`)
-- `chrono::DateTime<chrono::Utc>` (`TIMESTAMPTZ`)
-- `chrono::NaiveDate` (`DATE`)
-- `chrono::NaiveTime` (`TIME`)
-- `dbkit::PgInterval` (`INTERVAL`)
-- `serde_json::Value` (`JSON` / `JSONB`)
-- `Vec<String>` (`TEXT[]`)
-- `dbkit::PgVector<const N: usize>` (`vector`)
-- custom Postgres enums via `#[derive(dbkit::DbEnum)]`
-- `Option<T>` for nullable columns, where `T` is one of the above
-
-Notes:
-- `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
-- Interval expressions are available via `dbkit::interval::{days, hours, minutes, seconds}`.
-- Comparison operators can take literal values or typed expressions on the right-hand side.
-- Enum binds are emitted as typed placeholders (`$n::your_enum_type`) for Postgres enum columns.
-- For types outside this list, use raw `sqlx` queries or add explicit dbkit support first.
-
-## Postgres enums with `DbEnum`
-
-`dbkit` supports first-class Postgres enums in models, filters, inserts, updates, and conflict updates.
-
-Define the enum once:
-
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
-#[dbkit(type_name = "task_state", rename_all = "snake_case")]
-pub enum TaskState {
-    PendingReview,
-    InProgress,
-    Completed,
-    Failed,
-}
-```
-
-Use it directly in your model:
-
-```rust
-use dbkit::model;
-
-#[model(table = "tasks")]
-pub struct Task {
-    #[key]
-    pub id: i64,
-    pub title: String,
-    pub state: TaskState,
-    pub previous_state: Option<TaskState>,
-}
-```
-
-Use it in typed query/mutation APIs:
-
-```rust
-let rows = Task::query()
-    .filter(Task::state.eq(TaskState::InProgress))
-    .filter(Task::state.in_([TaskState::PendingReview, TaskState::InProgress]))
-    .all(&db)
-    .await?;
-
-let updated = Task::update()
-    .set(Task::state, TaskState::Completed)
-    .set(Task::previous_state, Some(TaskState::InProgress))
-    .filter(Task::id.eq(42_i64))
-    .returning_all()
-    .one(&db)
-    .await?;
-
-Task::update()
-    .set(Task::previous_state, None::<TaskState>)
-    .filter(Task::id.eq(42_i64))
-    .execute(&db)
-    .await?;
-```
-
-Upsert with enum columns is also supported:
-
-```rust
-let row = Task::insert(TaskInsert {
-    id: 42,
-    title: "Ship enum support".to_string(),
-    state: TaskState::PendingReview,
-    previous_state: None,
-})
-.on_conflict_do_update(Task::id, (Task::state, Task::previous_state))
-.returning_all()
-.one(&db)
-.await?;
-```
-
-### Enum naming controls
-
-- `#[dbkit(type_name = "...")]` is required and should match your Postgres enum type.
-- `#[dbkit(rename_all = "...")]` is optional and supports:
-  - `snake_case`
-  - `lowercase`
-  - `UPPERCASE`
-  - `SCREAMING_SNAKE_CASE`
-- Override a single variant with `#[dbkit(rename = "...")]`:
-
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
-#[dbkit(type_name = "delivery_channel", rename_all = "snake_case")]
-pub enum DeliveryChannel {
-    Email,
-    Sms,
-    #[dbkit(rename = "http_webhook")]
-    Webhook,
-}
-```
-
-Transactions:
-
-```rust
-let tx = db.begin().await?;
-let users = User::query().all(&tx).await?;
-tx.commit().await?;
-```
-
-Transaction-local Postgres settings:
-
-```rust
-let tx = db.begin().await?;
-tx.set_local("statement_timeout", "5s").await?;
-
-let users = User::query()
-    .filter(User::email.like("%@example.com"))
-    .all(&tx)
-    .await?;
-
-tx.commit().await?;
-```
-
-`set_local` uses PostgreSQL `set_config(..., true)`, so the setting is scoped to the current transaction
-instead of leaking across pooled connection reuse.
+Use query-builder updates/deletes for bulk or conditional mutations.
+
+## More Docs
+
+- [Querying](docs/querying.md)
+- [Mutations](docs/mutations.md)
+- [Relations](docs/relations.md)
+- [Expressions and aggregation](docs/expressions.md)
+- [Postgres types](docs/postgres-types.md)
+- [Database](docs/database.md)
 
 ## TODOs
 
@@ -817,7 +129,7 @@ instead of leaking across pooled connection reuse.
 - [x] Add active model `save()` that chooses insert vs update.
 - [ ] Store `#[unique]` / `#[index]` as metadata (even if no-op).
 
-## Deviations from spec
+## Deviations From Spec
 
 - `load(...)` requires an executor argument: `user.load(User::todos, &ex)`.
 - Relation state sealing is looser than spec (any `Vec<T>` / `Option<T>` satisfies the state trait).
