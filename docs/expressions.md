@@ -95,6 +95,7 @@ let rows: Vec<UserTodoAgg> = User::query()
 Notes:
 - `select_only()` switches from `SELECT *` to projections via `column(...)` or `column_as(...)`.
 - Use `into_model::<T>()` to map into a custom `sqlx::FromRow` struct.
+- `dbkit` re-exports `sqlx` for types, but `#[derive(sqlx::FromRow)]` expands to `::sqlx::...`; crates using the derive need `sqlx` available as a direct dependency.
 - Aggregate helpers include `sum`, `count`, `min`, and `max`.
 - `SUM` over integer columns returns `NUMERIC` in Postgres; use `BigDecimal` (or cast) for totals.
 - Aggregations work across joins; order-by currently expects a real column/expr rather than an alias.
