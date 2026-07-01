@@ -126,6 +126,23 @@ fn select_binds_string_array() {
 }
 
 #[test]
+fn value_from_bytes() {
+    let payload = vec![0, 1, 2, 255];
+    assert_eq!(Value::from(payload.clone()), Value::Bytes(payload));
+}
+
+#[test]
+fn select_binds_bytes() {
+    let table = Table::new("blob_rows");
+    let data_col: Column<(), Vec<u8>> = Column::new(table, "data");
+    let payload = vec![0, 1, 2, 255];
+
+    let compiled = Select::<()>::new(table).filter(data_col.eq(payload.clone())).compile();
+
+    assert_eq!(compiled.binds, vec![Value::Bytes(payload)]);
+}
+
+#[test]
 fn select_binds_interval() {
     let table = Table::new("interval_rows");
     let lease_window_col: Column<(), dbkit_core::PgInterval> = Column::new(table, "lease_window");

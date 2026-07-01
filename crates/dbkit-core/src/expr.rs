@@ -16,6 +16,7 @@ pub enum Value {
     F64(f64),
     String(String),
     Array(Vec<String>),
+    Bytes(Vec<u8>),
     Json(serde_json::Value),
     Uuid(uuid::Uuid),
     DateTime(chrono::NaiveDateTime),
@@ -139,6 +140,12 @@ impl From<&str> for Value {
 impl From<Vec<String>> for Value {
     fn from(value: Vec<String>) -> Self {
         Self::Array(value)
+    }
+}
+
+impl From<Vec<u8>> for Value {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Bytes(value)
     }
 }
 
@@ -711,6 +718,20 @@ impl IntoExpr<Vec<String>> for Vec<String> {
 
 impl ExprOperand for Vec<String> {
     type Value = Vec<String>;
+
+    fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
+impl IntoExpr<Vec<u8>> for Vec<u8> {
+    fn into_expr(self) -> Expr<Vec<u8>> {
+        Expr::new(ExprNode::Value(Value::Bytes(self)))
+    }
+}
+
+impl ExprOperand for Vec<u8> {
+    type Value = Vec<u8>;
 
     fn into_operand_expr(self) -> Expr<Self::Value> {
         self.into_expr()

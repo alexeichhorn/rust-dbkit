@@ -15,6 +15,7 @@ Built-in typed query/insert/update bindings currently support:
 - `chrono::NaiveTime` (`TIME`)
 - `dbkit::PgInterval` (`INTERVAL`)
 - `serde_json::Value` (`JSON` / `JSONB`)
+- `Vec<u8>` (`BYTEA`)
 - `Vec<String>` (`TEXT[]`)
 - `dbkit::PgVector<const N: usize>` (`vector`)
 - custom Postgres enums via `#[derive(dbkit::DbEnum)]`

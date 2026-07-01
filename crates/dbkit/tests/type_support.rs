@@ -35,6 +35,13 @@ fn build_arguments_accepts_json() {
 }
 
 #[test]
+fn build_arguments_accepts_bytea() {
+    let values = vec![Value::from(vec![0, 1, 2, 255])];
+    let result = build_arguments(&values);
+    assert!(result.is_ok());
+}
+
+#[test]
 fn build_arguments_accepts_interval() {
     let interval = dbkit::PgInterval {
         months: 0,
