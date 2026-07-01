@@ -255,6 +255,9 @@ timestamp comparisons like `Schedule::updated_at.le(now - dbkit::interval::secon
 
 Insert / update / delete:
 
+**Insert:** use the generated insert type. This is usually the clearest path because required
+fields stay explicit:
+
 ```rust
 let created = User::insert(UserInsert {
     name: "Alex".to_string(),
@@ -264,18 +267,56 @@ let created = User::insert(UserInsert {
 .one(&db)
 .await?
 .expect("inserted");
+```
 
+**Update:** for one loaded row, prefer `into_active()`. It marks existing fields as unchanged, so the
+update only writes fields you explicitly set or null out:
+
+```rust
+let mut active = created.into_active();
+active.name = "Renamed".into();
+let updated = active.update(&db).await?;
+```
+
+Use the query-builder update for bulk updates or conditional updates where loading the row first
+would be the wrong shape:
+
+```rust
 let updated = User::update()
     .set(User::name, "Updated")
     .filter(User::id.eq(created.id))
     .returning_all()
     .all(&db)
     .await?;
+```
 
+**Delete:** for one loaded row, use the active model delete:
+
+```rust
+let deleted = created.into_active().delete(&db).await?;
+```
+
+Use the query builder for bulk deletes or conditional deletes:
+
+```rust
 let deleted = User::delete()
     .filter(User::id.eq(created.id))
     .execute(&db)
     .await?;
+```
+
+Active model save is available when code genuinely needs one path that inserts new rows and updates
+loaded rows:
+
+```rust
+let mut active = User::new_active();
+active.name = "Saved".into();
+active.email = "saved@db.com".into();
+let created = active.save(&db).await?;
+
+let mut active = created.into_active();
+active.name = "Renamed".into();
+let updated = active.save(&db).await?;
 ```
 
 Bulk insert:
@@ -390,36 +431,6 @@ Notes:
 - `inner_product_distance` uses negative inner-product distance, so `inner_product > 0.9`
   corresponds to `inner_product_distance < -0.9`.
 - For CI, use a Postgres image with pgvector installed (for example `pgvector/pgvector:pg16`).
-
-Active model insert / update (change-tracked):
-
-```rust
-let mut active = User::new_active();
-active.name = "Active".into();
-active.email = "active@db.com".into();
-
-let created = active.insert(&db).await?;
-
-let mut active = created.into_active();
-active.name = "Updated".into();
-let updated = active.update(&db).await?;
-```
-
-Note: `into_active()` marks fields as unchanged. Updates only include fields you explicitly set
-(`ActiveValue::Set`) or null out (`ActiveValue::Null`), so existing values aren’t overwritten.
-
-Active model save (insert vs update):
-
-```rust
-let mut active = User::new_active();
-active.name = "Saved".into();
-active.email = "saved@db.com".into();
-let created = active.save(&db).await?;
-
-let mut active = created.into_active();
-active.name = "Renamed".into();
-let updated = active.save(&db).await?;
-```
 
 Eager loading and join filtering:
 
