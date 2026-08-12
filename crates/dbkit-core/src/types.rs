@@ -1,6 +1,18 @@
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NotLoaded;
 
+impl<T> From<Vec<T>> for NotLoaded {
+    fn from(_: Vec<T>) -> Self {
+        NotLoaded
+    }
+}
+
+impl<T> From<Option<T>> for NotLoaded {
+    fn from(_: Option<T>) -> Self {
+        NotLoaded
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HasMany<T>(std::marker::PhantomData<T>);
 

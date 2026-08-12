@@ -155,3 +155,13 @@ let user = User::by_id(1).one(&db).await?.unwrap();
 let user = user.load(User::todos, &db).await?;
 println!("todos: {}", user.todos.len());
 ```
+
+## Unloading Relations
+
+Use `.into()` when an API needs a model with fewer loaded relations. Scalar fields and relations
+present in the target type are preserved; the other loaded relations are discarded:
+
+```rust
+let todo: Todo<Option<User>, Vec<Tag>> = load_todo(&db).await?;
+let todo: Todo<Option<User>> = todo.into();
+```

@@ -694,6 +694,66 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         )
     });
 
+    let relation_state_from_impls = relation_fields.iter().enumerate().map(|(unloaded_idx, unloaded_rel)| {
+        let unloaded_item_ident = format_ident!("Into{}Item", to_camel_case(&unloaded_rel.param_ident.to_string()));
+        let unloaded_source_type = match unloaded_rel.kind {
+            RelationKind::HasMany | RelationKind::ManyToMany => quote!(Vec<#unloaded_item_ident>),
+            RelationKind::BelongsTo => quote!(Option<#unloaded_item_ident>),
+        };
+
+        let mut impl_params = Vec::new();
+        let mut source_args = Vec::new();
+        let mut target_args = Vec::new();
+
+        for (idx, rel) in relation_fields.iter().enumerate() {
+            let state_mod = &rel.state_mod_ident;
+            if idx < unloaded_idx {
+                let state_ident = &rel.param_ident;
+                impl_params.push(quote!(#state_ident: #state_mod::State));
+                source_args.push(quote!(#state_ident));
+                target_args.push(quote!(#state_ident));
+            } else if idx == unloaded_idx {
+                impl_params.push(quote!(#unloaded_item_ident));
+                source_args.push(unloaded_source_type.clone());
+                target_args.push(quote!(::dbkit::NotLoaded));
+            } else {
+                let from_ident = format_ident!("From{}", rel.param_ident);
+                let into_ident = format_ident!("Into{}", rel.param_ident);
+                impl_params.push(quote!(#from_ident: #state_mod::State + Into<#into_ident>));
+                impl_params.push(quote!(#into_ident: #state_mod::State));
+                source_args.push(quote!(#from_ident));
+                target_args.push(quote!(#into_ident));
+            }
+        }
+
+        let fields = output_fields.iter().map(|field| {
+            let field_ident = field.ident.as_ref().expect("field ident");
+            let relation_idx = relation_fields.iter().position(|rel| rel.field.ident.as_ref() == Some(field_ident));
+            match relation_idx {
+                Some(idx) if idx == unloaded_idx => quote!(#field_ident: ::dbkit::NotLoaded),
+                Some(idx) if idx > unloaded_idx => {
+                    let rel = &relation_fields[idx];
+                    let from_ident = format_ident!("From{}", rel.param_ident);
+                    let into_ident = format_ident!("Into{}", rel.param_ident);
+                    quote!(
+                        #field_ident: <#from_ident as Into<#into_ident>>::into(value.#field_ident)
+                    )
+                }
+                _ => quote!(#field_ident: value.#field_ident),
+            }
+        });
+
+        quote!(
+            impl<#(#impl_params),*> From<#model_ident<#(#source_args),*>> for #model_ident<#(#target_args),*> {
+                fn from(value: #model_ident<#(#source_args),*>) -> Self {
+                    Self {
+                        #(#fields,)*
+                    }
+                }
+            }
+        )
+    });
+
     let model_value_arms = output_fields
         .iter()
         .filter(|field| !is_relation_field(field, &relation_fields))
@@ -1397,6 +1457,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         }
 
         #(#relation_methods)*
+        #(#relation_state_from_impls)*
         #model_value_impl
         #from_row_impl
         #joined_model_impl
