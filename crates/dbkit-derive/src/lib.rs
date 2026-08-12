@@ -719,7 +719,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             } else {
                 let from_ident = format_ident!("__DbkitFromRelation{idx}");
                 let into_ident = format_ident!("__DbkitIntoRelation{idx}");
-                impl_params.push(quote!(#from_ident: #state_mod::State + Into<#into_ident>));
+                impl_params.push(quote!(#from_ident: #state_mod::State + ::core::convert::Into<#into_ident>));
                 impl_params.push(quote!(#into_ident: #state_mod::State));
                 source_args.push(quote!(#from_ident));
                 target_args.push(quote!(#into_ident));
@@ -735,7 +735,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                     let from_ident = format_ident!("__DbkitFromRelation{idx}");
                     let into_ident = format_ident!("__DbkitIntoRelation{idx}");
                     quote!(
-                        #field_ident: <#from_ident as Into<#into_ident>>::into(value.#field_ident)
+                        #field_ident: <#from_ident as ::core::convert::Into<#into_ident>>::into(value.#field_ident)
                     )
                 }
                 _ => quote!(#field_ident: value.#field_ident),
@@ -743,7 +743,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         });
 
         quote!(
-            impl<#(#impl_params),*> From<#model_ident<#(#source_args),*>> for #model_ident<#(#target_args),*> {
+            impl<#(#impl_params),*> ::core::convert::From<#model_ident<#(#source_args),*>> for #model_ident<#(#target_args),*> {
                 fn from(value: #model_ident<#(#source_args),*>) -> Self {
                     Self {
                         #(#fields,)*
