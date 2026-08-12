@@ -695,7 +695,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     });
 
     let relation_state_from_impls = relation_fields.iter().enumerate().map(|(unloaded_idx, unloaded_rel)| {
-        let unloaded_item_ident = format_ident!("Into{}Item", to_camel_case(&unloaded_rel.param_ident.to_string()));
+        let unloaded_item_ident = format_ident!("__DbkitUnloadedItem{unloaded_idx}");
         let unloaded_source_type = match unloaded_rel.kind {
             RelationKind::HasMany | RelationKind::ManyToMany => quote!(Vec<#unloaded_item_ident>),
             RelationKind::BelongsTo => quote!(Option<#unloaded_item_ident>),
@@ -717,8 +717,8 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 source_args.push(unloaded_source_type.clone());
                 target_args.push(quote!(::dbkit::NotLoaded));
             } else {
-                let from_ident = format_ident!("From{}", rel.param_ident);
-                let into_ident = format_ident!("Into{}", rel.param_ident);
+                let from_ident = format_ident!("__DbkitFromRelation{idx}");
+                let into_ident = format_ident!("__DbkitIntoRelation{idx}");
                 impl_params.push(quote!(#from_ident: #state_mod::State + Into<#into_ident>));
                 impl_params.push(quote!(#into_ident: #state_mod::State));
                 source_args.push(quote!(#from_ident));
@@ -732,9 +732,8 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             match relation_idx {
                 Some(idx) if idx == unloaded_idx => quote!(#field_ident: ::dbkit::NotLoaded),
                 Some(idx) if idx > unloaded_idx => {
-                    let rel = &relation_fields[idx];
-                    let from_ident = format_ident!("From{}", rel.param_ident);
-                    let into_ident = format_ident!("Into{}", rel.param_ident);
+                    let from_ident = format_ident!("__DbkitFromRelation{idx}");
+                    let into_ident = format_ident!("__DbkitIntoRelation{idx}");
                     quote!(
                         #field_ident: <#from_ident as Into<#into_ident>>::into(value.#field_ident)
                     )
