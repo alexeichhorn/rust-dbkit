@@ -51,6 +51,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "pass_string_func_api.rs".into(),
         "pass_aggregate_func_api.rs".into(),
         "pass_column_rename_api.rs".into(),
+        "pass_relation_state_into_generic_names.rs".into(),
+        "pass_relation_state_into_shadowed_traits.rs".into(),
         "fail_appended_model_type.rs".into(),
         "pass_model_suffix_preserved_api.rs".into(),
         "fail_model_suffix_double_model_type.rs".into(),
