@@ -262,6 +262,10 @@ pub enum ExprNode {
         name: &'static str,
         args: Vec<ExprNode>,
     },
+    AggregateFilter {
+        aggregate: Box<ExprNode>,
+        predicate: Box<ExprNode>,
+    },
     VectorBinary {
         left: Box<ExprNode>,
         op: VectorBinaryOp,
@@ -325,6 +329,14 @@ impl<T> Expr<T> {
             node,
             _marker: PhantomData,
         }
+    }
+
+    /// Applies a PostgreSQL aggregate `FILTER (WHERE ...)` clause.
+    pub fn filter(self, predicate: Expr<bool>) -> Self {
+        Self::new(ExprNode::AggregateFilter {
+            aggregate: Box::new(self.node),
+            predicate: Box::new(predicate.node),
+        })
     }
 }
 
