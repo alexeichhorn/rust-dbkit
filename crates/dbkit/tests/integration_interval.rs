@@ -1,5 +1,6 @@
 #![allow(non_upper_case_globals)]
 
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
 use dbkit::{model, Database, Executor, Order};
@@ -11,6 +12,14 @@ pub struct IntervalRow {
     pub base_interval_hours: i32,
     pub backoff_minutes: Option<i32>,
     pub lease_window: dbkit::PgInterval,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct AggregateIntervalArithmetic {
+    naive_add: NaiveDateTime,
+    naive_sub: NaiveDateTime,
+    utc_add: DateTime<Utc>,
+    utc_sub: DateTime<Utc>,
 }
 
 fn db_url() -> String {
@@ -101,6 +110,34 @@ async fn interval_helpers_can_drive_ordering() -> Result<(), dbkit::Error> {
 
     let ids: Vec<i64> = ordered.iter().map(|row| row.id).collect();
     assert_eq!(ids, vec![1, 2]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn aggregate_intervals_support_reverse_date_arithmetic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let utc = DateTime::from_timestamp(1_700_000_000, 0).expect("utc");
+    let naive = utc.naive_utc();
+    let aggregate: AggregateIntervalArithmetic = IntervalRow::query()
+        .select_only()
+        .column_as(naive + dbkit::func::sum(IntervalRow::lease_window), "naive_add")
+        .column_as(naive - dbkit::func::sum(IntervalRow::lease_window), "naive_sub")
+        .column_as(utc + dbkit::func::sum(IntervalRow::lease_window), "utc_add")
+        .column_as(utc - dbkit::func::sum(IntervalRow::lease_window), "utc_sub")
+        .filter(IntervalRow::id.in_([1_i64, 2_i64]))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+
+    assert_eq!(aggregate.naive_add, naive + Duration::hours(5));
+    assert_eq!(aggregate.naive_sub, naive - Duration::hours(5));
+    assert_eq!(aggregate.utc_add, utc + Duration::hours(5));
+    assert_eq!(aggregate.utc_sub, utc - Duration::hours(5));
 
     Ok(())
 }
