@@ -262,6 +262,10 @@ pub enum ExprNode {
         name: &'static str,
         args: Vec<ExprNode>,
     },
+    AggregateFilter {
+        aggregate: Box<ExprNode>,
+        predicate: Box<ExprNode>,
+    },
     VectorBinary {
         left: Box<ExprNode>,
         op: VectorBinaryOp,
@@ -308,10 +312,20 @@ pub enum ExprNode {
 }
 
 #[derive(Debug, Clone)]
-pub struct Expr<T> {
+#[doc(hidden)]
+pub struct ScalarExpression;
+
+#[derive(Debug, Clone)]
+#[doc(hidden)]
+pub struct AggregateExpression;
+
+#[derive(Debug, Clone)]
+pub struct Expr<T, Kind = ScalarExpression> {
     pub node: ExprNode,
-    _marker: PhantomData<T>,
+    _marker: PhantomData<(T, Kind)>,
 }
+
+pub type AggregateExpr<T> = Expr<T, AggregateExpression>;
 
 #[derive(Debug, Clone)]
 pub struct RowExpr<T> {
@@ -319,12 +333,22 @@ pub struct RowExpr<T> {
     _marker: PhantomData<T>,
 }
 
-impl<T> Expr<T> {
+impl<T, Kind> Expr<T, Kind> {
     pub fn new(node: ExprNode) -> Self {
         Self {
             node,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<T> AggregateExpr<T> {
+    /// Applies a PostgreSQL aggregate `FILTER (WHERE ...)` clause.
+    pub fn filter(self, predicate: Expr<bool>) -> Expr<T> {
+        Expr::new(ExprNode::AggregateFilter {
+            aggregate: Box::new(self.node),
+            predicate: Box::new(predicate.node),
+        })
     }
 }
 
@@ -388,27 +412,27 @@ where
     columns.into_row_expr()
 }
 
-impl<T> IntoExpr<T> for Expr<T> {
+impl<T, Kind> IntoExpr<T> for Expr<T, Kind> {
     fn into_expr(self) -> Expr<T> {
-        self
+        Expr::new(self.node)
     }
 }
 
-impl<T> ExprOperand for Expr<T> {
+impl<T, Kind> ExprOperand for Expr<T, Kind> {
     type Value = T;
 
     fn into_operand_expr(self) -> Expr<Self::Value> {
-        self
+        self.into_expr()
     }
 }
 
-impl<T> ComparisonValue<T, ExprComparisonMarker> for Expr<T> {
+impl<T, Kind> ComparisonValue<T, ExprComparisonMarker> for Expr<T, Kind> {
     fn into_comparison_expr(self) -> Expr<T> {
-        self
+        self.into_expr()
     }
 }
 
-impl<T> ComparisonValue<Option<T>, ExprComparisonMarker> for Expr<T> {
+impl<T, Kind> ComparisonValue<Option<T>, ExprComparisonMarker> for Expr<T, Kind> {
     fn into_comparison_expr(self) -> Expr<Option<T>> {
         Expr::new(self.node)
     }
@@ -814,34 +838,34 @@ impl SqlSub<PgInterval> for chrono::DateTime<chrono::Utc> {
     type Output = chrono::DateTime<chrono::Utc>;
 }
 
-impl Add<Expr<PgInterval>> for chrono::NaiveDateTime {
+impl<Kind> Add<Expr<PgInterval, Kind>> for chrono::NaiveDateTime {
     type Output = Expr<chrono::NaiveDateTime>;
 
-    fn add(self, rhs: Expr<PgInterval>) -> Self::Output {
+    fn add(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
-impl Sub<Expr<PgInterval>> for chrono::NaiveDateTime {
+impl<Kind> Sub<Expr<PgInterval, Kind>> for chrono::NaiveDateTime {
     type Output = Expr<chrono::NaiveDateTime>;
 
-    fn sub(self, rhs: Expr<PgInterval>) -> Self::Output {
+    fn sub(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
 
-impl Add<Expr<PgInterval>> for chrono::DateTime<chrono::Utc> {
+impl<Kind> Add<Expr<PgInterval, Kind>> for chrono::DateTime<chrono::Utc> {
     type Output = Expr<chrono::DateTime<chrono::Utc>>;
 
-    fn add(self, rhs: Expr<PgInterval>) -> Self::Output {
+    fn add(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
-impl Sub<Expr<PgInterval>> for chrono::DateTime<chrono::Utc> {
+impl<Kind> Sub<Expr<PgInterval, Kind>> for chrono::DateTime<chrono::Utc> {
     type Output = Expr<chrono::DateTime<chrono::Utc>>;
 
-    fn sub(self, rhs: Expr<PgInterval>) -> Self::Output {
+    fn sub(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
@@ -854,7 +878,7 @@ fn arithmetic_expr<Out>(left: ExprNode, op: BinaryOp, right: ExprNode) -> Expr<O
     })
 }
 
-impl<Lhs, RhsExpr> Add<RhsExpr> for Expr<Lhs>
+impl<Lhs, RhsExpr, Kind> Add<RhsExpr> for Expr<Lhs, Kind>
 where
     RhsExpr: ExprOperand,
     Lhs: SqlAdd<RhsExpr::Value>,
@@ -866,7 +890,7 @@ where
     }
 }
 
-impl<Lhs, RhsExpr> Sub<RhsExpr> for Expr<Lhs>
+impl<Lhs, RhsExpr, Kind> Sub<RhsExpr> for Expr<Lhs, Kind>
 where
     RhsExpr: ExprOperand,
     Lhs: SqlSub<RhsExpr::Value>,
@@ -878,7 +902,7 @@ where
     }
 }
 
-impl<Lhs, RhsExpr> Mul<RhsExpr> for Expr<Lhs>
+impl<Lhs, RhsExpr, Kind> Mul<RhsExpr> for Expr<Lhs, Kind>
 where
     RhsExpr: ExprOperand,
     Lhs: SqlMul<RhsExpr::Value>,
@@ -926,7 +950,7 @@ where
     }
 }
 
-impl<T> Expr<T>
+impl<T, Kind> Expr<T, Kind>
 where
     T: 'static,
 {
@@ -1159,7 +1183,7 @@ where
     }
 }
 
-impl Expr<bool> {
+impl<Kind> Expr<bool, Kind> {
     pub fn and(self, other: Expr<bool>) -> Expr<bool> {
         Expr::new(ExprNode::Bool {
             left: Box::new(self.node),

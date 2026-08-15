@@ -1309,6 +1309,145 @@ struct UserTodoAgg {
     todo_count: i64,
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct FilteredSaleAgg {
+    active_sales: i64,
+    us_sales: i64,
+    large_us_sales: i64,
+    missing_sales: i64,
+    oldest_large_us_sale_at: Option<NaiveDateTime>,
+    oldest_missing_sale_at: Option<NaiveDateTime>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct EmptyFilteredSaleAgg {
+    matching_sales: i64,
+    oldest_matching_sale_at: Option<NaiveDateTime>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct FilteredNullableAgg {
+    all_rows: i64,
+    null_rows: i64,
+    non_null_notes: i64,
+    first_null_note: Option<String>,
+}
+
+#[tokio::test]
+async fn filtered_aggregates_roundtrip_without_group_by() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let day1 = NaiveDate::from_ymd_opt(2024, 2, 1).expect("day");
+    let day2 = NaiveDate::from_ymd_opt(2024, 2, 2).expect("day");
+    let oldest_large_us_sale_at = NaiveDateTime::new(day1, NaiveTime::from_hms_opt(12, 0, 0).expect("time"));
+    Sale::insert_many(vec![
+        SaleInsert {
+            region: "us".to_string(),
+            amount: 40,
+            created_at: NaiveDateTime::new(day1, NaiveTime::from_hms_opt(10, 0, 0).expect("time")),
+        },
+        SaleInsert {
+            region: "us".to_string(),
+            amount: 70,
+            created_at: oldest_large_us_sale_at,
+        },
+        SaleInsert {
+            region: "eu".to_string(),
+            amount: 30,
+            created_at: NaiveDateTime::new(day1, NaiveTime::from_hms_opt(14, 0, 0).expect("time")),
+        },
+        SaleInsert {
+            region: "apac".to_string(),
+            amount: 200,
+            created_at: NaiveDateTime::new(day2, NaiveTime::from_hms_opt(9, 0, 0).expect("time")),
+        },
+        SaleInsert {
+            region: "us".to_string(),
+            amount: 0,
+            created_at: NaiveDateTime::new(day1, NaiveTime::from_hms_opt(8, 0, 0).expect("time")),
+        },
+    ])
+    .execute(&tx)
+    .await?;
+
+    let large_us_sale = Sale::region.eq("us").and(Sale::amount.ge(50_i64));
+    let aggregate: FilteredSaleAgg = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::count(Sale::id), "active_sales")
+        .column_as(dbkit::func::count(Sale::id).filter(Sale::region.eq("us")), "us_sales")
+        .column_as(dbkit::func::count(Sale::id).filter(large_us_sale.clone()), "large_us_sales")
+        .column_as(dbkit::func::count(Sale::id).filter(Sale::region.eq("missing")), "missing_sales")
+        .column_as(dbkit::func::min(Sale::created_at).filter(large_us_sale), "oldest_large_us_sale_at")
+        .column_as(
+            dbkit::func::min(Sale::created_at).filter(Sale::region.eq("missing")),
+            "oldest_missing_sale_at",
+        )
+        .filter(Sale::amount.gt(0_i64))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+
+    assert_eq!(aggregate.active_sales, 4);
+    assert_eq!(aggregate.us_sales, 2);
+    assert_eq!(aggregate.large_us_sales, 1);
+    assert_eq!(aggregate.missing_sales, 0);
+    assert_eq!(aggregate.oldest_large_us_sale_at, Some(oldest_large_us_sale_at));
+    assert_eq!(aggregate.oldest_missing_sale_at, None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn filtered_aggregates_handle_empty_and_nullable_inputs() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let empty: EmptyFilteredSaleAgg = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::count(Sale::id).filter(Sale::region.eq("us")), "matching_sales")
+        .column_as(
+            dbkit::func::min(Sale::created_at).filter(Sale::region.eq("us")),
+            "oldest_matching_sale_at",
+        )
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(empty.matching_sales, 0);
+    assert_eq!(empty.oldest_matching_sale_at, None);
+
+    seed_nullable_row(&tx, None).await?;
+    seed_nullable_row(&tx, Some("gamma".to_string())).await?;
+    seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+
+    let nullable: FilteredNullableAgg = NullableRow::query()
+        .select_only()
+        .column_as(dbkit::func::count(NullableRow::id), "all_rows")
+        .column_as(dbkit::func::count(NullableRow::id).filter(NullableRow::note.is_null()), "null_rows")
+        .column_as(
+            dbkit::func::count(NullableRow::note).filter(NullableRow::id.gt(0_i64)),
+            "non_null_notes",
+        )
+        .column_as(
+            dbkit::func::min(NullableRow::note).filter(NullableRow::note.is_null()),
+            "first_null_note",
+        )
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(nullable.all_rows, 3);
+    assert_eq!(nullable.null_rows, 1);
+    assert_eq!(nullable.non_null_notes, 2);
+    assert_eq!(nullable.first_null_note, None);
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn aggregation_and_group_by_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;

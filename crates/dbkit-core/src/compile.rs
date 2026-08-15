@@ -152,6 +152,12 @@ impl ToSql for ExprNode {
                 }
                 builder.push_sql(")");
             }
+            ExprNode::AggregateFilter { aggregate, predicate } => {
+                aggregate.to_sql(builder);
+                builder.push_sql(" FILTER (WHERE ");
+                predicate.to_sql(builder);
+                builder.push_sql(")");
+            }
             ExprNode::VectorBinary { left, op, right } => {
                 builder.push_sql("(");
                 left.to_sql(builder);

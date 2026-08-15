@@ -292,6 +292,68 @@ fn compiles_group_by_and_having() {
 }
 
 #[test]
+fn compiles_filtered_aggregate_projections_without_group_by() {
+    let discounted_us_sale = sales_region().eq("us").and(sales_amount().le(50_i64));
+    let query = Select::<Sale>::new(sales_table())
+        .select_only()
+        .column_as(func::count(sales_id()), "active_sales")
+        .column_as(func::count(sales_id()).filter(discounted_us_sale.clone()), "discounted_us_sales")
+        .column_as(
+            func::min(sales_created_at()).filter(discounted_us_sale),
+            "oldest_discounted_us_sale_at",
+        )
+        .column_as(func::count(sales_id()).filter(sales_region().eq("missing")), "missing_sales")
+        .filter(sales_amount().gt(0_i64));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT COUNT(sales.id) AS active_sales, COUNT(sales.id) FILTER (WHERE ((sales.region = $1) AND (sales.amount <= $2))) AS discounted_us_sales, MIN(sales.created_at) FILTER (WHERE ((sales.region = $1) AND (sales.amount <= $2))) AS oldest_discounted_us_sale_at, COUNT(sales.id) FILTER (WHERE (sales.region = $3)) AS missing_sales FROM sales WHERE (sales.amount > $4)"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("us".to_string()),
+            Value::I64(50),
+            Value::String("missing".to_string()),
+            Value::I64(0),
+        ]
+    );
+}
+
+#[test]
+fn compiles_filtered_aggregate_in_grouped_projection_and_having() {
+    let query = Select::<Sale>::new(sales_table())
+        .select_only()
+        .column(sales_region())
+        .column_as(func::count(sales_id()).filter(sales_amount().ge(50_i64)), "large_sales")
+        .group_by(sales_region())
+        .having(func::count(sales_id()).filter(sales_amount().ge(50_i64)).gt(1_i64));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT sales.region, COUNT(sales.id) FILTER (WHERE (sales.amount >= $1)) AS large_sales FROM sales GROUP BY sales.region HAVING (COUNT(sales.id) FILTER (WHERE (sales.amount >= $1)) > $2)"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(50), Value::I64(1)]);
+}
+
+#[test]
+fn compiles_scalar_function_wrapping_filtered_aggregate() {
+    let query = Select::<Sale>::new(sales_table()).select_only().column_as(
+        func::coalesce(func::sum(sales_amount()).filter(sales_region().eq("us")), 0_i64),
+        "us_total",
+    );
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT COALESCE(SUM(sales.amount) FILTER (WHERE (sales.region = $1)), $2) AS us_total FROM sales"
+    );
+    assert_eq!(sql.binds, vec![Value::String("us".to_string()), Value::I64(0)]);
+}
+
+#[test]
 fn compiles_select_only_with_join_and_group_by() {
     let todos_table = Table::new("todos");
     let todo_user_id: Column<User, i64> = Column::new(todos_table, "user_id");
@@ -351,8 +413,8 @@ fn compiles_min_max_aggregate_projections() {
 
 #[test]
 fn compiles_min_max_for_nullable_text_without_nested_option_type() {
-    let min_body: Expr<Option<String>> = func::min(text_sample_body());
-    let max_body: Expr<Option<String>> = func::max(text_sample_body());
+    let min_body = func::min(text_sample_body());
+    let max_body = func::max(text_sample_body());
 
     let query = Select::<TextSample>::new(text_samples_table())
         .select_only()

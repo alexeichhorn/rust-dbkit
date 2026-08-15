@@ -11,8 +11,8 @@ pub mod types;
 
 pub use compile::CompiledSql;
 pub use expr::{
-    row, ColumnValue, ComparisonValue, Condition, Expr, ExprNode, IntervalField, IntoExpr, NumericExprType, RowColumns, RowExpr, SqlAdd,
-    SqlMul, SqlSub, Value,
+    row, AggregateExpr, ColumnValue, ComparisonValue, Condition, Expr, ExprNode, IntervalField, IntoExpr, NumericExprType, RowColumns,
+    RowExpr, SqlAdd, SqlMul, SqlSub, Value,
 };
 pub use load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 pub use mutation::{Delete, Insert, Update};
