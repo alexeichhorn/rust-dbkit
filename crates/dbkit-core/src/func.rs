@@ -1,5 +1,5 @@
 use crate::compile::CompiledSql;
-use crate::expr::{Expr, ExprNode, IntoExpr, NumericExprType, VectorBinaryOp};
+use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, VectorBinaryOp};
 use crate::query::Select;
 use crate::PgVector;
 
@@ -70,7 +70,7 @@ where
     string_length_fn("CHAR_LENGTH", arg)
 }
 
-pub fn count<T>(arg: impl IntoExpr<T>) -> Expr<i64> {
+pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
         name: "COUNT",
@@ -78,7 +78,7 @@ pub fn count<T>(arg: impl IntoExpr<T>) -> Expr<i64> {
     })
 }
 
-pub fn sum<T>(arg: impl IntoExpr<T>) -> Expr<T> {
+pub fn sum<T>(arg: impl IntoExpr<T>) -> AggregateExpr<T> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
         name: "SUM",
@@ -119,7 +119,7 @@ impl_nullable_aggregate_output!(
     crate::PgInterval,
 );
 
-pub fn min<T>(arg: impl IntoExpr<T>) -> Expr<<T as NullableAggregateOutput>::Output>
+pub fn min<T>(arg: impl IntoExpr<T>) -> AggregateExpr<<T as NullableAggregateOutput>::Output>
 where
     T: NullableAggregateOutput,
 {
@@ -130,7 +130,7 @@ where
     })
 }
 
-pub fn max<T>(arg: impl IntoExpr<T>) -> Expr<<T as NullableAggregateOutput>::Output>
+pub fn max<T>(arg: impl IntoExpr<T>) -> AggregateExpr<<T as NullableAggregateOutput>::Output>
 where
     T: NullableAggregateOutput,
 {

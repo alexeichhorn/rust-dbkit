@@ -54,7 +54,7 @@ impl<M, T> IntoOrderExpr for crate::schema::Column<M, T> {
     }
 }
 
-impl<T> IntoOrderExpr for Expr<T> {
+impl<T, Kind> IntoOrderExpr for Expr<T, Kind> {
     fn into_order_expr(self) -> OrderExpr {
         OrderExpr::Expr(self.node)
     }

@@ -413,8 +413,8 @@ fn compiles_min_max_aggregate_projections() {
 
 #[test]
 fn compiles_min_max_for_nullable_text_without_nested_option_type() {
-    let min_body: Expr<Option<String>> = func::min(text_sample_body());
-    let max_body: Expr<Option<String>> = func::max(text_sample_body());
+    let min_body = func::min(text_sample_body());
+    let max_body = func::max(text_sample_body());
 
     let query = Select::<TextSample>::new(text_samples_table())
         .select_only()
