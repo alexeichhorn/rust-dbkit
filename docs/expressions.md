@@ -52,6 +52,33 @@ let totals: Vec<RegionTotal> = Sale::query()
     .await?;
 ```
 
+## Filtered Aggregates
+
+```rust
+#[derive(sqlx::FromRow, Debug)]
+struct SaleSummary {
+    sale_count: i64,
+    us_sale_count: i64,
+    first_us_sale_at: Option<chrono::NaiveDateTime>,
+}
+
+let us_sale = Sale::region.eq("us");
+let summary: SaleSummary = Sale::query()
+    .select_only()
+    .column_as(dbkit::func::count(Sale::id), "sale_count")
+    .column_as(dbkit::func::count(Sale::id).filter(us_sale.clone()), "us_sale_count")
+    .column_as(dbkit::func::min(Sale::created_at).filter(us_sale), "first_us_sale_at")
+    .filter(Sale::amount.gt(0_i64))
+    .into_model()
+    .one(&db)
+    .await?
+    .expect("aggregate without GROUP BY returns one row");
+```
+
+Query-level `.filter(...)` limits the input to every aggregate. An aggregate's `.filter(...)`
+limits only that aggregate and generates PostgreSQL `FILTER (WHERE ...)` syntax. When every
+selected expression is an aggregate, PostgreSQL returns one summary row without `GROUP BY`.
+
 ## SQL Functions And Expression-Based Grouping
 
 ```rust
@@ -96,6 +123,6 @@ Notes:
 - `select_only()` switches from `SELECT *` to projections via `column(...)` or `column_as(...)`.
 - Use `into_model::<T>()` to map into a custom `sqlx::FromRow` struct.
 - `dbkit` re-exports `sqlx` for types, but `#[derive(sqlx::FromRow)]` expands to `::sqlx::...`; crates using the derive need `sqlx` available as a direct dependency.
-- Aggregate helpers include `sum`, `count`, `min`, and `max`.
+- Aggregate helpers include `sum`, `count`, `min`, and `max`; each supports PostgreSQL `FILTER (WHERE ...)` via `.filter(...)`.
 - `SUM` over integer columns returns `NUMERIC` in Postgres; use `BigDecimal` (or cast) for totals.
 - Aggregations work across joins; order-by currently expects a real column/expr rather than an alias.
