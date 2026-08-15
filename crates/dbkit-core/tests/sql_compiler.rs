@@ -339,6 +339,21 @@ fn compiles_filtered_aggregate_in_grouped_projection_and_having() {
 }
 
 #[test]
+fn compiles_scalar_function_wrapping_filtered_aggregate() {
+    let query = Select::<Sale>::new(sales_table()).select_only().column_as(
+        func::coalesce(func::sum(sales_amount()).filter(sales_region().eq("us")), 0_i64),
+        "us_total",
+    );
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT COALESCE(SUM(sales.amount) FILTER (WHERE (sales.region = $1)), $2) AS us_total FROM sales"
+    );
+    assert_eq!(sql.binds, vec![Value::String("us".to_string()), Value::I64(0)]);
+}
+
+#[test]
 fn compiles_select_only_with_join_and_group_by() {
     let todos_table = Table::new("todos");
     let todo_user_id: Column<User, i64> = Column::new(todos_table, "user_id");

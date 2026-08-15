@@ -13,19 +13,29 @@ pub struct Sale {
 }
 
 fn main() {
+    fn assert_into_expr<T>(_expr: impl dbkit::IntoExpr<T>) {}
+
     struct RawSale;
     let raw_sales = dbkit::Table::new("raw_sales");
     let raw_min_note_column: dbkit::Column<RawSale, Option<String>> = dbkit::Column::new(raw_sales, "note");
     let raw_max_note_column: dbkit::Column<RawSale, Option<String>> = dbkit::Column::new(raw_sales, "note");
 
-    let first_sale_at: dbkit::Expr<Option<NaiveDateTime>> = dbkit::func::min(Sale::created_at);
-    let last_sale_at: dbkit::Expr<Option<NaiveDateTime>> = dbkit::func::max(Sale::created_at);
-    let min_amount: dbkit::Expr<Option<i64>> = dbkit::func::min(Sale::amount);
-    let max_amount: dbkit::Expr<Option<i64>> = dbkit::func::max(Sale::amount);
-    let min_note: dbkit::Expr<Option<String>> = dbkit::func::min(Sale::note);
-    let max_note: dbkit::Expr<Option<String>> = dbkit::func::max(Sale::note);
-    let raw_min_note: dbkit::Expr<Option<String>> = dbkit::func::min(raw_min_note_column);
-    let raw_max_note: dbkit::Expr<Option<String>> = dbkit::func::max(raw_max_note_column);
+    let first_sale_at = dbkit::func::min(Sale::created_at);
+    let last_sale_at = dbkit::func::max(Sale::created_at);
+    let min_amount = dbkit::func::min(Sale::amount);
+    let max_amount = dbkit::func::max(Sale::amount);
+    let min_note = dbkit::func::min(Sale::note);
+    let max_note = dbkit::func::max(Sale::note);
+    let raw_min_note = dbkit::func::min(raw_min_note_column);
+    let raw_max_note = dbkit::func::max(raw_max_note_column);
+    assert_into_expr::<Option<NaiveDateTime>>(first_sale_at.clone());
+    assert_into_expr::<Option<NaiveDateTime>>(last_sale_at.clone());
+    assert_into_expr::<Option<i64>>(min_amount.clone());
+    assert_into_expr::<Option<i64>>(max_amount.clone());
+    assert_into_expr::<Option<String>>(min_note.clone());
+    assert_into_expr::<Option<String>>(max_note.clone());
+    assert_into_expr::<Option<String>>(raw_min_note.clone());
+    assert_into_expr::<Option<String>>(raw_max_note.clone());
     let us_sale = Sale::region.eq("us");
     let us_sale_count: dbkit::Expr<i64> = dbkit::func::count(Sale::id).filter(us_sale.clone());
     let first_us_sale_at: dbkit::Expr<Option<NaiveDateTime>> = dbkit::func::min(Sale::created_at).filter(us_sale);
