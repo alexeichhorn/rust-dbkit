@@ -163,6 +163,16 @@ fn compiles_upper_function_filter() {
 }
 
 #[test]
+fn compiles_lower_function_with_literal_input() {
+    let lowered: Expr<String> = func::lower("MiXeD");
+    let query: Select<TextSample> = Select::new(text_samples_table()).select_only().column_as(lowered, "lowered");
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT LOWER($1) AS lowered FROM text_samples");
+    assert_eq!(sql.binds, vec![Value::String("MiXeD".to_string())]);
+}
+
+#[test]
 fn compiles_coalesce_function_filter() {
     let expr = func::coalesce(user_email(), "unknown").eq("ALPHA");
     let sql = expr_sql(expr);
@@ -245,6 +255,73 @@ fn compiles_trimmed_nullable_text_selection() {
         "SELECT text_samples.id, TRIM(text_samples.body) AS trimmed_body, CHAR_LENGTH(TRIM(text_samples.body)) AS trimmed_body_len FROM text_samples"
     );
     assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_string_normalization_in_projections_filter_and_ordering() {
+    let trimmed_body: Expr<Option<String>> = func::trim_end_chars(text_sample_body(), "!?");
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(func::lower(text_sample_title()), "lowered_title")
+        .column_as(func::trim_chars(text_sample_title(), "xy"), "trimmed_title")
+        .column_as(func::trim_start(text_sample_title()), "left_trimmed_title")
+        .column_as(func::trim_start_chars(text_sample_title(), "@"), "handle")
+        .column_as(func::trim_end(text_sample_body()), "right_trimmed_body")
+        .column_as(trimmed_body, "punctuation_trimmed_body")
+        .filter(func::trim_chars(text_sample_title(), ".").eq("alpha"))
+        .order_by(Order::asc(func::trim_start_chars(text_sample_title(), "#")))
+        .order_by(Order::desc(func::trim_end(text_sample_body())));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT LOWER(text_samples.title) AS lowered_title, TRIM(BOTH $1 FROM text_samples.title) AS trimmed_title, TRIM(LEADING FROM text_samples.title) AS left_trimmed_title, TRIM(LEADING $2 FROM text_samples.title) AS handle, TRIM(TRAILING FROM text_samples.body) AS right_trimmed_body, TRIM(TRAILING $3 FROM text_samples.body) AS punctuation_trimmed_body FROM text_samples WHERE (TRIM(BOTH $4 FROM text_samples.title) = $5) ORDER BY TRIM(LEADING $6 FROM text_samples.title) ASC, TRIM(TRAILING FROM text_samples.body) DESC"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("xy".to_string()),
+            Value::String("@".to_string()),
+            Value::String("!?".to_string()),
+            Value::String(".".to_string()),
+            Value::String("alpha".to_string()),
+            Value::String("#".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn custom_trim_characters_are_bound_in_sql_order() {
+    let expr = func::trim_chars(func::trim_start_chars(text_sample_title(), "'\\"), "[]").eq("alpha");
+    let query: Select<TextSample> = Select::new(text_samples_table()).filter(expr);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT text_samples.* FROM text_samples WHERE (TRIM(BOTH $1 FROM TRIM(LEADING $2 FROM text_samples.title)) = $3)"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("[]".to_string()),
+            Value::String("'\\".to_string()),
+            Value::String("alpha".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_normalized_handle_lookup() {
+    let handle = "alice";
+    let normalized = func::lower(func::trim(func::trim_start_chars(func::trim(text_sample_title()), "@")));
+    let query: Select<TextSample> = Select::new(text_samples_table()).filter(normalized.eq(handle));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT text_samples.* FROM text_samples WHERE (LOWER(TRIM(TRIM(LEADING $1 FROM TRIM(text_samples.title)))) = $2)"
+    );
+    assert_eq!(sql.binds, vec![Value::String("@".to_string()), Value::String(handle.to_string())]);
 }
 
 #[test]

@@ -1268,6 +1268,217 @@ async fn char_length_of_trimmed_nullable_text_filters_rows() -> Result<(), dbkit
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct WhitespaceNormalizationResult {
+    label: String,
+    lowered: Option<String>,
+    trimmed: Option<String>,
+    start_trimmed: Option<String>,
+    end_trimmed: Option<String>,
+}
+
+#[tokio::test]
+async fn string_normalization_preserves_direction_and_nullability() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "mixed", Some("  MiXeD  ")).await?;
+    seed_text_sample(&tx, "lower", Some("already lower")).await?;
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "spaces", Some("   ")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+
+    let rows: Vec<WhitespaceNormalizationResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(dbkit::func::lower(TextSample::body), "lowered")
+        .column_as(dbkit::func::trim(TextSample::body), "trimmed")
+        .column_as(dbkit::func::trim_start(TextSample::body), "start_trimmed")
+        .column_as(dbkit::func::trim_end(TextSample::body), "end_trimmed")
+        .order_by(dbkit::Order::asc(TextSample::label))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    let values: Vec<_> = rows
+        .into_iter()
+        .map(|row| (row.label, row.lowered, row.trimmed, row.start_trimmed, row.end_trimmed))
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            (
+                "empty".to_string(),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+            ),
+            (
+                "lower".to_string(),
+                Some("already lower".to_string()),
+                Some("already lower".to_string()),
+                Some("already lower".to_string()),
+                Some("already lower".to_string()),
+            ),
+            ("missing".to_string(), None, None, None, None),
+            (
+                "mixed".to_string(),
+                Some("  mixed  ".to_string()),
+                Some("MiXeD".to_string()),
+                Some("MiXeD  ".to_string()),
+                Some("  MiXeD".to_string()),
+            ),
+            (
+                "spaces".to_string(),
+                Some("   ".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct CustomTrimResult {
+    label: String,
+    original: Option<String>,
+    both: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+    empty_set: Option<String>,
+}
+
+#[tokio::test]
+async fn custom_trim_uses_a_character_set_and_handles_edge_cases() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "all", Some("xyyx")).await?;
+    seed_text_sample(&tx, "blocked", Some(" xalphay ")).await?;
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "internal", Some("xyxyalxphayx")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+    seed_text_sample(&tx, "no_match", Some("alpha")).await?;
+
+    let rows: Vec<CustomTrimResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(TextSample::body, "original")
+        .column_as(dbkit::func::trim_chars(TextSample::body, "xy"), "both")
+        .column_as(dbkit::func::trim_start_chars(TextSample::body, "xy"), "start")
+        .column_as(dbkit::func::trim_end_chars(TextSample::body, "xy"), "end")
+        .column_as(dbkit::func::trim_chars(TextSample::body, ""), "empty_set")
+        .order_by(dbkit::Order::asc(TextSample::label))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    let values: Vec<_> = rows
+        .into_iter()
+        .map(|row| (row.label, row.original, row.both, row.start, row.end, row.empty_set))
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            (
+                "all".to_string(),
+                Some("xyyx".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("xyyx".to_string()),
+            ),
+            (
+                "blocked".to_string(),
+                Some(" xalphay ".to_string()),
+                Some(" xalphay ".to_string()),
+                Some(" xalphay ".to_string()),
+                Some(" xalphay ".to_string()),
+                Some(" xalphay ".to_string()),
+            ),
+            (
+                "empty".to_string(),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+            ),
+            (
+                "internal".to_string(),
+                Some("xyxyalxphayx".to_string()),
+                Some("alxpha".to_string()),
+                Some("alxphayx".to_string()),
+                Some("xyxyalxpha".to_string()),
+                Some("xyxyalxphayx".to_string()),
+            ),
+            ("missing".to_string(), None, None, None, None, None),
+            (
+                "no_match".to_string(),
+                Some("alpha".to_string()),
+                Some("alpha".to_string()),
+                Some("alpha".to_string()),
+                Some("alpha".to_string()),
+                Some("alpha".to_string()),
+            ),
+        ]
+    );
+
+    let unicode = seed_text_sample(&tx, "unicode", Some("ééalphéaé")).await?;
+    let escaped = seed_text_sample(&tx, "escaped", Some("'\\alpha\\'")).await?;
+
+    let unicode_match = TextSample::query()
+        .filter(dbkit::func::trim_chars(TextSample::body, "é").eq("alphéa"))
+        .one(&tx)
+        .await?
+        .expect("Unicode trim match");
+    assert_eq!(unicode_match.id, unicode.id);
+
+    let escaped_match = TextSample::query()
+        .filter(dbkit::func::trim_chars(TextSample::body, "'\\").eq("alpha"))
+        .one(&tx)
+        .await?
+        .expect("bound quote/backslash trim match");
+    assert_eq!(escaped_match.id, escaped.id);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn nested_normalized_handle_lookup_matches_equivalent_inputs() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let canonical = seed_text_sample(&tx, "alice", None).await?;
+    let spaced = seed_text_sample(&tx, " Alice ", None).await?;
+    let prefixed = seed_text_sample(&tx, "@Alice", None).await?;
+    let revealed_space = seed_text_sample(&tx, " @ Alice ", None).await?;
+    let repeated_prefix = seed_text_sample(&tx, "@@@ALICE", None).await?;
+    seed_text_sample(&tx, "bob", None).await?;
+
+    let handle = "alice";
+    let normalized = dbkit::func::lower(dbkit::func::trim(dbkit::func::trim_start_chars(
+        dbkit::func::trim(TextSample::label),
+        "@",
+    )));
+    let matches = TextSample::query().filter(normalized.eq(handle)).all(&tx).await?;
+
+    let mut ids: Vec<_> = matches.into_iter().map(|row| row.id).collect();
+    ids.sort();
+    let mut expected = vec![canonical.id, spaced.id, prefixed.id, revealed_space.id, repeated_prefix.id];
+    expected.sort();
+    assert_eq!(ids, expected);
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct RegionAgg {
     region: String,
     total: dbkit::sqlx::types::BigDecimal,

@@ -61,6 +61,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_interval_string_hours.rs".into(),
         "fail_interval_float_hours.rs".into(),
         "fail_trim_non_text.rs".into(),
+        "fail_lower_non_text.rs".into(),
+        "fail_trim_chars_non_text.rs".into(),
         "fail_char_length_non_text.rs".into(),
         "fail_filter_non_aggregate.rs".into(),
         "pass_db_enum_crud.rs".into(),
