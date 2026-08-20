@@ -349,12 +349,11 @@ fn compiles_string_extraction_and_sizing_functions_with_expected_types() {
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT LEFT(text_samples.title, $1) AS left_title, RIGHT(text_samples.body, text_samples.width) AS right_body, SUBSTRING(LOWER(text_samples.title), $2, text_samples.width) AS substring_title, REPEAT($3, $4) AS repeated_literal, LPAD(text_samples.title, $5, $6) AS padded_title, RPAD(text_samples.body, CHAR_LENGTH(text_samples.title), LOWER($7)) AS padded_body FROM text_samples"
+        "SELECT LEFT(text_samples.title, $1) AS left_title, RIGHT(text_samples.body, text_samples.width) AS right_body, SUBSTRING(LOWER(text_samples.title), $1, text_samples.width) AS substring_title, REPEAT($2, $3) AS repeated_literal, LPAD(text_samples.title, $4, $5) AS padded_title, RPAD(text_samples.body, CHAR_LENGTH(text_samples.title), LOWER($6)) AS padded_body FROM text_samples"
     );
     assert_eq!(
         sql.binds,
         vec![
-            Value::I32(2),
             Value::I32(2),
             Value::String("ab".to_string()),
             Value::I32(3),
@@ -380,7 +379,7 @@ fn compiles_nested_string_functions_in_projection_filter_and_ordering() {
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT SUBSTRING(LEFT(LOWER(text_samples.title), $1), $2, $3) AS slice FROM text_samples WHERE (REPEAT(RIGHT(TRIM(text_samples.title), $4), $5) = $6) ORDER BY RPAD(LEFT(text_samples.body, $7), $8, $9) ASC"
+        "SELECT SUBSTRING(LEFT(LOWER(text_samples.title), $1), $2, $3) AS slice FROM text_samples WHERE (REPEAT(RIGHT(TRIM(text_samples.title), $2), $2) = $4) ORDER BY RPAD(LEFT(text_samples.body, $5), $6, $7) ASC"
     );
     assert_eq!(
         sql.binds,
@@ -388,8 +387,6 @@ fn compiles_nested_string_functions_in_projection_filter_and_ordering() {
             Value::I32(5),
             Value::I32(2),
             Value::I32(3),
-            Value::I32(2),
-            Value::I32(2),
             Value::String("abab".to_string()),
             Value::I32(4),
             Value::I32(8),
