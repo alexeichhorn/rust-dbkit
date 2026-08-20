@@ -3,6 +3,14 @@ use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, Trim
 use crate::query::Select;
 use crate::PgVector;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NormalizationForm {
+    Nfc,
+    Nfd,
+    Nfkc,
+    Nfkd,
+}
+
 pub trait StringUnaryExpr {
     type Output;
 }
@@ -25,6 +33,30 @@ impl StringLengthExpr for String {
 
 impl StringLengthExpr for Option<String> {
     type Output = Option<i32>;
+}
+
+pub trait StringBoolExpr {
+    type Output;
+}
+
+impl StringBoolExpr for String {
+    type Output = bool;
+}
+
+impl StringBoolExpr for Option<String> {
+    type Output = Option<bool>;
+}
+
+pub trait CodepointExpr {
+    type Output;
+}
+
+impl CodepointExpr for i32 {
+    type Output = String;
+}
+
+impl CodepointExpr for Option<i32> {
+    type Output = Option<String>;
 }
 
 pub trait StringBinaryExpr<Rhs, Result> {
@@ -114,6 +146,65 @@ where
     T: StringUnaryExpr,
 {
     unary_string_fn("LOWER", arg)
+}
+
+/// Converts UTF-8 text to the selected Unicode normalization form.
+pub fn normalize<T>(arg: impl IntoExpr<T>, form: NormalizationForm) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    Expr::new(ExprNode::Normalize {
+        expr: Box::new(arg.into_expr().node),
+        form,
+    })
+}
+
+/// Returns the Unicode code point of the first character, or zero for empty text.
+pub fn first_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("ASCII", arg)
+}
+
+/// Returns the character for a PostgreSQL integer code point.
+pub fn from_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as CodepointExpr>::Output>
+where
+    T: CodepointExpr,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "CHR",
+        args: vec![expr.node],
+    })
+}
+
+/// Converts text to ASCII using PostgreSQL's database-encoding-dependent conversion.
+pub fn to_ascii<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("TO_ASCII", arg)
+}
+
+/// Performs collation-dependent Unicode case folding. Requires PostgreSQL 18 or newer.
+pub fn case_fold<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("CASEFOLD", arg)
+}
+
+/// Tests whether every character has an assigned Unicode code point. Requires PostgreSQL 18 or newer.
+pub fn is_unicode_assigned<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringBoolExpr>::Output>
+where
+    T: StringBoolExpr,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "UNICODE_ASSIGNED",
+        args: vec![expr.node],
+    })
 }
 
 pub fn trim<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
