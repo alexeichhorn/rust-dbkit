@@ -2206,11 +2206,6 @@ async fn text_transformation_metacharacters_remain_bound_values() -> Result<(), 
     Ok(())
 }
 
-#[derive(dbkit::sqlx::FromRow, Debug)]
-struct TextTransformationValue {
-    value: String,
-}
-
 #[tokio::test]
 async fn replace_range_rejects_zero_start() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
@@ -2218,7 +2213,7 @@ async fn replace_range_rejects_zero_start() -> Result<(), dbkit::Error> {
     setup_schema(&tx).await?;
     seed_text_sample(&tx, "invalid-overlay-start", None).await?;
 
-    let result: Result<Vec<TextTransformationValue>, dbkit::Error> = TextSample::query()
+    let result: Result<Vec<NullableStringResult>, dbkit::Error> = TextSample::query()
         .select_only()
         .column_as(dbkit::func::replace_range("abcdef", "X", 0_i32, 2_i32), "value")
         .into_model()
