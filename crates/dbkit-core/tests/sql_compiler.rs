@@ -465,6 +465,83 @@ fn compiles_nested_string_functions_in_projection_filter_and_ordering() {
 }
 
 #[test]
+fn compiles_text_transformation_functions_with_expected_types_and_postgresql_names() {
+    let titled: Expr<String> = func::title_case(text_sample_title());
+    let reversed: Expr<Option<String>> = func::reverse(text_sample_body());
+    let replaced: Expr<String> = func::replace(func::lower(text_sample_title()), "FROM_LITERAL", "TO_LITERAL");
+    let nullable_replace: Expr<Option<String>> = func::replace(text_sample_title(), text_sample_body(), "fallback");
+    let ranged: Expr<String> = func::replace_range(text_sample_title(), func::upper("replacement"), text_sample_width(), 2_i32);
+    let nullable_range: Expr<Option<String>> = func::replace_range(text_sample_title(), text_sample_body(), 1_i32, text_sample_width());
+    let translated: Expr<String> = func::translate_chars(text_sample_title(), "abc", "xyz");
+    let nullable_translation: Expr<Option<String>> = func::translate_chars(text_sample_title(), "abc", text_sample_body());
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(titled, "titled")
+        .column_as(reversed, "reversed")
+        .column_as(replaced, "replaced")
+        .column_as(nullable_replace, "nullable_replace")
+        .column_as(ranged, "ranged")
+        .column_as(nullable_range, "nullable_range")
+        .column_as(translated, "translated")
+        .column_as(nullable_translation, "nullable_translation");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT INITCAP(text_samples.title) AS titled, REVERSE(text_samples.body) AS reversed, REPLACE(LOWER(text_samples.title), $1, $2) AS replaced, REPLACE(text_samples.title, text_samples.body, $3) AS nullable_replace, OVERLAY(text_samples.title, UPPER($4), text_samples.width, $5) AS ranged, OVERLAY(text_samples.title, text_samples.body, $6, text_samples.width) AS nullable_range, TRANSLATE(text_samples.title, $7, $8) AS translated, TRANSLATE(text_samples.title, $7, text_samples.body) AS nullable_translation FROM text_samples"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("FROM_LITERAL".to_string()),
+            Value::String("TO_LITERAL".to_string()),
+            Value::String("fallback".to_string()),
+            Value::String("replacement".to_string()),
+            Value::I32(2),
+            Value::I32(1),
+            Value::String("abc".to_string()),
+            Value::String("xyz".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn text_transformation_arguments_remain_bound_when_composed() {
+    let unsafe_text = "'%_\\[]().*+";
+    let transformed = func::reverse(func::translate_chars(
+        func::replace(text_sample_title(), unsafe_text, "<$&>"),
+        "[]",
+        "{}",
+    ));
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(func::title_case(transformed), "transformed")
+        .filter(func::replace_range(text_sample_body(), unsafe_text, 1_i32, 2_i32).eq("expected"))
+        .order_by(Order::asc(func::reverse(func::translate_chars(text_sample_body(), "%_", ""))));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT INITCAP(REVERSE(TRANSLATE(REPLACE(text_samples.title, $1, $2), $3, $4))) AS transformed FROM text_samples WHERE (OVERLAY(text_samples.body, $1, $5, $6) = $7) ORDER BY REVERSE(TRANSLATE(text_samples.body, $8, $9)) ASC"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String(unsafe_text.to_string()),
+            Value::String("<$&>".to_string()),
+            Value::String("[]".to_string()),
+            Value::String("{}".to_string()),
+            Value::I32(1),
+            Value::I32(2),
+            Value::String("expected".to_string()),
+            Value::String("%_".to_string()),
+            Value::String("".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn compiles_string_composition_functions_with_variadic_expression_arrays() {
     let separator = "'%_\\[](){}";
     let joined: Expr<String> = func::concat([

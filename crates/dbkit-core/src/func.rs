@@ -126,6 +126,18 @@ fn binary_string_fn<L, R, O>(name: &'static str, left: impl IntoExpr<L>, right: 
     })
 }
 
+fn ternary_string_fn<A, B, C, O>(
+    name: &'static str,
+    first: impl IntoExpr<A>,
+    second: impl IntoExpr<B>,
+    third: impl IntoExpr<C>,
+) -> Expr<O> {
+    Expr::new(ExprNode::Func {
+        name,
+        args: vec![first.into_expr().node, second.into_expr().node, third.into_expr().node],
+    })
+}
+
 fn string_expr_nodes<I, A>(args: I) -> Vec<ExprNode>
 where
     I: IntoIterator<Item = A>,
@@ -156,11 +168,80 @@ where
     unary_string_fn("UPPER", arg)
 }
 
+/// Converts text to lowercase according to the database locale, preserving input nullability.
+/// Maps to PostgreSQL `LOWER`.
 pub fn lower<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
 {
     unary_string_fn("LOWER", arg)
+}
+
+/// Converts the first letter of each alphanumeric word to upper case and the rest to lower case.
+/// Maps to PostgreSQL `INITCAP`.
+pub fn title_case<T>(expression: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("INITCAP", expression)
+}
+
+/// Replaces every exact occurrence of `from` with `to`.
+/// Returns NULL if any argument is NULL. Maps to PostgreSQL `REPLACE`.
+pub fn replace<S, F, T>(
+    expression: impl IntoExpr<S>,
+    from: impl IntoExpr<F>,
+    to: impl IntoExpr<T>,
+) -> Expr<<<S as StringBinaryExpr<F, String>>::Output as StringBinaryExpr<T, String>>::Output>
+where
+    S: StringBinaryExpr<F, String>,
+    <S as StringBinaryExpr<F, String>>::Output: StringBinaryExpr<T, String>,
+{
+    ternary_string_fn("REPLACE", expression, from, to)
+}
+
+/// Replaces `count` characters from the 1-based `start` with `replacement`.
+/// Returns NULL if either string argument is NULL. Maps to PostgreSQL's callable `OVERLAY` form.
+pub fn replace_range<S, R>(
+    expression: impl IntoExpr<S>,
+    replacement: impl IntoExpr<R>,
+    start: impl IntoExpr<i32>,
+    count: impl IntoExpr<i32>,
+) -> Expr<<S as StringBinaryExpr<R, String>>::Output>
+where
+    S: StringBinaryExpr<R, String>,
+{
+    Expr::new(ExprNode::Func {
+        name: "OVERLAY",
+        args: vec![
+            expression.into_expr().node,
+            replacement.into_expr().node,
+            start.into_expr().node,
+            count.into_expr().node,
+        ],
+    })
+}
+
+/// Replaces characters positionally, deleting `from` characters without a corresponding `to` character.
+/// Returns NULL if any argument is NULL. Maps to PostgreSQL `TRANSLATE`.
+pub fn translate_chars<S, F, T>(
+    expression: impl IntoExpr<S>,
+    from: impl IntoExpr<F>,
+    to: impl IntoExpr<T>,
+) -> Expr<<<S as StringBinaryExpr<F, String>>::Output as StringBinaryExpr<T, String>>::Output>
+where
+    S: StringBinaryExpr<F, String>,
+    <S as StringBinaryExpr<F, String>>::Output: StringBinaryExpr<T, String>,
+{
+    ternary_string_fn("TRANSLATE", expression, from, to)
+}
+
+/// Reverses the characters in a string. Maps to PostgreSQL `REVERSE`.
+pub fn reverse<T>(expression: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("REVERSE", expression)
 }
 
 pub fn trim<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
@@ -170,6 +251,9 @@ where
     unary_string_fn("TRIM", arg)
 }
 
+/// Removes the longest span made only of characters in the `characters` set from both ends.
+/// For example, trimming `"xyxtrimyyx"` with `"xyz"` yields `"trim"`.
+/// Maps to PostgreSQL `TRIM(BOTH characters FROM expression)`.
 pub fn trim_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -177,6 +261,8 @@ where
     directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr()))
 }
 
+/// Removes leading spaces from a text expression.
+/// Maps to PostgreSQL `TRIM(LEADING FROM expression)`.
 pub fn trim_start<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -184,6 +270,8 @@ where
     directed_trim_fn(arg, TrimDirection::Leading, None)
 }
 
+/// Removes the longest leading span made only of characters in the `characters` set.
+/// Maps to PostgreSQL `TRIM(LEADING characters FROM expression)`.
 pub fn trim_start_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -191,6 +279,8 @@ where
     directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr()))
 }
 
+/// Removes trailing spaces from a text expression.
+/// Maps to PostgreSQL `TRIM(TRAILING FROM expression)`.
 pub fn trim_end<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -198,6 +288,8 @@ where
     directed_trim_fn(arg, TrimDirection::Trailing, None)
 }
 
+/// Removes the longest trailing span made only of characters in the `characters` set.
+/// Maps to PostgreSQL `TRIM(TRAILING characters FROM expression)`.
 pub fn trim_end_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
