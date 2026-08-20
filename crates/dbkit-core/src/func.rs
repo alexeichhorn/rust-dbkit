@@ -1,5 +1,7 @@
+use bitflags::bitflags;
+
 use crate::compile::CompiledSql;
-use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, TrimDirection, VectorBinaryOp};
+use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, TrimDirection, Value, VectorBinaryOp};
 use crate::query::Select;
 use crate::PgVector;
 
@@ -45,6 +47,45 @@ impl<Result> StringBinaryExpr<String, Result> for Option<String> {
 
 impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
     type Output = Option<Result>;
+}
+
+bitflags! {
+    /// Options supported by [`regex_replace`].
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct RegexReplaceFlags: u8 {
+        /// Matches letters without regard to case.
+        const CASE_INSENSITIVE = 1 << 0;
+        /// Replaces every match instead of only the first.
+        const GLOBAL = 1 << 1;
+    }
+
+    /// Options supported by [`regex_split`].
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct RegexSplitFlags: u8 {
+        /// Matches letters without regard to case.
+        const CASE_INSENSITIVE = 1 << 0;
+    }
+}
+
+impl RegexReplaceFlags {
+    fn as_postgres_str(self) -> &'static str {
+        match (self.contains(Self::GLOBAL), self.contains(Self::CASE_INSENSITIVE)) {
+            (false, false) => "",
+            (false, true) => "i",
+            (true, false) => "g",
+            (true, true) => "gi",
+        }
+    }
+}
+
+impl RegexSplitFlags {
+    fn as_postgres_str(self) -> &'static str {
+        if self.contains(Self::CASE_INSENSITIVE) {
+            "i"
+        } else {
+            ""
+        }
+    }
 }
 
 fn unary_string_fn<T>(name: &'static str, arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
@@ -261,18 +302,16 @@ where
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
 
-/// Replaces regex matches using explicit PostgreSQL flags, preserving nullability across all arguments.
-/// Pass `""` for the default first match or `"g"` to replace every match.
-pub fn regex_replace<S, P, R, F, SP, SPR, O>(
+/// Replaces regex matches, preserving nullability across the three text arguments.
+pub fn regex_replace<S, P, R, SP, O>(
     source: impl IntoExpr<S>,
     pattern: impl IntoExpr<P>,
     replacement: impl IntoExpr<R>,
-    flags: impl IntoExpr<F>,
+    flags: RegexReplaceFlags,
 ) -> Expr<O>
 where
     S: StringBinaryExpr<P, String, Output = SP>,
-    SP: StringBinaryExpr<R, String, Output = SPR>,
-    SPR: StringBinaryExpr<F, String, Output = O>,
+    SP: StringBinaryExpr<R, String, Output = O>,
 {
     Expr::new(ExprNode::Func {
         name: "REGEXP_REPLACE",
@@ -280,21 +319,23 @@ where
             source.into_expr().node,
             pattern.into_expr().node,
             replacement.into_expr().node,
-            flags.into_expr().node,
+            ExprNode::Value(Value::String(flags.as_postgres_str().to_string())),
         ],
     })
 }
 
-/// Splits text into a PostgreSQL text array using a regex and explicit flags.
-/// The array is nullable when any argument is nullable; its elements remain non-null strings.
-pub fn regex_split<S, P, F, SP, O>(source: impl IntoExpr<S>, pattern: impl IntoExpr<P>, flags: impl IntoExpr<F>) -> Expr<O>
+/// Splits text into a PostgreSQL text array, preserving nullability across both text arguments.
+pub fn regex_split<S, P, O>(source: impl IntoExpr<S>, pattern: impl IntoExpr<P>, flags: RegexSplitFlags) -> Expr<O>
 where
-    S: StringBinaryExpr<P, String, Output = SP>,
-    SP: StringBinaryExpr<F, Vec<String>, Output = O>,
+    S: StringBinaryExpr<P, Vec<String>, Output = O>,
 {
     Expr::new(ExprNode::Func {
         name: "REGEXP_SPLIT_TO_ARRAY",
-        args: vec![source.into_expr().node, pattern.into_expr().node, flags.into_expr().node],
+        args: vec![
+            source.into_expr().node,
+            pattern.into_expr().node,
+            ExprNode::Value(Value::String(flags.as_postgres_str().to_string())),
+        ],
     })
 }
 
