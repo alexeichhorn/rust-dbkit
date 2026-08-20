@@ -397,6 +397,54 @@ where
     })
 }
 
+/// Tests whether a POSIX regular expression matches anywhere in the text.
+/// Maps to PostgreSQL `REGEXP_LIKE`.
+pub fn regex_is_match<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
+where
+    L: StringBinaryExpr<R, bool>,
+{
+    binary_string_fn("REGEXP_LIKE", expression, pattern)
+}
+
+/// Counts non-overlapping POSIX regular-expression matches.
+/// Maps to PostgreSQL `REGEXP_COUNT`.
+pub fn regex_count<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
+where
+    L: StringBinaryExpr<R, i32>,
+{
+    binary_string_fn("REGEXP_COUNT", expression, pattern)
+}
+
+/// Returns the 1-based position of the first match, or zero when absent.
+/// Maps to PostgreSQL `REGEXP_INSTR`.
+pub fn regex_position<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
+where
+    L: StringBinaryExpr<R, i32>,
+{
+    binary_string_fn("REGEXP_INSTR", expression, pattern)
+}
+
+/// Returns captures from the first match, or NULL when there is no match.
+/// Capture elements are nullable because optional groups can be unmatched.
+/// Maps to PostgreSQL `REGEXP_MATCH`.
+pub fn regex_captures<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<Option<Vec<Option<String>>>>
+where
+    L: StringUnaryExpr,
+    R: StringUnaryExpr,
+{
+    binary_string_fn("REGEXP_MATCH", expression, pattern)
+}
+
+/// Returns the first matching substring, or NULL when there is no match.
+/// Maps to PostgreSQL `REGEXP_SUBSTR`.
+pub fn regex_extract<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<Option<String>>
+where
+    L: StringUnaryExpr,
+    R: StringUnaryExpr,
+{
+    binary_string_fn("REGEXP_SUBSTR", expression, pattern)
+}
+
 /// Returns the first `count` characters, or all but the last `|count|` when negative.
 /// Maps to PostgreSQL `LEFT`.
 pub fn left<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
