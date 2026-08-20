@@ -242,6 +242,75 @@ fn compiles_nested_char_length_trim_filter_on_nullable_text() {
 }
 
 #[test]
+fn compiles_byte_and_bit_length_with_postgresql_names() {
+    let literal_bytes: Expr<i32> = func::byte_length("é");
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(literal_bytes, "literal_bytes")
+        .column_as(func::byte_length(text_sample_title()), "title_bytes")
+        .column_as(func::bit_length(func::trim(text_sample_body())), "trimmed_body_bits");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT OCTET_LENGTH($1) AS literal_bytes, OCTET_LENGTH(text_samples.title) AS title_bytes, BIT_LENGTH(TRIM(text_samples.body)) AS trimmed_body_bits FROM text_samples"
+    );
+    assert_eq!(sql.binds, vec![Value::String("é".to_string())]);
+}
+
+#[test]
+fn compiles_position_and_starts_with_with_expression_arguments() {
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(
+            func::position(func::lower(text_sample_title()), func::trim(text_sample_body())),
+            "normalized_position",
+        )
+        .column_as(
+            func::starts_with(func::lower(text_sample_title()), func::lower(text_sample_body())),
+            "normalized_prefix",
+        );
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT STRPOS(LOWER(text_samples.title), TRIM(text_samples.body)) AS normalized_position, STARTS_WITH(LOWER(text_samples.title), LOWER(text_samples.body)) AS normalized_prefix FROM text_samples"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_string_search_and_lengths_in_projections_filters_and_orderings() {
+    let unsafe_search = "'%_\\needle";
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(func::byte_length(text_sample_body()), "body_bytes")
+        .column_as(func::bit_length(text_sample_title()), "title_bits")
+        .column_as(func::position(text_sample_title(), unsafe_search), "unsafe_position")
+        .column_as(func::starts_with(text_sample_title(), unsafe_search), "unsafe_prefix")
+        .filter(func::starts_with(text_sample_title(), "prefix").eq(true))
+        .filter(func::position(text_sample_title(), "needle").gt(0_i32))
+        .order_by(Order::desc(func::byte_length(text_sample_body())))
+        .order_by(Order::asc(func::position(text_sample_title(), "needle")));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT OCTET_LENGTH(text_samples.body) AS body_bytes, BIT_LENGTH(text_samples.title) AS title_bits, STRPOS(text_samples.title, $1) AS unsafe_position, STARTS_WITH(text_samples.title, $1) AS unsafe_prefix FROM text_samples WHERE (STARTS_WITH(text_samples.title, $2) = $3) AND (STRPOS(text_samples.title, $4) > $5) ORDER BY OCTET_LENGTH(text_samples.body) DESC, STRPOS(text_samples.title, $4) ASC"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String(unsafe_search.to_string()),
+            Value::String("prefix".to_string()),
+            Value::Bool(true),
+            Value::String("needle".to_string()),
+            Value::I32(0),
+        ]
+    );
+}
+
+#[test]
 fn compiles_trimmed_nullable_text_selection() {
     let query: Select<TextSample> = Select::new(text_samples_table())
         .select_only()
