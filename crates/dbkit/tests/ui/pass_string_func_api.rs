@@ -67,6 +67,21 @@ fn main() {
     assert_nullable_bool(dbkit::func::starts_with(nullable_body(), TextSample::title));
     assert_nullable_bool(dbkit::func::starts_with(TextSample::title, nullable_body()));
     assert_nullable_bool(dbkit::func::starts_with(nullable_body(), nullable_body()));
+    assert_string(dbkit::func::title_case(TextSample::title));
+    assert_nullable_string(dbkit::func::title_case(nullable_body()));
+    assert_string(dbkit::func::reverse(TextSample::title));
+    assert_nullable_string(dbkit::func::reverse(nullable_body()));
+    assert_string(dbkit::func::replace(TextSample::title, "from", "to"));
+    assert_nullable_string(dbkit::func::replace(nullable_body(), "from", "to"));
+    assert_nullable_string(dbkit::func::replace(TextSample::title, nullable_body(), "to"));
+    assert_nullable_string(dbkit::func::replace(TextSample::title, "from", nullable_body()));
+    assert_string(dbkit::func::replace_range(TextSample::title, "replacement", 1_i32, 2_i32));
+    assert_nullable_string(dbkit::func::replace_range(nullable_body(), "replacement", 1_i32, 2_i32));
+    assert_nullable_string(dbkit::func::replace_range(TextSample::title, nullable_body(), 1_i32, 2_i32));
+    assert_string(dbkit::func::translate_chars(TextSample::title, "from", "to"));
+    assert_nullable_string(dbkit::func::translate_chars(nullable_body(), "from", "to"));
+    assert_nullable_string(dbkit::func::translate_chars(TextSample::title, nullable_body(), "to"));
+    assert_nullable_string(dbkit::func::translate_chars(TextSample::title, "from", nullable_body()));
 
     let normalized_title = dbkit::func::lower(dbkit::func::trim(dbkit::func::trim_start_chars(
         dbkit::func::trim(TextSample::title),
@@ -93,6 +108,23 @@ fn main() {
     assert_nullable_string(repeated_suffix.clone());
     let nested_position = dbkit::func::position(normalized_body.clone(), dbkit::func::lower("needle"));
     let nested_prefix = dbkit::func::starts_with(normalized_body.clone(), dbkit::func::lower(TextSample::title));
+    let transformed_title = dbkit::func::reverse(dbkit::func::translate_chars(
+        dbkit::func::replace(
+            dbkit::func::title_case(TextSample::title),
+            dbkit::func::lower("FROM"),
+            dbkit::func::upper("to"),
+        ),
+        dbkit::func::lower("ABC"),
+        dbkit::func::upper("xyz"),
+    ));
+    let transformed_body = dbkit::func::replace_range(
+        dbkit::func::title_case(nullable_body()),
+        dbkit::func::reverse(TextSample::title),
+        dbkit::func::char_length("x"),
+        dbkit::func::char_length(TextSample::title),
+    );
+    assert_string(transformed_title.clone());
+    assert_nullable_string(transformed_body.clone());
 
     let _query = TextSample::query()
         .select_only()
@@ -106,12 +138,16 @@ fn main() {
         .column_as(dbkit::func::bit_length(normalized_body.clone()), "normalized_body_bits")
         .column_as(nested_position.clone(), "nested_position")
         .column_as(nested_prefix, "nested_prefix")
+        .column_as(transformed_title.clone(), "transformed_title")
+        .column_as(transformed_body.clone(), "transformed_body")
         .filter(TextSample::body.is_not_null())
         .filter(normalized_title.eq("alice"))
         .filter(dbkit::func::starts_with(TextSample::title, "prefix").eq(true))
         .filter(dbkit::func::position(TextSample::title, "needle").gt(0_i32))
         .filter(dbkit::func::trim_end_chars(nullable_body(), "!?").ne(""))
+        .filter(dbkit::func::replace(TextSample::title, "old", "new").eq("expected"))
         .order_by(dbkit::Order::asc(normalized_body))
         .order_by(dbkit::Order::asc(normalized_body_len))
-        .order_by(dbkit::Order::asc(nested_position));
+        .order_by(dbkit::Order::asc(nested_position))
+        .order_by(dbkit::Order::asc(transformed_title));
 }
