@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use dbkit_core::{expr::Value, func, Column, Condition, Expr, Order, Select, Table};
+use dbkit_core::{expr::Value, func, Column, Condition, Expr, IntoExpr, Order, Select, Table};
 
 #[derive(Debug)]
 struct User;
@@ -460,6 +460,102 @@ fn compiles_nested_string_functions_in_projection_filter_and_ordering() {
             Value::I32(4),
             Value::I32(8),
             Value::String(fill.to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_string_composition_functions_with_variadic_expression_arrays() {
+    let separator = "'%_\\[](){}";
+    let joined: Expr<String> = func::concat([
+        text_sample_title().into_expr(),
+        func::lower("SUFFIX"),
+        func::trim(text_sample_title()),
+    ]);
+    let nullable_inputs_still_join: Expr<String> = func::concat([text_sample_body().into_expr(), func::lower(text_sample_body())]);
+    let separated: Expr<String> = func::concat_with_separator(separator, [text_sample_title().into_expr(), func::lower("SUFFIX")]);
+    let nullable_separator: Expr<Option<String>> =
+        func::concat_with_separator(text_sample_body(), [text_sample_body().into_expr(), func::trim(text_sample_body())]);
+    let no_values: [Expr<String>; 0] = [];
+    let no_separated_values: [Expr<String>; 0] = [];
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(joined, "joined")
+        .column_as(nullable_inputs_still_join, "nullable_inputs_still_join")
+        .column_as(separated, "separated")
+        .column_as(nullable_separator, "nullable_separator")
+        .column_as(func::concat(no_values), "empty_joined")
+        .column_as(func::concat_with_separator("", no_separated_values), "empty_separated");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT CONCAT(text_samples.title, LOWER($1), TRIM(text_samples.title)) AS joined, CONCAT(text_samples.body, LOWER(text_samples.body)) AS nullable_inputs_still_join, CONCAT_WS($2, text_samples.title, LOWER($1)) AS separated, CONCAT_WS(text_samples.body, text_samples.body, TRIM(text_samples.body)) AS nullable_separator, CONCAT(VARIADIC ARRAY[]::TEXT[]) AS empty_joined, CONCAT_WS($3, VARIADIC ARRAY[]::TEXT[]) AS empty_separated FROM text_samples"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("SUFFIX".to_string()),
+            Value::String(separator.to_string()),
+            Value::String(String::new()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_split_functions_with_exact_types_and_bind_order() {
+    let delimiter = "'%_\\.*+?[](){}^$|";
+    let parts: Expr<Vec<String>> = func::split(text_sample_title(), delimiter);
+    let nullable_parts: Expr<Option<Vec<String>>> = func::split(text_sample_body(), func::lower("::"));
+    let null_delimiter_parts: Expr<Vec<String>> = func::split(text_sample_title(), text_sample_body());
+    let part: Expr<String> = func::split_part(text_sample_title(), delimiter, text_sample_width());
+    let nullable_part: Expr<Option<String>> =
+        func::split_part(text_sample_body(), func::lower("::"), func::char_length(text_sample_title()));
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(parts, "parts")
+        .column_as(nullable_parts, "nullable_parts")
+        .column_as(null_delimiter_parts, "null_delimiter_parts")
+        .column_as(part, "part")
+        .column_as(nullable_part, "nullable_part");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT STRING_TO_ARRAY(text_samples.title, $1) AS parts, STRING_TO_ARRAY(text_samples.body, LOWER($2)) AS nullable_parts, STRING_TO_ARRAY(text_samples.title, text_samples.body) AS null_delimiter_parts, SPLIT_PART(text_samples.title, $1, text_samples.width) AS part, SPLIT_PART(text_samples.body, LOWER($2), CHAR_LENGTH(text_samples.title)) AS nullable_part FROM text_samples"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String(delimiter.to_string()), Value::String("::".to_string())]
+    );
+}
+
+#[test]
+fn composes_string_splitting_in_projections_filters_and_orderings() {
+    let nested = func::split_part(func::concat([text_sample_title().into_expr(), func::lower("SUFFIX")]), "::", 1_i32);
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(func::split(func::lower(text_sample_title()), "::"), "parts")
+        .column_as(nested, "first_part")
+        .filter(func::split_part(text_sample_title(), "::", 1_i32).eq("prefix"))
+        .filter(func::split(text_sample_title(), "::").eq(vec!["prefix".to_string()]))
+        .order_by(Order::asc(func::split_part(text_sample_body(), "::", text_sample_width())));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT STRING_TO_ARRAY(LOWER(text_samples.title), $1) AS parts, SPLIT_PART(CONCAT(text_samples.title, LOWER($2)), $1, $3) AS first_part FROM text_samples WHERE (SPLIT_PART(text_samples.title, $1, $3) = $4) AND (STRING_TO_ARRAY(text_samples.title, $1) = $5) ORDER BY SPLIT_PART(text_samples.body, $1, text_samples.width) ASC"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("::".to_string()),
+            Value::String("SUFFIX".to_string()),
+            Value::I32(1),
+            Value::String("prefix".to_string()),
+            Value::Array(vec!["prefix".to_string()]),
         ]
     );
 }

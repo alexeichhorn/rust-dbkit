@@ -3,7 +3,7 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
-use dbkit::{model, Database, Executor};
+use dbkit::{model, Database, Executor, IntoExpr};
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1882,6 +1882,313 @@ async fn substring_rejects_negative_count() -> Result<(), dbkit::Error> {
         error.to_string().contains("negative substring length not allowed"),
         "unexpected error: {error}"
     );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct StringCompositionResult {
+    joined: String,
+    separated: String,
+    empty_separator: String,
+    nullable_separator: Option<String>,
+    single: String,
+    single_separated: String,
+    no_values: String,
+    no_separated_values: String,
+    no_values_nullable_separator: Option<String>,
+}
+
+#[tokio::test]
+async fn concat_functions_follow_postgres_null_empty_and_unicode_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    for (email, backup_email, region) in [
+        (Some("é"), None, Some("界")),
+        (None, None, None),
+        (Some(""), Some(""), Some("")),
+        (Some("A"), Some("B"), None),
+    ] {
+        FuncRow::insert(FuncRowInsert {
+            email: email.map(str::to_string),
+            backup_email: backup_email.map(str::to_string),
+            region: region.map(str::to_string),
+            starts_at: NaiveDateTime::default(),
+        })
+        .execute(&tx)
+        .await?;
+    }
+
+    let no_values: [dbkit::Expr<String>; 0] = [];
+    let no_separated_values: [dbkit::Expr<String>; 0] = [];
+    let no_nullable_separator_values: [dbkit::Expr<String>; 0] = [];
+    let rows: Vec<StringCompositionResult> = FuncRow::query()
+        .select_only()
+        .column_as(
+            dbkit::func::concat([FuncRow::email, FuncRow::backup_email, FuncRow::region]),
+            "joined",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator("|", [FuncRow::email, FuncRow::backup_email, FuncRow::region]),
+            "separated",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator("", [FuncRow::email, FuncRow::backup_email, FuncRow::region]),
+            "empty_separator",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator(FuncRow::region, [FuncRow::email, FuncRow::backup_email]),
+            "nullable_separator",
+        )
+        .column_as(dbkit::func::concat([FuncRow::email]), "single")
+        .column_as(dbkit::func::concat_with_separator("|", [FuncRow::email]), "single_separated")
+        .column_as(dbkit::func::concat(no_values), "no_values")
+        .column_as(dbkit::func::concat_with_separator("|", no_separated_values), "no_separated_values")
+        .column_as(
+            dbkit::func::concat_with_separator(FuncRow::region, no_nullable_separator_values),
+            "no_values_nullable_separator",
+        )
+        .order_by(dbkit::Order::asc(FuncRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    let values: Vec<_> = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.joined,
+                row.separated,
+                row.empty_separator,
+                row.nullable_separator,
+                row.single,
+                row.single_separated,
+                row.no_values,
+                row.no_separated_values,
+                row.no_values_nullable_separator,
+            )
+        })
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            (
+                "é界".to_string(),
+                "é|界".to_string(),
+                "é界".to_string(),
+                Some("é".to_string()),
+                "é".to_string(),
+                "é".to_string(),
+                String::new(),
+                String::new(),
+                Some(String::new()),
+            ),
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                None,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                None,
+            ),
+            (
+                String::new(),
+                "||".to_string(),
+                String::new(),
+                Some(String::new()),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                Some(String::new()),
+            ),
+            (
+                "AB".to_string(),
+                "A|B".to_string(),
+                "AB".to_string(),
+                None,
+                "A".to_string(),
+                "A".to_string(),
+                String::new(),
+                String::new(),
+                None,
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct SplitResult {
+    normal: Vec<String>,
+    repeated: Vec<String>,
+    absent: Vec<String>,
+    empty_source: Vec<String>,
+    empty_delimiter: Vec<String>,
+    unicode: Vec<String>,
+    null_delimiter: Vec<String>,
+    null_source: Option<Vec<String>>,
+}
+
+#[tokio::test]
+async fn split_follows_postgres_array_and_null_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "boundary", None).await?;
+
+    let result: SplitResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::split("alpha::beta::gamma", "::"), "normal")
+        .column_as(dbkit::func::split("a::::c::", "::"), "repeated")
+        .column_as(dbkit::func::split("abc", ","), "absent")
+        .column_as(dbkit::func::split("", ","), "empty_source")
+        .column_as(dbkit::func::split("abc", ""), "empty_delimiter")
+        .column_as(dbkit::func::split("é🙂界🙂ß", "🙂"), "unicode")
+        .column_as(dbkit::func::split("é🙂", TextSample::body), "null_delimiter")
+        .column_as(dbkit::func::split(TextSample::body, ","), "null_source")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("split result");
+
+    assert_eq!(result.normal, ["alpha", "beta", "gamma"]);
+    assert_eq!(result.repeated, ["a", "", "c", ""]);
+    assert_eq!(result.absent, ["abc"]);
+    assert!(result.empty_source.is_empty());
+    assert_eq!(result.empty_delimiter, ["abc"]);
+    assert_eq!(result.unicode, ["é", "界", "ß"]);
+    assert_eq!(result.null_delimiter, ["é", "🙂"]);
+    assert_eq!(result.null_source, None);
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct SplitPartResult {
+    normal: String,
+    negative: String,
+    out_of_range: String,
+    empty_delimiter_first: String,
+    empty_delimiter_second: String,
+    repeated_delimiter: String,
+    leading_empty: String,
+    trailing_empty: String,
+    unicode: String,
+    expression_index: String,
+    null_source: Option<String>,
+    null_delimiter: Option<String>,
+}
+
+#[tokio::test]
+async fn split_part_follows_postgres_index_field_and_null_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "boundary", None).await?;
+
+    let result: SplitPartResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::split_part("alpha::beta::gamma", "::", 2_i32), "normal")
+        .column_as(dbkit::func::split_part("a,b,c,d", ",", -2_i32), "negative")
+        .column_as(dbkit::func::split_part("a,b", ",", 3_i32), "out_of_range")
+        .column_as(dbkit::func::split_part("abc", "", 1_i32), "empty_delimiter_first")
+        .column_as(dbkit::func::split_part("abc", "", 2_i32), "empty_delimiter_second")
+        .column_as(dbkit::func::split_part("a,,c", ",", 2_i32), "repeated_delimiter")
+        .column_as(dbkit::func::split_part(",a", ",", 1_i32), "leading_empty")
+        .column_as(dbkit::func::split_part("a,", ",", -1_i32), "trailing_empty")
+        .column_as(dbkit::func::split_part("é🙂界🙂ß", "🙂", -2_i32), "unicode")
+        .column_as(
+            dbkit::func::split_part("é🙂界", "🙂", dbkit::func::char_length("x")),
+            "expression_index",
+        )
+        .column_as(dbkit::func::split_part(TextSample::body, ",", 1_i32), "null_source")
+        .column_as(dbkit::func::split_part("abc", TextSample::body, 1_i32), "null_delimiter")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("split part result");
+
+    assert_eq!(result.normal, "beta");
+    assert_eq!(result.negative, "c");
+    assert_eq!(result.out_of_range, "");
+    assert_eq!(result.empty_delimiter_first, "abc");
+    assert_eq!(result.empty_delimiter_second, "");
+    assert_eq!(result.repeated_delimiter, "");
+    assert_eq!(result.leading_empty, "");
+    assert_eq!(result.trailing_empty, "");
+    assert_eq!(result.unicode, "界");
+    assert_eq!(result.expression_index, "é");
+    assert_eq!(result.null_source, None);
+    assert_eq!(result.null_delimiter, None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn split_part_rejects_zero_index() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "zero", None).await?;
+
+    let result: Result<Vec<NullableStringResult>, dbkit::Error> = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::split_part(TextSample::body, ",", 0_i32), "value")
+        .into_model()
+        .all(&tx)
+        .await;
+
+    let error = result.expect_err("PostgreSQL must reject split_part index zero");
+    assert!(
+        error.to_string().contains("field position must not be zero"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct BoundCompositionAndSplitResult {
+    joined: String,
+    separated: String,
+    parts: Vec<String>,
+    second_part: String,
+}
+
+#[tokio::test]
+async fn composition_and_split_arguments_remain_bound_values() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "bound", None).await?;
+
+    let unsafe_text = "'%_\\.*+?[](){}^$|";
+    let source = format!("left{unsafe_text}right");
+    let result: BoundCompositionAndSplitResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::concat([unsafe_text.into_expr(), dbkit::func::lower("TAIL")]), "joined")
+        .column_as(
+            dbkit::func::concat_with_separator(unsafe_text, ["left".into_expr(), "right".into_expr()]),
+            "separated",
+        )
+        .column_as(dbkit::func::split(source.clone(), unsafe_text), "parts")
+        .column_as(dbkit::func::split_part(source, unsafe_text, 2_i32), "second_part")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("bound composition and split result");
+
+    assert_eq!(result.joined, format!("{unsafe_text}tail"));
+    assert_eq!(result.separated, format!("left{unsafe_text}right"));
+    assert_eq!(result.parts, ["left", "right"]);
+    assert_eq!(result.second_part, "right");
 
     Ok(())
 }
