@@ -50,19 +50,19 @@ impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
 }
 
 bitflags! {
-    /// Options supported by [`regex_replace`].
+    /// Composable options for [`regex_replace`]; use [`empty`](Self::empty) for default behavior.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct RegexReplaceFlags: u8 {
-        /// Matches letters without regard to case.
+        /// Uses case-insensitive matching. Maps to PostgreSQL's `i` flag.
         const CASE_INSENSITIVE = 1 << 0;
-        /// Replaces every match instead of only the first.
+        /// Replaces every match instead of only the first. Maps to PostgreSQL's `g` flag.
         const GLOBAL = 1 << 1;
     }
 
-    /// Options supported by [`regex_split`].
+    /// Composable options for [`regex_split`]; use [`empty`](Self::empty) for default behavior.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct RegexSplitFlags: u8 {
-        /// Matches letters without regard to case.
+        /// Uses case-insensitive matching. Maps to PostgreSQL's `i` flag.
         const CASE_INSENSITIVE = 1 << 0;
     }
 }
@@ -302,7 +302,11 @@ where
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
 
-/// Replaces regex matches, preserving nullability across the three text arguments.
+/// Replaces the first POSIX regular-expression match in `source`, or returns `source` unchanged when none exists.
+/// [`RegexReplaceFlags::GLOBAL`] replaces every match; [`RegexReplaceFlags::CASE_INSENSITIVE`] ignores case.
+/// `replacement` supports PostgreSQL backreferences (`\1` through `\9`, `\&`, and `\\` for a literal backslash).
+/// Returns NULL if `source`, `pattern`, or `replacement` is NULL.
+/// Maps to PostgreSQL `REGEXP_REPLACE`.
 pub fn regex_replace<S, P, R, SP, O>(
     source: impl IntoExpr<S>,
     pattern: impl IntoExpr<P>,
@@ -324,7 +328,12 @@ where
     })
 }
 
-/// Splits text into a PostgreSQL text array, preserving nullability across both text arguments.
+/// Splits `source` around POSIX regular-expression matches into a text array.
+/// Returns `source` as the only element when no match exists.
+/// Zero-length matches at the start or end, or immediately after a previous match, are ignored.
+/// [`RegexSplitFlags::CASE_INSENSITIVE`] enables case-insensitive matching.
+/// Returns NULL if `source` or `pattern` is NULL.
+/// Maps to PostgreSQL `REGEXP_SPLIT_TO_ARRAY`.
 pub fn regex_split<S, P, O>(source: impl IntoExpr<S>, pattern: impl IntoExpr<P>, flags: RegexSplitFlags) -> Expr<O>
 where
     S: StringBinaryExpr<P, Vec<String>, Output = O>,
