@@ -49,6 +49,15 @@ where
     })
 }
 
+fn string_fn<T>(name: &'static str, arg: impl IntoExpr<T>, extra_args: Vec<ExprNode>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    let mut args = vec![arg.into_expr().node];
+    args.extend(extra_args);
+    Expr::new(ExprNode::Func { name, args })
+}
+
 fn directed_trim_fn<T>(
     arg: impl IntoExpr<T>,
     direction: TrimDirection,
@@ -125,6 +134,48 @@ where
     T: StringLengthExpr,
 {
     string_length_fn("CHAR_LENGTH", arg)
+}
+
+pub fn left<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    string_fn("LEFT", arg, vec![count.into_expr().node])
+}
+
+pub fn right<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    string_fn("RIGHT", arg, vec![count.into_expr().node])
+}
+
+pub fn substring<T>(arg: impl IntoExpr<T>, start: impl IntoExpr<i32>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    string_fn("SUBSTRING", arg, vec![start.into_expr().node, count.into_expr().node])
+}
+
+pub fn repeat<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    string_fn("REPEAT", arg, vec![count.into_expr().node])
+}
+
+pub fn pad_start<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    string_fn("LPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
+}
+
+pub fn pad_end<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
 
 pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
