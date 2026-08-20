@@ -27,6 +27,26 @@ impl StringLengthExpr for Option<String> {
     type Output = Option<i32>;
 }
 
+pub trait StringBinaryExpr<Rhs, Result> {
+    type Output;
+}
+
+impl<Result> StringBinaryExpr<String, Result> for String {
+    type Output = Result;
+}
+
+impl<Result> StringBinaryExpr<Option<String>, Result> for String {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringBinaryExpr<String, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
 fn unary_string_fn<T>(name: &'static str, arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -46,6 +66,15 @@ where
     Expr::new(ExprNode::Func {
         name,
         args: vec![expr.node],
+    })
+}
+
+fn binary_string_fn<L, R, O>(name: &'static str, left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<O> {
+    let left = left.into_expr();
+    let right = right.into_expr();
+    Expr::new(ExprNode::Func {
+        name,
+        args: vec![left.node, right.node],
     })
 }
 
@@ -125,6 +154,34 @@ where
     T: StringLengthExpr,
 {
     string_length_fn("CHAR_LENGTH", arg)
+}
+
+pub fn byte_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("OCTET_LENGTH", arg)
+}
+
+pub fn bit_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("BIT_LENGTH", arg)
+}
+
+pub fn position<L, R>(expression: impl IntoExpr<L>, substring: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
+where
+    L: StringBinaryExpr<R, i32>,
+{
+    binary_string_fn("STRPOS", expression, substring)
+}
+
+pub fn starts_with<L, R>(expression: impl IntoExpr<L>, prefix: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
+where
+    L: StringBinaryExpr<R, bool>,
+{
+    binary_string_fn("STARTS_WITH", expression, prefix)
 }
 
 pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
