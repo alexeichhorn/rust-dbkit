@@ -4,7 +4,7 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::func::{RegexReplaceFlags, RegexSplitFlags};
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
-use dbkit::{model, Database, Executor};
+use dbkit::{model, Database, Executor, IntoExpr};
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1888,6 +1888,686 @@ async fn substring_rejects_negative_count() -> Result<(), dbkit::Error> {
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct TextCaseAndReverseResult {
+    title_words: String,
+    title_already_cased: String,
+    title_punctuation: String,
+    title_digits: String,
+    title_whitespace: String,
+    title_unicode_separator: String,
+    title_empty: String,
+    reverse_ascii: String,
+    reverse_unicode: String,
+    reverse_combining_sequence: String,
+    reverse_empty: String,
+}
+
+#[tokio::test]
+async fn title_case_and_reverse_follow_postgresql_character_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "character-semantics", None).await?;
+
+    let result: TextCaseAndReverseResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::title_case("hELLO wORLD"), "title_words")
+        .column_as(dbkit::func::title_case("Already Cased"), "title_already_cased")
+        .column_as(dbkit::func::title_case("one-two_three.four"), "title_punctuation")
+        .column_as(dbkit::func::title_case("abc123 42FOO"), "title_digits")
+        .column_as(dbkit::func::title_case("\theLLo  wORLD\n"), "title_whitespace")
+        .column_as(dbkit::func::title_case("hello—WORLD"), "title_unicode_separator")
+        .column_as(dbkit::func::title_case(""), "title_empty")
+        .column_as(dbkit::func::reverse("abcde"), "reverse_ascii")
+        .column_as(dbkit::func::reverse("é🦀界"), "reverse_unicode")
+        .column_as(dbkit::func::reverse("a\u{301}b"), "reverse_combining_sequence")
+        .column_as(dbkit::func::reverse(""), "reverse_empty")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("character transformation result");
+
+    assert_eq!(result.title_words, "Hello World");
+    assert_eq!(result.title_already_cased, "Already Cased");
+    assert_eq!(result.title_punctuation, "One-Two_Three.Four");
+    assert_eq!(result.title_digits, "Abc123 42foo");
+    assert_eq!(result.title_whitespace, "\tHello  World\n");
+    assert_eq!(result.title_unicode_separator, "Hello—World");
+    assert_eq!(result.title_empty, "");
+    assert_eq!(result.reverse_ascii, "edcba");
+    assert_eq!(result.reverse_unicode, "界🦀é");
+    assert_eq!(result.reverse_combining_sequence, "b\u{301}a");
+    assert_eq!(result.reverse_empty, "");
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct ReplaceAndTranslateResult {
+    replace_all: String,
+    replace_non_overlapping: String,
+    replace_absent: String,
+    replace_empty_source: String,
+    replace_empty_from: String,
+    replace_empty_to: String,
+    replace_case_sensitive: String,
+    replace_unicode: String,
+    translate_positional: String,
+    translate_deletion: String,
+    translate_extra_to: String,
+    translate_repeated_source: String,
+    translate_unicode: String,
+    translate_empty_from: String,
+    translate_empty_to: String,
+    translate_case_sensitive: String,
+}
+
+#[tokio::test]
+async fn replace_and_translate_cover_exact_mapping_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "mapping-semantics", None).await?;
+
+    let result: ReplaceAndTranslateResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::replace("abcabc", "bc", "X"), "replace_all")
+        .column_as(dbkit::func::replace("aaaaa", "aa", "b"), "replace_non_overlapping")
+        .column_as(dbkit::func::replace("abc", "z", "X"), "replace_absent")
+        .column_as(dbkit::func::replace("", "a", "X"), "replace_empty_source")
+        .column_as(dbkit::func::replace("abc", "", "X"), "replace_empty_from")
+        .column_as(dbkit::func::replace("banana", "an", ""), "replace_empty_to")
+        .column_as(dbkit::func::replace("AaA", "a", "x"), "replace_case_sensitive")
+        .column_as(dbkit::func::replace("é🦀é", "é", "界"), "replace_unicode")
+        .column_as(dbkit::func::translate_chars("12345", "143", "ax"), "translate_positional")
+        .column_as(dbkit::func::translate_chars("12345", "143", "a"), "translate_deletion")
+        .column_as(dbkit::func::translate_chars("abc", "ab", "XYZ"), "translate_extra_to")
+        .column_as(dbkit::func::translate_chars("banana", "an", "12"), "translate_repeated_source")
+        .column_as(dbkit::func::translate_chars("é🦀界é", "é界", "ab"), "translate_unicode")
+        .column_as(dbkit::func::translate_chars("abc", "", "xyz"), "translate_empty_from")
+        .column_as(dbkit::func::translate_chars("banana", "an", ""), "translate_empty_to")
+        .column_as(dbkit::func::translate_chars("Aa", "a", "x"), "translate_case_sensitive")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("replace and translate result");
+
+    assert_eq!(result.replace_all, "aXaX");
+    assert_eq!(result.replace_non_overlapping, "bba");
+    assert_eq!(result.replace_absent, "abc");
+    assert_eq!(result.replace_empty_source, "");
+    assert_eq!(result.replace_empty_from, "abc");
+    assert_eq!(result.replace_empty_to, "ba");
+    assert_eq!(result.replace_case_sensitive, "AxA");
+    assert_eq!(result.replace_unicode, "界🦀界");
+    assert_eq!(result.translate_positional, "a2x5");
+    assert_eq!(result.translate_deletion, "a25");
+    assert_eq!(result.translate_extra_to, "XYc");
+    assert_eq!(result.translate_repeated_source, "b12121");
+    assert_eq!(result.translate_unicode, "a🦀ba");
+    assert_eq!(result.translate_empty_from, "abc");
+    assert_eq!(result.translate_empty_to, "b");
+    assert_eq!(result.translate_case_sensitive, "Ax");
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableTextTransformationResult {
+    title_case: Option<String>,
+    reverse: Option<String>,
+    replace_input: Option<String>,
+    replace_from: Option<String>,
+    replace_to: Option<String>,
+    range_input: Option<String>,
+    range_replacement: Option<String>,
+    translate_input: Option<String>,
+    translate_from: Option<String>,
+    translate_to: Option<String>,
+}
+
+#[tokio::test]
+async fn text_transformations_propagate_null_from_every_string_argument() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    let row = seed_text_sample(&tx, "nullable", None).await?;
+
+    let result: NullableTextTransformationResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::title_case(TextSample::body), "title_case")
+        .column_as(dbkit::func::reverse(TextSample::body), "reverse")
+        .column_as(dbkit::func::replace(TextSample::body, "a", "b"), "replace_input")
+        .column_as(dbkit::func::replace(TextSample::label, TextSample::body, "b"), "replace_from")
+        .column_as(dbkit::func::replace(TextSample::label, "a", TextSample::body), "replace_to")
+        .column_as(dbkit::func::replace_range(TextSample::body, "x", 1_i32, 1_i32), "range_input")
+        .column_as(
+            dbkit::func::replace_range(TextSample::label, TextSample::body, 1_i32, 1_i32),
+            "range_replacement",
+        )
+        .column_as(dbkit::func::translate_chars(TextSample::body, "a", "b"), "translate_input")
+        .column_as(
+            dbkit::func::translate_chars(TextSample::label, TextSample::body, "b"),
+            "translate_from",
+        )
+        .column_as(
+            dbkit::func::translate_chars(TextSample::label, "a", TextSample::body),
+            "translate_to",
+        )
+        .filter(TextSample::id.eq(row.id))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("nullable transformation result");
+
+    assert_eq!(
+        (
+            result.title_case,
+            result.reverse,
+            result.replace_input,
+            result.replace_from,
+            result.replace_to,
+            result.range_input,
+            result.range_replacement,
+            result.translate_input,
+            result.translate_from,
+            result.translate_to,
+        ),
+        (None, None, None, None, None, None, None, None, None, None)
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct ComposedTextTransformationResult {
+    label: String,
+    transformed: Option<String>,
+}
+
+#[tokio::test]
+async fn nested_text_transformations_filter_real_postgresql_rows() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "matched", Some("  hELLO-old  ")).await?;
+    seed_text_sample(&tx, "other", Some("  HELLO-current  ")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+
+    let transformed = dbkit::func::reverse(dbkit::func::translate_chars(
+        dbkit::func::replace(
+            dbkit::func::title_case(dbkit::func::lower(dbkit::func::trim(TextSample::body))),
+            dbkit::func::title_case("OLD"),
+            dbkit::func::reverse("wen"),
+        ),
+        dbkit::func::lower("E"),
+        dbkit::func::upper("x"),
+    ));
+    let result: ComposedTextTransformationResult = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(transformed.clone(), "transformed")
+        .filter(transformed.eq("wXn-ollXH"))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("nested transformation match");
+
+    assert_eq!(result.label, "matched");
+    assert_eq!(result.transformed.as_deref(), Some("wXn-ollXH"));
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct ReplaceRangeBoundaryResult {
+    shorter: String,
+    equal: String,
+    longer: String,
+    start_one: String,
+    start_beyond_end: String,
+    zero_count: String,
+    negative_count: String,
+    oversized_count: String,
+    empty_source: String,
+    empty_replacement: String,
+    unicode: String,
+}
+
+#[tokio::test]
+async fn replace_range_follows_postgresql_overlay_boundaries() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "overlay-boundaries", None).await?;
+
+    let result: ReplaceRangeBoundaryResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::replace_range("abcdef", "X", 3_i32, 2_i32), "shorter")
+        .column_as(dbkit::func::replace_range("abcdef", "XY", 3_i32, 2_i32), "equal")
+        .column_as(dbkit::func::replace_range("abcdef", "WXYZ", 3_i32, 2_i32), "longer")
+        .column_as(dbkit::func::replace_range("abcdef", "X", 1_i32, 2_i32), "start_one")
+        .column_as(dbkit::func::replace_range("abcdef", "X", 8_i32, 2_i32), "start_beyond_end")
+        .column_as(dbkit::func::replace_range("abcdef", "X", 3_i32, 0_i32), "zero_count")
+        .column_as(dbkit::func::replace_range("abcdef", "X", 3_i32, -1_i32), "negative_count")
+        .column_as(dbkit::func::replace_range("abcdef", "X", 3_i32, 99_i32), "oversized_count")
+        .column_as(dbkit::func::replace_range("", "X", 1_i32, 0_i32), "empty_source")
+        .column_as(dbkit::func::replace_range("abcdef", "", 3_i32, 2_i32), "empty_replacement")
+        .column_as(dbkit::func::replace_range("a🦀界b", "é", 2_i32, 2_i32), "unicode")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("replace range boundary result");
+
+    assert_eq!(result.shorter, "abXef");
+    assert_eq!(result.equal, "abXYef");
+    assert_eq!(result.longer, "abWXYZef");
+    assert_eq!(result.start_one, "Xcdef");
+    assert_eq!(result.start_beyond_end, "abcdefX");
+    assert_eq!(result.zero_count, "abXcdef");
+    assert_eq!(result.negative_count, "abXbcdef");
+    assert_eq!(result.oversized_count, "abX");
+    assert_eq!(result.empty_source, "X");
+    assert_eq!(result.empty_replacement, "abef");
+    assert_eq!(result.unicode, "aéb");
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct BoundTextTransformationResult {
+    replaced: String,
+    ranged: String,
+    translated: String,
+}
+
+#[tokio::test]
+async fn text_transformation_metacharacters_remain_bound_values() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "bind-safety", None).await?;
+
+    let unsafe_text = "'%_\\[]().*+";
+    let result: BoundTextTransformationResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::replace(unsafe_text, "%_\\", "safe"), "replaced")
+        .column_as(dbkit::func::replace_range(unsafe_text, "safe", 2_i32, 3_i32), "ranged")
+        .column_as(dbkit::func::translate_chars(unsafe_text, "'\\", "QB"), "translated")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("bound transformation result");
+
+    assert_eq!(result.replaced, "'safe[]().*+");
+    assert_eq!(result.ranged, "'safe[]().*+");
+    assert_eq!(result.translated, "Q%_B[]().*+");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn replace_range_rejects_zero_start() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "invalid-overlay-start", None).await?;
+
+    let result: Result<Vec<NullableStringResult>, dbkit::Error> = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::replace_range("abcdef", "X", 0_i32, 2_i32), "value")
+        .into_model()
+        .all(&tx)
+        .await;
+
+    let error = result.expect_err("PostgreSQL must reject a non-positive overlay start");
+    assert!(
+        error.to_string().contains("negative substring length not allowed"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct StringCompositionResult {
+    joined: String,
+    separated: String,
+    empty_separator: String,
+    nullable_separator: Option<String>,
+    single: String,
+    single_separated: String,
+    no_values: String,
+    no_separated_values: String,
+    no_values_nullable_separator: Option<String>,
+}
+
+#[tokio::test]
+async fn concat_functions_follow_postgres_null_empty_and_unicode_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    for (email, backup_email, region) in [
+        (Some("é"), None, Some("界")),
+        (None, None, None),
+        (Some(""), Some(""), Some("")),
+        (Some("A"), Some("B"), None),
+    ] {
+        FuncRow::insert(FuncRowInsert {
+            email: email.map(str::to_string),
+            backup_email: backup_email.map(str::to_string),
+            region: region.map(str::to_string),
+            starts_at: NaiveDateTime::default(),
+        })
+        .execute(&tx)
+        .await?;
+    }
+
+    let no_values: [dbkit::Expr<String>; 0] = [];
+    let no_separated_values: [dbkit::Expr<String>; 0] = [];
+    let no_nullable_separator_values: [dbkit::Expr<String>; 0] = [];
+    let rows: Vec<StringCompositionResult> = FuncRow::query()
+        .select_only()
+        .column_as(
+            dbkit::func::concat([FuncRow::email, FuncRow::backup_email, FuncRow::region]),
+            "joined",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator("|", [FuncRow::email, FuncRow::backup_email, FuncRow::region]),
+            "separated",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator("", [FuncRow::email, FuncRow::backup_email, FuncRow::region]),
+            "empty_separator",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator(FuncRow::region, [FuncRow::email, FuncRow::backup_email]),
+            "nullable_separator",
+        )
+        .column_as(dbkit::func::concat([FuncRow::email]), "single")
+        .column_as(dbkit::func::concat_with_separator("|", [FuncRow::email]), "single_separated")
+        .column_as(dbkit::func::concat(no_values), "no_values")
+        .column_as(dbkit::func::concat_with_separator("|", no_separated_values), "no_separated_values")
+        .column_as(
+            dbkit::func::concat_with_separator(FuncRow::region, no_nullable_separator_values),
+            "no_values_nullable_separator",
+        )
+        .order_by(dbkit::Order::asc(FuncRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    let values: Vec<_> = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.joined,
+                row.separated,
+                row.empty_separator,
+                row.nullable_separator,
+                row.single,
+                row.single_separated,
+                row.no_values,
+                row.no_separated_values,
+                row.no_values_nullable_separator,
+            )
+        })
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            (
+                "é界".to_string(),
+                "é|界".to_string(),
+                "é界".to_string(),
+                Some("é".to_string()),
+                "é".to_string(),
+                "é".to_string(),
+                String::new(),
+                String::new(),
+                Some(String::new()),
+            ),
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                None,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                None,
+            ),
+            (
+                String::new(),
+                "||".to_string(),
+                String::new(),
+                Some(String::new()),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                Some(String::new()),
+            ),
+            (
+                "AB".to_string(),
+                "A|B".to_string(),
+                "AB".to_string(),
+                None,
+                "A".to_string(),
+                "A".to_string(),
+                String::new(),
+                String::new(),
+                None,
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct MixedModelColumnConcatResult {
+    joined: String,
+}
+
+#[tokio::test]
+async fn concat_required_and_nullable_model_columns() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "required", Some("optional")).await?;
+    seed_text_sample(&tx, "required", None).await?;
+
+    let rows: Vec<MixedModelColumnConcatResult> = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::concat([TextSample::label, TextSample::body]), "joined")
+        .order_by(dbkit::Order::asc(TextSample::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.into_iter().map(|row| row.joined).collect::<Vec<_>>(),
+        ["requiredoptional", "required"]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct SplitResult {
+    normal: Vec<String>,
+    repeated: Vec<String>,
+    absent: Vec<String>,
+    empty_source: Vec<String>,
+    empty_delimiter: Vec<String>,
+    unicode: Vec<String>,
+    null_delimiter: Vec<String>,
+    null_source: Option<Vec<String>>,
+}
+
+#[tokio::test]
+async fn split_follows_postgres_array_and_null_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "boundary", None).await?;
+
+    let result: SplitResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::split("alpha::beta::gamma", "::"), "normal")
+        .column_as(dbkit::func::split("a::::c::", "::"), "repeated")
+        .column_as(dbkit::func::split("abc", ","), "absent")
+        .column_as(dbkit::func::split("", ","), "empty_source")
+        .column_as(dbkit::func::split("abc", ""), "empty_delimiter")
+        .column_as(dbkit::func::split("é🙂界🙂ß", "🙂"), "unicode")
+        .column_as(dbkit::func::split("é🙂", TextSample::body), "null_delimiter")
+        .column_as(dbkit::func::split(TextSample::body, ","), "null_source")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("split result");
+
+    assert_eq!(result.normal, ["alpha", "beta", "gamma"]);
+    assert_eq!(result.repeated, ["a", "", "c", ""]);
+    assert_eq!(result.absent, ["abc"]);
+    assert!(result.empty_source.is_empty());
+    assert_eq!(result.empty_delimiter, ["abc"]);
+    assert_eq!(result.unicode, ["é", "界", "ß"]);
+    assert_eq!(result.null_delimiter, ["é", "🙂"]);
+    assert_eq!(result.null_source, None);
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct SplitPartResult {
+    normal: String,
+    negative: String,
+    out_of_range: String,
+    empty_delimiter_first: String,
+    empty_delimiter_second: String,
+    repeated_delimiter: String,
+    leading_empty: String,
+    trailing_empty: String,
+    unicode: String,
+    expression_index: String,
+    null_source: Option<String>,
+    null_delimiter: Option<String>,
+}
+
+#[tokio::test]
+async fn split_part_follows_postgres_index_field_and_null_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "boundary", None).await?;
+
+    let result: SplitPartResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::split_part("alpha::beta::gamma", "::", 2_i32), "normal")
+        .column_as(dbkit::func::split_part("a,b,c,d", ",", -2_i32), "negative")
+        .column_as(dbkit::func::split_part("a,b", ",", 3_i32), "out_of_range")
+        .column_as(dbkit::func::split_part("abc", "", 1_i32), "empty_delimiter_first")
+        .column_as(dbkit::func::split_part("abc", "", 2_i32), "empty_delimiter_second")
+        .column_as(dbkit::func::split_part("a,,c", ",", 2_i32), "repeated_delimiter")
+        .column_as(dbkit::func::split_part(",a", ",", 1_i32), "leading_empty")
+        .column_as(dbkit::func::split_part("a,", ",", -1_i32), "trailing_empty")
+        .column_as(dbkit::func::split_part("é🙂界🙂ß", "🙂", -2_i32), "unicode")
+        .column_as(
+            dbkit::func::split_part("é🙂界", "🙂", dbkit::func::char_length("x")),
+            "expression_index",
+        )
+        .column_as(dbkit::func::split_part(TextSample::body, ",", 1_i32), "null_source")
+        .column_as(dbkit::func::split_part("abc", TextSample::body, 1_i32), "null_delimiter")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("split part result");
+
+    assert_eq!(result.normal, "beta");
+    assert_eq!(result.negative, "c");
+    assert_eq!(result.out_of_range, "");
+    assert_eq!(result.empty_delimiter_first, "abc");
+    assert_eq!(result.empty_delimiter_second, "");
+    assert_eq!(result.repeated_delimiter, "");
+    assert_eq!(result.leading_empty, "");
+    assert_eq!(result.trailing_empty, "");
+    assert_eq!(result.unicode, "界");
+    assert_eq!(result.expression_index, "é");
+    assert_eq!(result.null_source, None);
+    assert_eq!(result.null_delimiter, None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn split_part_rejects_zero_index() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "zero", None).await?;
+
+    let result: Result<Vec<NullableStringResult>, dbkit::Error> = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::split_part(TextSample::label, ",", 0_i32), "value")
+        .into_model()
+        .all(&tx)
+        .await;
+
+    let error = result.expect_err("PostgreSQL must reject split_part index zero");
+    assert!(
+        error.to_string().contains("field position must not be zero"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct BoundCompositionAndSplitResult {
+    joined: String,
+    separated: String,
+    parts: Vec<String>,
+    second_part: String,
+}
+
+#[tokio::test]
+async fn composition_and_split_arguments_remain_bound_values() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "bound", None).await?;
+
+    let unsafe_text = "'%_\\.*+?[](){}^$|";
+    let source = format!("left{unsafe_text}right");
+    let result: BoundCompositionAndSplitResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::concat([unsafe_text.into_expr(), dbkit::func::lower("TAIL")]), "joined")
+        .column_as(
+            dbkit::func::concat_with_separator(unsafe_text, ["left".into_expr(), "right".into_expr()]),
+            "separated",
+        )
+        .column_as(dbkit::func::split(source.clone(), unsafe_text), "parts")
+        .column_as(dbkit::func::split_part(source, unsafe_text, 2_i32), "second_part")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("bound composition and split result");
+
+    assert_eq!(result.joined, format!("{unsafe_text}tail"));
+    assert_eq!(result.separated, format!("left{unsafe_text}right"));
+    assert_eq!(result.parts, ["left", "right"]);
+    assert_eq!(result.second_part, "right");
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct RegexReplaceBoundaryResult {
     first_match: String,
     global: String,
@@ -3323,7 +4003,6 @@ async fn locking_for_update_blocks_until_first_transaction_releases_lock() -> Re
     cleanup_lock_rows(&db_a, token).await?;
     Ok(())
 }
-
 #[tokio::test]
 async fn locking_skip_locked_skips_rows_locked_by_another_transaction() -> Result<(), dbkit::Error> {
     let db_a = Database::connect(&db_url()).await?;

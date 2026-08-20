@@ -150,6 +150,12 @@ impl ToSql for ExprNode {
                     }
                     arg.to_sql(builder);
                 }
+                if (*name == "CONCAT" && args.is_empty()) || (*name == "CONCAT_WS" && args.len() == 1) {
+                    if !args.is_empty() {
+                        builder.push_sql(", ");
+                    }
+                    builder.push_sql("VARIADIC ARRAY[]::TEXT[]");
+                }
                 builder.push_sql(")");
             }
             ExprNode::Trim {

@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 use crate::compile::CompiledSql;
-use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, TrimDirection, Value, VectorBinaryOp};
+use crate::expr::{AggregateExpr, Expr, ExprNode, ExprOperand, IntoExpr, NumericExprType, TrimDirection, Value, VectorBinaryOp};
 use crate::query::Select;
 use crate::PgVector;
 
@@ -29,6 +29,18 @@ impl StringLengthExpr for Option<String> {
     type Output = Option<i32>;
 }
 
+pub trait StringSplitExpr {
+    type Output;
+}
+
+impl StringSplitExpr for String {
+    type Output = Vec<String>;
+}
+
+impl StringSplitExpr for Option<String> {
+    type Output = Option<Vec<String>>;
+}
+
 pub trait StringBinaryExpr<Rhs, Result> {
     type Output;
 }
@@ -47,6 +59,33 @@ impl<Result> StringBinaryExpr<String, Result> for Option<String> {
 
 impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
     type Output = Option<Result>;
+}
+
+#[doc(hidden)]
+pub struct ConcatExpr {
+    node: ExprNode,
+}
+
+pub trait IntoConcatExpr {
+    fn into_concat_expr(self) -> ConcatExpr;
+}
+
+impl<T> IntoConcatExpr for T
+where
+    T: ExprOperand,
+    T::Value: StringUnaryExpr,
+{
+    fn into_concat_expr(self) -> ConcatExpr {
+        ConcatExpr {
+            node: self.into_operand_expr().node,
+        }
+    }
+}
+
+impl IntoConcatExpr for ConcatExpr {
+    fn into_concat_expr(self) -> ConcatExpr {
+        self
+    }
 }
 
 bitflags! {
@@ -128,6 +167,26 @@ fn binary_string_fn<L, R, O>(name: &'static str, left: impl IntoExpr<L>, right: 
     })
 }
 
+fn ternary_string_fn<A, B, C, O>(
+    name: &'static str,
+    first: impl IntoExpr<A>,
+    second: impl IntoExpr<B>,
+    third: impl IntoExpr<C>,
+) -> Expr<O> {
+    Expr::new(ExprNode::Func {
+        name,
+        args: vec![first.into_expr().node, second.into_expr().node, third.into_expr().node],
+    })
+}
+
+fn string_expr_nodes<I, A>(args: I) -> Vec<ExprNode>
+where
+    I: IntoIterator<Item = A>,
+    A: IntoConcatExpr,
+{
+    args.into_iter().map(|arg| arg.into_concat_expr().node).collect()
+}
+
 fn directed_trim_fn<T>(
     arg: impl IntoExpr<T>,
     direction: TrimDirection,
@@ -150,11 +209,80 @@ where
     unary_string_fn("UPPER", arg)
 }
 
+/// Converts text to lowercase according to the database locale, preserving input nullability.
+/// Maps to PostgreSQL `LOWER`.
 pub fn lower<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
 {
     unary_string_fn("LOWER", arg)
+}
+
+/// Converts the first letter of each alphanumeric word to upper case and the rest to lower case.
+/// Maps to PostgreSQL `INITCAP`.
+pub fn title_case<T>(expression: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("INITCAP", expression)
+}
+
+/// Replaces every exact occurrence of `from` with `to`.
+/// Returns NULL if any argument is NULL. Maps to PostgreSQL `REPLACE`.
+pub fn replace<S, F, T>(
+    expression: impl IntoExpr<S>,
+    from: impl IntoExpr<F>,
+    to: impl IntoExpr<T>,
+) -> Expr<<<S as StringBinaryExpr<F, String>>::Output as StringBinaryExpr<T, String>>::Output>
+where
+    S: StringBinaryExpr<F, String>,
+    <S as StringBinaryExpr<F, String>>::Output: StringBinaryExpr<T, String>,
+{
+    ternary_string_fn("REPLACE", expression, from, to)
+}
+
+/// Replaces `count` characters from the 1-based `start` with `replacement`.
+/// Returns NULL if either string argument is NULL. Maps to PostgreSQL's callable `OVERLAY` form.
+pub fn replace_range<S, R>(
+    expression: impl IntoExpr<S>,
+    replacement: impl IntoExpr<R>,
+    start: impl IntoExpr<i32>,
+    count: impl IntoExpr<i32>,
+) -> Expr<<S as StringBinaryExpr<R, String>>::Output>
+where
+    S: StringBinaryExpr<R, String>,
+{
+    Expr::new(ExprNode::Func {
+        name: "OVERLAY",
+        args: vec![
+            expression.into_expr().node,
+            replacement.into_expr().node,
+            start.into_expr().node,
+            count.into_expr().node,
+        ],
+    })
+}
+
+/// Replaces characters positionally, deleting `from` characters without a corresponding `to` character.
+/// Returns NULL if any argument is NULL. Maps to PostgreSQL `TRANSLATE`.
+pub fn translate_chars<S, F, T>(
+    expression: impl IntoExpr<S>,
+    from: impl IntoExpr<F>,
+    to: impl IntoExpr<T>,
+) -> Expr<<<S as StringBinaryExpr<F, String>>::Output as StringBinaryExpr<T, String>>::Output>
+where
+    S: StringBinaryExpr<F, String>,
+    <S as StringBinaryExpr<F, String>>::Output: StringBinaryExpr<T, String>,
+{
+    ternary_string_fn("TRANSLATE", expression, from, to)
+}
+
+/// Reverses the characters in a string. Maps to PostgreSQL `REVERSE`.
+pub fn reverse<T>(expression: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("REVERSE", expression)
 }
 
 pub fn trim<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
@@ -164,6 +292,9 @@ where
     unary_string_fn("TRIM", arg)
 }
 
+/// Removes the longest span made only of characters in the `characters` set from both ends.
+/// For example, trimming `"xyxtrimyyx"` with `"xyz"` yields `"trim"`.
+/// Maps to PostgreSQL `TRIM(BOTH characters FROM expression)`.
 pub fn trim_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -171,6 +302,8 @@ where
     directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr()))
 }
 
+/// Removes leading spaces from a text expression.
+/// Maps to PostgreSQL `TRIM(LEADING FROM expression)`.
 pub fn trim_start<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -178,6 +311,8 @@ where
     directed_trim_fn(arg, TrimDirection::Leading, None)
 }
 
+/// Removes the longest leading span made only of characters in the `characters` set.
+/// Maps to PostgreSQL `TRIM(LEADING characters FROM expression)`.
 pub fn trim_start_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -185,6 +320,8 @@ where
     directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr()))
 }
 
+/// Removes trailing spaces from a text expression.
+/// Maps to PostgreSQL `TRIM(TRAILING FROM expression)`.
 pub fn trim_end<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -192,6 +329,8 @@ where
     directed_trim_fn(arg, TrimDirection::Trailing, None)
 }
 
+/// Removes the longest trailing span made only of characters in the `characters` set.
+/// Maps to PostgreSQL `TRIM(TRAILING characters FROM expression)`.
 pub fn trim_end_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -242,6 +381,109 @@ where
     L: StringBinaryExpr<R, bool>,
 {
     binary_string_fn("STARTS_WITH", expression, prefix)
+}
+
+/// Concatenates string expressions in order, ignoring NULL values.
+/// Maps to PostgreSQL `CONCAT`.
+pub fn concat<I, A>(values: I) -> Expr<String>
+where
+    I: IntoIterator<Item = A>,
+    A: IntoConcatExpr,
+{
+    let args = string_expr_nodes(values);
+    Expr::new(ExprNode::Func { name: "CONCAT", args })
+}
+
+/// Concatenates string expressions with `separator`, ignoring NULL values.
+/// Returns NULL when `separator` is NULL.
+/// Maps to PostgreSQL `CONCAT_WS`.
+pub fn concat_with_separator<S, I, A>(separator: impl IntoExpr<S>, values: I) -> Expr<<S as StringUnaryExpr>::Output>
+where
+    S: StringUnaryExpr,
+    I: IntoIterator<Item = A>,
+    A: IntoConcatExpr,
+{
+    let mut args = vec![separator.into_expr().node];
+    args.extend(string_expr_nodes(values));
+    Expr::new(ExprNode::Func { name: "CONCAT_WS", args })
+}
+
+/// Splits a string into a text array using a delimiter.
+/// A NULL delimiter splits the source into individual characters.
+/// Maps to PostgreSQL `STRING_TO_ARRAY`.
+pub fn split<S, D>(expression: impl IntoExpr<S>, delimiter: impl IntoExpr<D>) -> Expr<<S as StringSplitExpr>::Output>
+where
+    S: StringSplitExpr,
+    D: StringUnaryExpr,
+{
+    binary_string_fn("STRING_TO_ARRAY", expression, delimiter)
+}
+
+/// Returns the 1-based field from a delimited string; negative indexes count from the end.
+/// Maps to PostgreSQL `SPLIT_PART`.
+pub fn split_part<S, D>(
+    expression: impl IntoExpr<S>,
+    delimiter: impl IntoExpr<D>,
+    index: impl IntoExpr<i32>,
+) -> Expr<<S as StringBinaryExpr<D, String>>::Output>
+where
+    S: StringBinaryExpr<D, String>,
+{
+    let expression = expression.into_expr();
+    let delimiter = delimiter.into_expr();
+    let index = index.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "SPLIT_PART",
+        args: vec![expression.node, delimiter.node, index.node],
+    })
+}
+
+/// Tests whether a POSIX regular expression matches anywhere in the text.
+/// Maps to PostgreSQL `REGEXP_LIKE`.
+pub fn regex_is_match<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
+where
+    L: StringBinaryExpr<R, bool>,
+{
+    binary_string_fn("REGEXP_LIKE", expression, pattern)
+}
+
+/// Counts non-overlapping POSIX regular-expression matches.
+/// Maps to PostgreSQL `REGEXP_COUNT`.
+pub fn regex_count<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
+where
+    L: StringBinaryExpr<R, i32>,
+{
+    binary_string_fn("REGEXP_COUNT", expression, pattern)
+}
+
+/// Returns the 1-based position of the first match, or zero when absent.
+/// Maps to PostgreSQL `REGEXP_INSTR`.
+pub fn regex_position<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
+where
+    L: StringBinaryExpr<R, i32>,
+{
+    binary_string_fn("REGEXP_INSTR", expression, pattern)
+}
+
+/// Returns captures from the first match, or NULL when there is no match.
+/// Capture elements are nullable because optional groups can be unmatched.
+/// Maps to PostgreSQL `REGEXP_MATCH`.
+pub fn regex_captures<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<Option<Vec<Option<String>>>>
+where
+    L: StringUnaryExpr,
+    R: StringUnaryExpr,
+{
+    binary_string_fn("REGEXP_MATCH", expression, pattern)
+}
+
+/// Returns the first matching substring, or NULL when there is no match.
+/// Maps to PostgreSQL `REGEXP_SUBSTR`.
+pub fn regex_extract<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<Option<String>>
+where
+    L: StringUnaryExpr,
+    R: StringUnaryExpr,
+{
+    binary_string_fn("REGEXP_SUBSTR", expression, pattern)
 }
 
 /// Returns the first `count` characters, or all but the last `|count|` when negative.
