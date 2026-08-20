@@ -1268,6 +1268,153 @@ async fn char_length_of_trimmed_nullable_text_filters_rows() -> Result<(), dbkit
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct StringLengthResult {
+    label: String,
+    characters: Option<i32>,
+    bytes: Option<i32>,
+    bits: Option<i32>,
+}
+
+#[tokio::test]
+async fn string_lengths_distinguish_characters_bytes_and_bits() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "ascii", Some("abc")).await?;
+    seed_text_sample(&tx, "unicode", Some("é🙂")).await?;
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "whitespace", Some(" \t")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+
+    let rows: Vec<StringLengthResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(dbkit::func::char_length(TextSample::body), "characters")
+        .column_as(dbkit::func::byte_length(TextSample::body), "bytes")
+        .column_as(dbkit::func::bit_length(TextSample::body), "bits")
+        .order_by(dbkit::Order::asc(TextSample::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    let values: Vec<_> = rows
+        .into_iter()
+        .map(|row| (row.label, row.characters, row.bytes, row.bits))
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            ("ascii".to_string(), Some(3), Some(3), Some(24)),
+            ("unicode".to_string(), Some(2), Some(6), Some(48)),
+            ("empty".to_string(), Some(0), Some(0), Some(0)),
+            ("whitespace".to_string(), Some(2), Some(2), Some(16)),
+            ("missing".to_string(), None, None, None),
+        ]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct StringSearchResult {
+    needle: String,
+    position: Option<i32>,
+    starts_with: Option<bool>,
+    reverse_position: Option<i32>,
+    reverse_starts_with: Option<bool>,
+}
+
+#[tokio::test]
+async fn string_searches_cover_postgresql_boundaries_and_nulls() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "", Some("abc")).await?;
+    seed_text_sample(&tx, "abc", Some("abc")).await?;
+    seed_text_sample(&tx, "abcd", Some("abc")).await?;
+    seed_text_sample(&tx, "bc", Some("abcabc")).await?;
+    seed_text_sample(&tx, "aba", Some("xababa")).await?;
+    seed_text_sample(&tx, "A", Some("abc")).await?;
+    seed_text_sample(&tx, "é🙂", Some("xé🙂é")).await?;
+    seed_text_sample(&tx, "x", Some("abc")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+
+    let rows: Vec<StringSearchResult> = TextSample::query()
+        .select_only()
+        .column_as(TextSample::label, "needle")
+        .column_as(dbkit::func::position(TextSample::body, TextSample::label), "position")
+        .column_as(dbkit::func::starts_with(TextSample::body, TextSample::label), "starts_with")
+        .column_as(dbkit::func::position(TextSample::label, TextSample::body), "reverse_position")
+        .column_as(dbkit::func::starts_with(TextSample::label, TextSample::body), "reverse_starts_with")
+        .order_by(dbkit::Order::asc(TextSample::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    let values: Vec<_> = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.needle,
+                row.position,
+                row.starts_with,
+                row.reverse_position,
+                row.reverse_starts_with,
+            )
+        })
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            ("".to_string(), Some(1), Some(true), Some(0), Some(false)),
+            ("abc".to_string(), Some(1), Some(true), Some(1), Some(true)),
+            ("abcd".to_string(), Some(0), Some(false), Some(1), Some(true)),
+            ("bc".to_string(), Some(2), Some(false), Some(0), Some(false)),
+            ("aba".to_string(), Some(2), Some(false), Some(0), Some(false)),
+            ("A".to_string(), Some(0), Some(false), Some(0), Some(false)),
+            ("é🙂".to_string(), Some(2), Some(false), Some(0), Some(false)),
+            ("x".to_string(), Some(0), Some(false), Some(0), Some(false)),
+            ("missing".to_string(), None, None, None, None),
+        ]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct BoundStringSearchResult {
+    position: i32,
+    starts_with: bool,
+}
+
+#[tokio::test]
+async fn string_search_arguments_remain_bound_values() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let search = "'%_\\); DROP TABLE text_samples; --";
+    let row = seed_text_sample(&tx, &format!("{search}suffix"), None).await?;
+
+    let result: BoundStringSearchResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::position(TextSample::label, search), "position")
+        .column_as(dbkit::func::starts_with(TextSample::label, search), "starts_with")
+        .filter(TextSample::id.eq(row.id))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("bound search result");
+
+    assert_eq!(result.position, 1);
+    assert!(result.starts_with);
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct WhitespaceNormalizationResult {
     label: String,
     lowered: Option<String>,
