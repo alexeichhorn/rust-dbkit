@@ -27,6 +27,26 @@ impl StringLengthExpr for Option<String> {
     type Output = Option<i32>;
 }
 
+pub trait StringBinaryExpr<Rhs, Result> {
+    type Output;
+}
+
+impl<Result> StringBinaryExpr<String, Result> for String {
+    type Output = Result;
+}
+
+impl<Result> StringBinaryExpr<Option<String>, Result> for String {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringBinaryExpr<String, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
 fn unary_string_fn<T>(name: &'static str, arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -56,6 +76,15 @@ where
     let mut args = vec![arg.into_expr().node];
     args.extend(extra_args);
     Expr::new(ExprNode::Func { name, args })
+}
+
+fn binary_string_fn<L, R, O>(name: &'static str, left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<O> {
+    let left = left.into_expr();
+    let right = right.into_expr();
+    Expr::new(ExprNode::Func {
+        name,
+        args: vec![left.node, right.node],
+    })
 }
 
 fn directed_trim_fn<T>(
@@ -192,6 +221,44 @@ where
     T: StringUnaryExpr,
 {
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
+}
+
+/// Returns the encoded byte length of a text expression, preserving input nullability.
+/// Maps to PostgreSQL `OCTET_LENGTH`.
+pub fn byte_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("OCTET_LENGTH", arg)
+}
+
+/// Returns eight times the encoded byte length, preserving input nullability.
+/// Maps to PostgreSQL `BIT_LENGTH`.
+pub fn bit_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("BIT_LENGTH", arg)
+}
+
+/// Returns the 1-based position of `substring` in `expression`, or zero when absent.
+/// Returns NULL if either argument is NULL; `position("banana", "ana")` evaluates to `2`.
+/// Maps to PostgreSQL `STRPOS`.
+pub fn position<L, R>(expression: impl IntoExpr<L>, substring: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
+where
+    L: StringBinaryExpr<R, i32>,
+{
+    binary_string_fn("STRPOS", expression, substring)
+}
+
+/// Tests whether `expression` begins with the exact, case-sensitive `prefix`.
+/// Returns NULL if either argument is NULL; `starts_with("PostgreSQL", "Post")` evaluates to `true`.
+/// Maps to PostgreSQL `STARTS_WITH`.
+pub fn starts_with<L, R>(expression: impl IntoExpr<L>, prefix: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
+where
+    L: StringBinaryExpr<R, bool>,
+{
+    binary_string_fn("STARTS_WITH", expression, prefix)
 }
 
 pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
