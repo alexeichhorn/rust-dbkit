@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 //@check-pass
+use dbkit::func::{RegexReplaceFlags, RegexSplitFlags};
 use dbkit::model;
 
 #[model(table = "text_samples")]
@@ -24,24 +25,37 @@ fn nullable_body() -> dbkit::Column<TextSample, Option<String>> {
 }
 
 fn main() {
-    assert_string(dbkit::func::regex_replace(TextSample::title, "a", "x", ""));
-    assert_nullable_string(dbkit::func::regex_replace(nullable_body(), "a", "x", "g"));
-    assert_nullable_string(dbkit::func::regex_replace(TextSample::title, nullable_body(), "x", ""));
-    assert_nullable_string(dbkit::func::regex_replace(TextSample::title, "a", nullable_body(), ""));
-    assert_nullable_string(dbkit::func::regex_replace(TextSample::title, "a", "x", nullable_body()));
+    let all_case_insensitive = RegexReplaceFlags::GLOBAL | RegexReplaceFlags::CASE_INSENSITIVE;
+    assert_string(dbkit::func::regex_replace(TextSample::title, "a", "x", RegexReplaceFlags::empty()));
+    assert_nullable_string(dbkit::func::regex_replace(nullable_body(), "a", "x", all_case_insensitive));
+    assert_nullable_string(dbkit::func::regex_replace(
+        TextSample::title,
+        nullable_body(),
+        "x",
+        RegexReplaceFlags::empty(),
+    ));
+    assert_nullable_string(dbkit::func::regex_replace(
+        TextSample::title,
+        "a",
+        nullable_body(),
+        RegexReplaceFlags::CASE_INSENSITIVE,
+    ));
 
-    assert_string_array(dbkit::func::regex_split(TextSample::title, r"\s+", ""));
-    assert_nullable_string_array(dbkit::func::regex_split(nullable_body(), r"\s+", "i"));
-    assert_nullable_string_array(dbkit::func::regex_split(TextSample::title, nullable_body(), ""));
-    assert_nullable_string_array(dbkit::func::regex_split(TextSample::title, r"\s+", nullable_body()));
+    assert_string_array(dbkit::func::regex_split(TextSample::title, r"\s+", RegexSplitFlags::empty()));
+    assert_nullable_string_array(dbkit::func::regex_split(nullable_body(), r"\s+", RegexSplitFlags::CASE_INSENSITIVE));
+    assert_nullable_string_array(dbkit::func::regex_split(
+        TextSample::title,
+        nullable_body(),
+        RegexSplitFlags::empty(),
+    ));
 
     let normalized = dbkit::func::regex_replace(
         dbkit::func::lower(dbkit::func::trim(dbkit::func::substring(nullable_body(), 1_i32, 99_i32))),
         dbkit::func::lower(r"[A-Z]+"),
         dbkit::func::lower("WORD"),
-        dbkit::func::lower("GI"),
+        all_case_insensitive,
     );
-    let parts = dbkit::func::regex_split(normalized.clone(), dbkit::func::lower(r"\s+"), "");
+    let parts = dbkit::func::regex_split(normalized.clone(), dbkit::func::lower(r"\s+"), RegexSplitFlags::empty());
     assert_nullable_string(normalized.clone());
     assert_nullable_string_array(parts.clone());
 

@@ -1,6 +1,7 @@
 #![allow(non_upper_case_globals)]
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use dbkit::func::{RegexReplaceFlags, RegexSplitFlags};
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
 use dbkit::{model, Database, Executor};
@@ -1914,24 +1915,57 @@ async fn regex_replace_follows_postgresql_match_replacement_and_flag_semantics()
 
     let result: RegexReplaceBoundaryResult = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::regex_replace("abcabc", "a.", "X", ""), "first_match")
-        .column_as(dbkit::func::regex_replace("abcabc", "a.", "X", "g"), "global")
-        .column_as(dbkit::func::regex_replace("abc", "z+", "X", ""), "no_match")
-        .column_as(dbkit::func::regex_replace("", "a", "X", ""), "empty_source")
-        .column_as(dbkit::func::regex_replace("abc", "", "X", ""), "empty_pattern_first")
-        .column_as(dbkit::func::regex_replace("abc", "", "X", "g"), "empty_pattern_global")
-        .column_as(dbkit::func::regex_replace("a1b22c", r"\d+", "", "g"), "empty_replacement")
         .column_as(
-            dbkit::func::regex_replace("Ada Lovelace", "([A-Za-z]+) ([A-Za-z]+)", r"\2, \1", ""),
+            dbkit::func::regex_replace("abcabc", "a.", "X", RegexReplaceFlags::empty()),
+            "first_match",
+        )
+        .column_as(dbkit::func::regex_replace("abcabc", "a.", "X", RegexReplaceFlags::GLOBAL), "global")
+        .column_as(dbkit::func::regex_replace("abc", "z+", "X", RegexReplaceFlags::empty()), "no_match")
+        .column_as(dbkit::func::regex_replace("", "a", "X", RegexReplaceFlags::empty()), "empty_source")
+        .column_as(
+            dbkit::func::regex_replace("abc", "", "X", RegexReplaceFlags::empty()),
+            "empty_pattern_first",
+        )
+        .column_as(
+            dbkit::func::regex_replace("abc", "", "X", RegexReplaceFlags::GLOBAL),
+            "empty_pattern_global",
+        )
+        .column_as(
+            dbkit::func::regex_replace("a1b22c", r"\d+", "", RegexReplaceFlags::GLOBAL),
+            "empty_replacement",
+        )
+        .column_as(
+            dbkit::func::regex_replace("Ada Lovelace", "([A-Za-z]+) ([A-Za-z]+)", r"\2, \1", RegexReplaceFlags::empty()),
             "capture_groups",
         )
-        .column_as(dbkit::func::regex_replace("abc", "b", r"[\&]", ""), "whole_match")
-        .column_as(dbkit::func::regex_replace("abc", "b", r"\\", ""), "literal_backslash")
-        .column_as(dbkit::func::regex_replace("abc", "b", "$1'&", ""), "literal_dollar_quote")
-        .column_as(dbkit::func::regex_replace("AaA", "a", "x", "g"), "case_sensitive")
-        .column_as(dbkit::func::regex_replace("AaA", "a", "x", "gi"), "case_insensitive")
-        .column_as(dbkit::func::regex_replace("ab", "(^|$)", "_", "g"), "zero_width")
-        .column_as(dbkit::func::regex_replace("é🙂é", "[é🙂]", "X", "g"), "unicode")
+        .column_as(
+            dbkit::func::regex_replace("abc", "b", r"[\&]", RegexReplaceFlags::empty()),
+            "whole_match",
+        )
+        .column_as(
+            dbkit::func::regex_replace("abc", "b", r"\\", RegexReplaceFlags::empty()),
+            "literal_backslash",
+        )
+        .column_as(
+            dbkit::func::regex_replace("abc", "b", "$1'&", RegexReplaceFlags::empty()),
+            "literal_dollar_quote",
+        )
+        .column_as(
+            dbkit::func::regex_replace("AaA", "a", "x", RegexReplaceFlags::GLOBAL),
+            "case_sensitive",
+        )
+        .column_as(
+            dbkit::func::regex_replace("AaA", "a", "x", RegexReplaceFlags::GLOBAL | RegexReplaceFlags::CASE_INSENSITIVE),
+            "case_insensitive",
+        )
+        .column_as(
+            dbkit::func::regex_replace("ab", "(^|$)", "_", RegexReplaceFlags::GLOBAL),
+            "zero_width",
+        )
+        .column_as(
+            dbkit::func::regex_replace("é🙂é", "[é🙂]", "X", RegexReplaceFlags::GLOBAL),
+            "unicode",
+        )
         .into_model()
         .one(&tx)
         .await?
@@ -1982,19 +2016,37 @@ async fn regex_split_returns_exact_text_arrays_and_suppresses_special_zero_width
 
     let result: RegexSplitBoundaryResult = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::regex_split("one, two;three", "[,;][ ]*", ""), "normal")
-        .column_as(dbkit::func::regex_split("a,,b;;;c", "[,;]+", ""), "repeated")
-        .column_as(dbkit::func::regex_split("a,,b", ",", ""), "adjacent")
-        .column_as(dbkit::func::regex_split(",a,", ",", ""), "edges")
-        .column_as(dbkit::func::regex_split("abc", ",", ""), "no_match")
-        .column_as(dbkit::func::regex_split("", ",", ""), "empty_source")
-        .column_as(dbkit::func::regex_split("abc", "", ""), "empty_pattern")
-        .column_as(dbkit::func::regex_split("the quick", "[ ]*", ""), "zero_width_star")
-        .column_as(dbkit::func::regex_split("abc", "(?=b)", ""), "zero_width_lookahead")
-        .column_as(dbkit::func::regex_split("abc", "(^|$)", ""), "zero_width_boundaries")
-        .column_as(dbkit::func::regex_split("été🙂hiver", "[é🙂]+", ""), "unicode")
-        .column_as(dbkit::func::regex_split("aXbxc", "x", ""), "case_sensitive")
-        .column_as(dbkit::func::regex_split("aXbxc", "x", "i"), "case_insensitive")
+        .column_as(
+            dbkit::func::regex_split("one, two;three", "[,;][ ]*", RegexSplitFlags::empty()),
+            "normal",
+        )
+        .column_as(dbkit::func::regex_split("a,,b;;;c", "[,;]+", RegexSplitFlags::empty()), "repeated")
+        .column_as(dbkit::func::regex_split("a,,b", ",", RegexSplitFlags::empty()), "adjacent")
+        .column_as(dbkit::func::regex_split(",a,", ",", RegexSplitFlags::empty()), "edges")
+        .column_as(dbkit::func::regex_split("abc", ",", RegexSplitFlags::empty()), "no_match")
+        .column_as(dbkit::func::regex_split("", ",", RegexSplitFlags::empty()), "empty_source")
+        .column_as(dbkit::func::regex_split("abc", "", RegexSplitFlags::empty()), "empty_pattern")
+        .column_as(
+            dbkit::func::regex_split("the quick", "[ ]*", RegexSplitFlags::empty()),
+            "zero_width_star",
+        )
+        .column_as(
+            dbkit::func::regex_split("abc", "(?=b)", RegexSplitFlags::empty()),
+            "zero_width_lookahead",
+        )
+        .column_as(
+            dbkit::func::regex_split("abc", "(^|$)", RegexSplitFlags::empty()),
+            "zero_width_boundaries",
+        )
+        .column_as(
+            dbkit::func::regex_split("été🙂hiver", "[é🙂]+", RegexSplitFlags::empty()),
+            "unicode",
+        )
+        .column_as(dbkit::func::regex_split("aXbxc", "x", RegexSplitFlags::empty()), "case_sensitive")
+        .column_as(
+            dbkit::func::regex_split("aXbxc", "x", RegexSplitFlags::CASE_INSENSITIVE),
+            "case_insensitive",
+        )
         .into_model()
         .one(&tx)
         .await?
@@ -2022,14 +2074,12 @@ struct NullableRegexTransformResult {
     replace_source: Option<String>,
     replace_pattern: Option<String>,
     replace_replacement: Option<String>,
-    replace_flags: Option<String>,
     split_source: Option<Vec<String>>,
     split_pattern: Option<Vec<String>>,
-    split_flags: Option<Vec<String>>,
 }
 
 #[tokio::test]
-async fn regex_transforms_propagate_null_from_every_nullable_argument() -> Result<(), dbkit::Error> {
+async fn regex_transforms_propagate_null_from_every_nullable_text_argument() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
@@ -2037,22 +2087,26 @@ async fn regex_transforms_propagate_null_from_every_nullable_argument() -> Resul
 
     let result: NullableRegexTransformResult = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::regex_replace(TextSample::body, "a", "x", ""), "replace_source")
         .column_as(
-            dbkit::func::regex_replace(TextSample::label, TextSample::body, "x", ""),
+            dbkit::func::regex_replace(TextSample::body, "a", "x", RegexReplaceFlags::empty()),
+            "replace_source",
+        )
+        .column_as(
+            dbkit::func::regex_replace(TextSample::label, TextSample::body, "x", RegexReplaceFlags::empty()),
             "replace_pattern",
         )
         .column_as(
-            dbkit::func::regex_replace(TextSample::label, "a", TextSample::body, ""),
+            dbkit::func::regex_replace(TextSample::label, "a", TextSample::body, RegexReplaceFlags::empty()),
             "replace_replacement",
         )
         .column_as(
-            dbkit::func::regex_replace(TextSample::label, "a", "x", TextSample::body),
-            "replace_flags",
+            dbkit::func::regex_split(TextSample::body, ",", RegexSplitFlags::empty()),
+            "split_source",
         )
-        .column_as(dbkit::func::regex_split(TextSample::body, ",", ""), "split_source")
-        .column_as(dbkit::func::regex_split(TextSample::label, TextSample::body, ""), "split_pattern")
-        .column_as(dbkit::func::regex_split(TextSample::label, ",", TextSample::body), "split_flags")
+        .column_as(
+            dbkit::func::regex_split(TextSample::label, TextSample::body, RegexSplitFlags::empty()),
+            "split_pattern",
+        )
         .filter(TextSample::id.eq(row.id))
         .into_model()
         .one(&tx)
@@ -2062,10 +2116,8 @@ async fn regex_transforms_propagate_null_from_every_nullable_argument() -> Resul
     assert_eq!(result.replace_source, None);
     assert_eq!(result.replace_pattern, None);
     assert_eq!(result.replace_replacement, None);
-    assert_eq!(result.replace_flags, None);
     assert_eq!(result.split_source, None);
     assert_eq!(result.split_pattern, None);
-    assert_eq!(result.split_flags, None);
 
     Ok(())
 }
@@ -2091,17 +2143,24 @@ async fn regex_transform_arguments_remain_bound_and_compose_with_existing_string
         dbkit::func::lower(dbkit::func::trim(dbkit::func::substring(TextSample::body, 1_i32, 99_i32))),
         r"\s+",
         "-",
-        "g",
+        RegexReplaceFlags::GLOBAL,
     );
 
     let result: BoundRegexTransformResult = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::regex_replace(TextSample::label, pattern, replacement, "g"), "replaced")
+        .column_as(
+            dbkit::func::regex_replace(TextSample::label, pattern, replacement, RegexReplaceFlags::GLOBAL),
+            "replaced",
+        )
         .column_as(normalized.clone(), "normalized")
-        .column_as(dbkit::func::regex_split(normalized.clone(), "-", ""), "parts")
+        .column_as(dbkit::func::regex_split(normalized.clone(), "-", RegexSplitFlags::empty()), "parts")
         .filter(TextSample::id.eq(row.id))
         .filter(normalized.eq("aa-bb"))
-        .order_by(dbkit::Order::asc(dbkit::func::regex_split(TextSample::label, "[%_]+", "")))
+        .order_by(dbkit::Order::asc(dbkit::func::regex_split(
+            TextSample::label,
+            "[%_]+",
+            RegexSplitFlags::empty(),
+        )))
         .into_model()
         .one(&tx)
         .await?
@@ -2123,7 +2182,10 @@ async fn regex_replace_reports_invalid_patterns() -> Result<(), dbkit::Error> {
 
     let result: Result<Vec<NullableStringResult>, dbkit::Error> = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::regex_replace(TextSample::label, "[", "x", ""), "value")
+        .column_as(
+            dbkit::func::regex_replace(TextSample::label, "[", "x", RegexReplaceFlags::empty()),
+            "value",
+        )
         .into_model()
         .all(&tx)
         .await;
@@ -2151,7 +2213,7 @@ async fn regex_split_reports_invalid_patterns() -> Result<(), dbkit::Error> {
 
     let result: Result<Vec<RegexSplitResult>, dbkit::Error> = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::regex_split(TextSample::label, "(", ""), "value")
+        .column_as(dbkit::func::regex_split(TextSample::label, "(", RegexSplitFlags::empty()), "value")
         .into_model()
         .all(&tx)
         .await;
