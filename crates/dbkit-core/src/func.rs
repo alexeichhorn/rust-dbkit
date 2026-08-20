@@ -1,5 +1,5 @@
 use crate::compile::CompiledSql;
-use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, VectorBinaryOp};
+use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, TrimDirection, VectorBinaryOp};
 use crate::query::Select;
 use crate::PgVector;
 
@@ -49,6 +49,21 @@ where
     })
 }
 
+fn directed_trim_fn<T>(
+    arg: impl IntoExpr<T>,
+    direction: TrimDirection,
+    characters: Option<Expr<String>>,
+) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    Expr::new(ExprNode::Trim {
+        direction,
+        expr: Box::new(arg.into_expr().node),
+        characters: characters.map(|characters| Box::new(characters.node)),
+    })
+}
+
 pub fn upper<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -56,11 +71,53 @@ where
     unary_string_fn("UPPER", arg)
 }
 
+pub fn lower<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("LOWER", arg)
+}
+
 pub fn trim<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
 {
     unary_string_fn("TRIM", arg)
+}
+
+pub fn trim_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr()))
+}
+
+pub fn trim_start<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    directed_trim_fn(arg, TrimDirection::Leading, None)
+}
+
+pub fn trim_start_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr()))
+}
+
+pub fn trim_end<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    directed_trim_fn(arg, TrimDirection::Trailing, None)
+}
+
+pub fn trim_end_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    directed_trim_fn(arg, TrimDirection::Trailing, Some(characters.into_expr()))
 }
 
 pub fn char_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>

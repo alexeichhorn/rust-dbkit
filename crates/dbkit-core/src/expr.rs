@@ -251,6 +251,13 @@ pub enum IntervalField {
     Seconds,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum TrimDirection {
+    Both,
+    Leading,
+    Trailing,
+}
+
 #[derive(Debug, Clone)]
 pub enum ExprNode {
     Column(ColumnRef),
@@ -261,6 +268,11 @@ pub enum ExprNode {
     Func {
         name: &'static str,
         args: Vec<ExprNode>,
+    },
+    Trim {
+        direction: TrimDirection,
+        expr: Box<ExprNode>,
+        characters: Option<Box<ExprNode>>,
     },
     AggregateFilter {
         aggregate: Box<ExprNode>,
