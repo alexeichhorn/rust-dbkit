@@ -2140,7 +2140,7 @@ async fn split_part_rejects_zero_index() -> Result<(), dbkit::Error> {
 
     let result: Result<Vec<NullableStringResult>, dbkit::Error> = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::split_part(TextSample::body, ",", 0_i32), "value")
+        .column_as(dbkit::func::split_part(TextSample::label, ",", 0_i32), "value")
         .into_model()
         .all(&tx)
         .await;
