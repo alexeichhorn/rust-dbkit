@@ -108,6 +108,7 @@ Use query-builder updates/deletes for bulk or conditional mutations.
 - [Mutations](docs/mutations.md)
 - [Relations](docs/relations.md)
 - [Expressions and aggregation](docs/expressions.md)
+- [PostgreSQL string functions](docs/string-functions.md)
 - [Postgres types](docs/postgres-types.md)
 - [Database](docs/database.md)
 
