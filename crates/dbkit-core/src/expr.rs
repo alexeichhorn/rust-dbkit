@@ -269,6 +269,10 @@ pub enum ExprNode {
         name: &'static str,
         args: Vec<ExprNode>,
     },
+    Normalize {
+        expr: Box<ExprNode>,
+        form: crate::func::NormalizationForm,
+    },
     Trim {
         direction: TrimDirection,
         expr: Box<ExprNode>,

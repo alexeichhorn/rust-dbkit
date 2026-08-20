@@ -158,6 +158,18 @@ impl ToSql for ExprNode {
                 }
                 builder.push_sql(")");
             }
+            ExprNode::Normalize { expr, form } => {
+                builder.push_sql("NORMALIZE(");
+                expr.to_sql(builder);
+                builder.push_sql(", ");
+                builder.push_sql(match form {
+                    crate::func::NormalizationForm::Nfc => "NFC",
+                    crate::func::NormalizationForm::Nfd => "NFD",
+                    crate::func::NormalizationForm::Nfkc => "NFKC",
+                    crate::func::NormalizationForm::Nfkd => "NFKD",
+                });
+                builder.push_sql(")");
+            }
             ExprNode::Trim {
                 direction,
                 expr,

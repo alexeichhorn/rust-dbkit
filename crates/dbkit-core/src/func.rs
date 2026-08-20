@@ -106,6 +106,47 @@ bitflags! {
     }
 }
 
+/// A PostgreSQL Unicode normalization form for [`normalize`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NormalizationForm {
+    /// PostgreSQL `NFC` normalization.
+    Nfc,
+    /// PostgreSQL `NFD` normalization.
+    Nfd,
+    /// PostgreSQL `NFKC` normalization.
+    Nfkc,
+    /// PostgreSQL `NFKD` normalization.
+    Nfkd,
+}
+
+/// Output type for boolean string functions.
+pub trait StringBoolExpr {
+    /// Result type preserving input nullability.
+    type Output;
+}
+
+impl StringBoolExpr for String {
+    type Output = bool;
+}
+
+impl StringBoolExpr for Option<String> {
+    type Output = Option<bool>;
+}
+
+/// Output type for integer-to-character functions.
+pub trait CodepointExpr {
+    /// Result type preserving input nullability.
+    type Output;
+}
+
+impl CodepointExpr for i32 {
+    type Output = String;
+}
+
+impl CodepointExpr for Option<i32> {
+    type Output = Option<String>;
+}
+
 impl RegexReplaceFlags {
     fn as_postgres_str(self) -> &'static str {
         match (self.contains(Self::GLOBAL), self.contains(Self::CASE_INSENSITIVE)) {
@@ -587,6 +628,72 @@ where
             pattern.into_expr().node,
             ExprNode::Value(Value::String(flags.as_postgres_str().to_string())),
         ],
+    })
+}
+
+/// Normalizes text using the selected Unicode form. Requires `UTF8`.
+/// Maps to PostgreSQL `NORMALIZE(expression, form)`.
+pub fn normalize<T>(arg: impl IntoExpr<T>, form: NormalizationForm) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    Expr::new(ExprNode::Normalize {
+        expr: Box::new(arg.into_expr().node),
+        form,
+    })
+}
+
+/// Returns the numeric code of the first character, or zero for empty text.
+/// Maps to PostgreSQL `ASCII`, which returns Unicode code points with `UTF8`.
+pub fn first_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("ASCII", arg)
+}
+
+/// Returns the character for an integer code point.
+/// Maps to PostgreSQL `CHR`, which interprets Unicode code points with `UTF8`.
+pub fn from_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as CodepointExpr>::Output>
+where
+    T: CodepointExpr,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "CHR",
+        args: vec![expr.node],
+    })
+}
+
+/// Converts text to ASCII, primarily by removing accents.
+/// Supports only `LATIN1`, `LATIN2`, `LATIN9`, and `WIN1250` database encodings, not `UTF8`.
+/// Maps to PostgreSQL `TO_ASCII(expression)`.
+pub fn to_ascii<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("TO_ASCII", arg)
+}
+
+/// Performs collation-dependent Unicode case folding. Requires PostgreSQL 18 or newer and `UTF8`.
+/// Maps to PostgreSQL `CASEFOLD`.
+pub fn case_fold<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
+where
+    T: StringUnaryExpr,
+{
+    unary_string_fn("CASEFOLD", arg)
+}
+
+/// Tests whether every character has an assigned Unicode code point. Requires PostgreSQL 18 or newer and `UTF8`.
+/// Maps to PostgreSQL `UNICODE_ASSIGNED`.
+pub fn is_unicode_assigned<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringBoolExpr>::Output>
+where
+    T: StringBoolExpr,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "UNICODE_ASSIGNED",
+        args: vec![expr.node],
     })
 }
 
