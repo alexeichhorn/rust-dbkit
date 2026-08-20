@@ -68,6 +68,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_string_function_aliases.rs".into(),
         "fail_string_length_non_text.rs".into(),
         "fail_string_search_non_text.rs".into(),
+        "fail_string_transformation_argument_types.rs".into(),
         "fail_filter_non_aggregate.rs".into(),
         "pass_db_enum_crud.rs".into(),
         "pass_db_enum_shared_type_across_models.rs".into(),
