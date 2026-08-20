@@ -109,6 +109,8 @@ where
     unary_string_fn("UPPER", arg)
 }
 
+/// Converts text to lowercase according to the database locale, preserving input nullability.
+/// Maps to PostgreSQL `LOWER`.
 pub fn lower<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -123,6 +125,9 @@ where
     unary_string_fn("TRIM", arg)
 }
 
+/// Removes the longest span made only of characters in the `characters` set from both ends.
+/// For example, trimming `"xyxtrimyyx"` with `"xyz"` yields `"trim"`.
+/// Maps to PostgreSQL `TRIM(BOTH characters FROM expression)`.
 pub fn trim_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -130,6 +135,8 @@ where
     directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr()))
 }
 
+/// Removes leading spaces from a text expression.
+/// Maps to PostgreSQL `TRIM(LEADING FROM expression)`.
 pub fn trim_start<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -137,6 +144,8 @@ where
     directed_trim_fn(arg, TrimDirection::Leading, None)
 }
 
+/// Removes the longest leading span made only of characters in the `characters` set.
+/// Maps to PostgreSQL `TRIM(LEADING characters FROM expression)`.
 pub fn trim_start_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -144,6 +153,8 @@ where
     directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr()))
 }
 
+/// Removes trailing spaces from a text expression.
+/// Maps to PostgreSQL `TRIM(TRAILING FROM expression)`.
 pub fn trim_end<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -151,6 +162,8 @@ where
     directed_trim_fn(arg, TrimDirection::Trailing, None)
 }
 
+/// Removes the longest trailing span made only of characters in the `characters` set.
+/// Maps to PostgreSQL `TRIM(TRAILING characters FROM expression)`.
 pub fn trim_end_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
