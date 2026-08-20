@@ -96,7 +96,7 @@ The `chars` argument is a set of characters, not a literal prefix or suffix.
 | `byte_length(text)` | `OCTET_LENGTH(text)` | Counts encoded bytes. |
 | `bit_length(text)` | `BIT_LENGTH(text)` | Returns eight times the encoded byte length. |
 | `position(text, substring)` | `STRPOS(text, substring)` | Returns the first 1-based position, or zero when absent. |
-| `starts_with(text, prefix)` | `STARTS_WITH(text, prefix)` | Tests an exact, case-sensitive prefix. |
+| `starts_with(text, prefix)` | `STARTS_WITH(text, prefix)` | Tests an exact, case-sensitive prefix. Requires PostgreSQL 11 or newer. |
 
 Character and byte counts differ for multibyte text. For example, one Unicode character can occupy
 several bytes in `UTF8`.

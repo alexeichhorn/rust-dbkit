@@ -426,6 +426,7 @@ where
 
 /// Tests whether `expression` begins with the exact, case-sensitive `prefix`.
 /// Returns NULL if either argument is NULL; `starts_with("PostgreSQL", "Post")` evaluates to `true`.
+/// Requires PostgreSQL 11 or newer.
 /// Maps to PostgreSQL `STARTS_WITH`.
 pub fn starts_with<L, R>(expression: impl IntoExpr<L>, prefix: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
 where
