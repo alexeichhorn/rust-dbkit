@@ -60,7 +60,7 @@ fn main() {
         dbkit::func::substring(
             dbkit::func::lower(dbkit::func::trim(TextSample::title)),
             dbkit::func::char_length("x"),
-            normalized_body_len.clone(),
+            dbkit::func::char_length(TextSample::title),
         ),
         dbkit::func::char_length(TextSample::title),
         dbkit::func::lower("XY"),
