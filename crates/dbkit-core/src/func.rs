@@ -165,6 +165,44 @@ where
     string_length_fn("CHAR_LENGTH", arg)
 }
 
+/// Returns the encoded byte length of a text expression, preserving input nullability.
+/// Maps to PostgreSQL `OCTET_LENGTH`.
+pub fn byte_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("OCTET_LENGTH", arg)
+}
+
+/// Returns eight times the encoded byte length, preserving input nullability.
+/// Maps to PostgreSQL `BIT_LENGTH`.
+pub fn bit_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
+where
+    T: StringLengthExpr,
+{
+    string_length_fn("BIT_LENGTH", arg)
+}
+
+/// Returns the 1-based position of `substring` in `expression`, or zero when absent.
+/// Returns NULL if either argument is NULL; `position("banana", "ana")` evaluates to `2`.
+/// Maps to PostgreSQL `STRPOS`.
+pub fn position<L, R>(expression: impl IntoExpr<L>, substring: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
+where
+    L: StringBinaryExpr<R, i32>,
+{
+    binary_string_fn("STRPOS", expression, substring)
+}
+
+/// Tests whether `expression` begins with the exact, case-sensitive `prefix`.
+/// Returns NULL if either argument is NULL; `starts_with("PostgreSQL", "Post")` evaluates to `true`.
+/// Maps to PostgreSQL `STARTS_WITH`.
+pub fn starts_with<L, R>(expression: impl IntoExpr<L>, prefix: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
+where
+    L: StringBinaryExpr<R, bool>,
+{
+    binary_string_fn("STARTS_WITH", expression, prefix)
+}
+
 /// Returns the first `count` characters, or all but the last `|count|` when negative.
 /// Maps to PostgreSQL `LEFT`.
 pub fn left<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
@@ -221,44 +259,6 @@ where
     T: StringUnaryExpr,
 {
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
-}
-
-/// Returns the encoded byte length of a text expression, preserving input nullability.
-/// Maps to PostgreSQL `OCTET_LENGTH`.
-pub fn byte_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
-where
-    T: StringLengthExpr,
-{
-    string_length_fn("OCTET_LENGTH", arg)
-}
-
-/// Returns eight times the encoded byte length, preserving input nullability.
-/// Maps to PostgreSQL `BIT_LENGTH`.
-pub fn bit_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
-where
-    T: StringLengthExpr,
-{
-    string_length_fn("BIT_LENGTH", arg)
-}
-
-/// Returns the 1-based position of `substring` in `expression`, or zero when absent.
-/// Returns NULL if either argument is NULL; `position("banana", "ana")` evaluates to `2`.
-/// Maps to PostgreSQL `STRPOS`.
-pub fn position<L, R>(expression: impl IntoExpr<L>, substring: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
-where
-    L: StringBinaryExpr<R, i32>,
-{
-    binary_string_fn("STRPOS", expression, substring)
-}
-
-/// Tests whether `expression` begins with the exact, case-sensitive `prefix`.
-/// Returns NULL if either argument is NULL; `starts_with("PostgreSQL", "Post")` evaluates to `true`.
-/// Maps to PostgreSQL `STARTS_WITH`.
-pub fn starts_with<L, R>(expression: impl IntoExpr<L>, prefix: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
-where
-    L: StringBinaryExpr<R, bool>,
-{
-    binary_string_fn("STARTS_WITH", expression, prefix)
 }
 
 pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
