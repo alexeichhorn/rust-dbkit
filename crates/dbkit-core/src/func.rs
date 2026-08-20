@@ -1,5 +1,5 @@
 use crate::compile::CompiledSql;
-use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, TrimDirection, VectorBinaryOp};
+use crate::expr::{AggregateExpr, Expr, ExprNode, ExprOperand, IntoExpr, NumericExprType, TrimDirection, VectorBinaryOp};
 use crate::query::Select;
 use crate::PgVector;
 
@@ -59,6 +59,33 @@ impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
     type Output = Option<Result>;
 }
 
+#[doc(hidden)]
+pub struct ConcatExpr {
+    node: ExprNode,
+}
+
+pub trait IntoConcatExpr {
+    fn into_concat_expr(self) -> ConcatExpr;
+}
+
+impl<T> IntoConcatExpr for T
+where
+    T: ExprOperand,
+    T::Value: StringUnaryExpr,
+{
+    fn into_concat_expr(self) -> ConcatExpr {
+        ConcatExpr {
+            node: self.into_operand_expr().node,
+        }
+    }
+}
+
+impl IntoConcatExpr for ConcatExpr {
+    fn into_concat_expr(self) -> ConcatExpr {
+        self
+    }
+}
+
 fn unary_string_fn<T>(name: &'static str, arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -99,13 +126,12 @@ fn binary_string_fn<L, R, O>(name: &'static str, left: impl IntoExpr<L>, right: 
     })
 }
 
-fn string_expr_nodes<T, I, A>(args: I) -> Vec<ExprNode>
+fn string_expr_nodes<I, A>(args: I) -> Vec<ExprNode>
 where
-    T: StringUnaryExpr,
     I: IntoIterator<Item = A>,
-    A: IntoExpr<T>,
+    A: IntoConcatExpr,
 {
-    args.into_iter().map(|arg| arg.into_expr().node).collect()
+    args.into_iter().map(|arg| arg.into_concat_expr().node).collect()
 }
 
 fn directed_trim_fn<T>(
@@ -226,11 +252,10 @@ where
 
 /// Concatenates string expressions in order, ignoring NULL values.
 /// Maps to PostgreSQL `CONCAT`.
-pub fn concat<T, I, A>(values: I) -> Expr<String>
+pub fn concat<I, A>(values: I) -> Expr<String>
 where
-    T: StringUnaryExpr,
     I: IntoIterator<Item = A>,
-    A: IntoExpr<T>,
+    A: IntoConcatExpr,
 {
     let args = string_expr_nodes(values);
     Expr::new(ExprNode::Func { name: "CONCAT", args })
@@ -239,12 +264,11 @@ where
 /// Concatenates string expressions with `separator`, ignoring NULL values.
 /// Returns NULL when `separator` is NULL.
 /// Maps to PostgreSQL `CONCAT_WS`.
-pub fn concat_with_separator<S, T, I, A>(separator: impl IntoExpr<S>, values: I) -> Expr<<S as StringUnaryExpr>::Output>
+pub fn concat_with_separator<S, I, A>(separator: impl IntoExpr<S>, values: I) -> Expr<<S as StringUnaryExpr>::Output>
 where
     S: StringUnaryExpr,
-    T: StringUnaryExpr,
     I: IntoIterator<Item = A>,
-    A: IntoExpr<T>,
+    A: IntoConcatExpr,
 {
     let mut args = vec![separator.into_expr().node];
     args.extend(string_expr_nodes(values));

@@ -1,4 +1,5 @@
 //@check-pass
+use dbkit::func::IntoConcatExpr;
 use dbkit::model;
 use dbkit::IntoExpr;
 
@@ -77,15 +78,21 @@ fn main() {
         nullable_body().into_expr(),
         dbkit::func::trim(nullable_body()),
     ]));
-    assert_string(dbkit::func::concat([TextSample::title.into_expr(), nullable_body().into_expr()]));
-    assert_string(dbkit::func::concat([nullable_body().into_expr(), "SUFFIX".into_expr()]));
+    assert_string(dbkit::func::concat([
+        TextSample::title.into_concat_expr(),
+        nullable_body().into_concat_expr(),
+    ]));
+    assert_string(dbkit::func::concat([
+        nullable_body().into_concat_expr(),
+        "SUFFIX".into_concat_expr(),
+    ]));
     assert_string(dbkit::func::concat_with_separator(
         "::",
         [TextSample::title.into_expr(), dbkit::func::lower("SUFFIX")],
     ));
     assert_string(dbkit::func::concat_with_separator(
         "::",
-        [TextSample::title.into_expr(), nullable_body().into_expr()],
+        [TextSample::title.into_concat_expr(), nullable_body().into_concat_expr()],
     ));
     assert_nullable_string(dbkit::func::concat_with_separator(
         nullable_body(),
