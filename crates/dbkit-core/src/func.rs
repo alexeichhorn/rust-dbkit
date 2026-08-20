@@ -3,11 +3,16 @@ use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, Trim
 use crate::query::Select;
 use crate::PgVector;
 
+/// A PostgreSQL Unicode normalization form for [`normalize`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NormalizationForm {
+    /// PostgreSQL `NFC` normalization.
     Nfc,
+    /// PostgreSQL `NFD` normalization.
     Nfd,
+    /// PostgreSQL `NFKC` normalization.
     Nfkc,
+    /// PostgreSQL `NFKD` normalization.
     Nfkd,
 }
 
@@ -35,7 +40,9 @@ impl StringLengthExpr for Option<String> {
     type Output = Option<i32>;
 }
 
+/// Output type for boolean string functions.
 pub trait StringBoolExpr {
+    /// Result type preserving input nullability.
     type Output;
 }
 
@@ -47,7 +54,9 @@ impl StringBoolExpr for Option<String> {
     type Output = Option<bool>;
 }
 
+/// Output type for integer-to-character functions.
 pub trait CodepointExpr {
+    /// Result type preserving input nullability.
     type Output;
 }
 
@@ -148,7 +157,8 @@ where
     unary_string_fn("LOWER", arg)
 }
 
-/// Converts UTF-8 text to the selected Unicode normalization form.
+/// Normalizes text using the selected Unicode form. Requires `UTF8`.
+/// Maps to PostgreSQL `NORMALIZE(expression, form)`.
 pub fn normalize<T>(arg: impl IntoExpr<T>, form: NormalizationForm) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -159,7 +169,8 @@ where
     })
 }
 
-/// Returns the Unicode code point of the first character, or zero for empty text.
+/// Returns the numeric code of the first character, or zero for empty text.
+/// Maps to PostgreSQL `ASCII`, which returns Unicode code points with `UTF8`.
 pub fn first_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
 where
     T: StringLengthExpr,
@@ -167,7 +178,8 @@ where
     string_length_fn("ASCII", arg)
 }
 
-/// Returns the character for a PostgreSQL integer code point.
+/// Returns the character for an integer code point.
+/// Maps to PostgreSQL `CHR`, which interprets Unicode code points with `UTF8`.
 pub fn from_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as CodepointExpr>::Output>
 where
     T: CodepointExpr,
@@ -179,7 +191,9 @@ where
     })
 }
 
-/// Converts text to ASCII using PostgreSQL's database-encoding-dependent conversion.
+/// Converts text to ASCII, primarily by removing accents.
+/// Supports only `LATIN1`, `LATIN2`, `LATIN9`, and `WIN1250` database encodings, not `UTF8`.
+/// Maps to PostgreSQL `TO_ASCII(expression)`.
 pub fn to_ascii<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -187,7 +201,8 @@ where
     unary_string_fn("TO_ASCII", arg)
 }
 
-/// Performs collation-dependent Unicode case folding. Requires PostgreSQL 18 or newer.
+/// Performs collation-dependent Unicode case folding. Requires PostgreSQL 18 or newer and `UTF8`.
+/// Maps to PostgreSQL `CASEFOLD`.
 pub fn case_fold<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -195,7 +210,8 @@ where
     unary_string_fn("CASEFOLD", arg)
 }
 
-/// Tests whether every character has an assigned Unicode code point. Requires PostgreSQL 18 or newer.
+/// Tests whether every character has an assigned Unicode code point. Requires PostgreSQL 18 or newer and `UTF8`.
+/// Maps to PostgreSQL `UNICODE_ASSIGNED`.
 pub fn is_unicode_assigned<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringBoolExpr>::Output>
 where
     T: StringBoolExpr,
