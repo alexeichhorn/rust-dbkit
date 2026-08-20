@@ -638,6 +638,137 @@ fn composes_string_splitting_in_projections_filters_and_orderings() {
 }
 
 #[test]
+fn compiles_regex_replace_with_option_set_flags_and_nullable_text_arguments() {
+    let replaced_literal: Expr<String> = func::regex_replace(
+        "a1b22",
+        r"\d+",
+        "X",
+        func::RegexReplaceFlags::GLOBAL | func::RegexReplaceFlags::CASE_INSENSITIVE,
+    );
+    let nullable_source: Expr<Option<String>> = func::regex_replace(text_sample_body(), r"\s+", " ", func::RegexReplaceFlags::empty());
+    let nullable_pattern: Expr<Option<String>> =
+        func::regex_replace(text_sample_title(), text_sample_body(), "X", func::RegexReplaceFlags::empty());
+    let nullable_replacement: Expr<Option<String>> = func::regex_replace(
+        text_sample_title(),
+        "a",
+        text_sample_body(),
+        func::RegexReplaceFlags::CASE_INSENSITIVE,
+    );
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(replaced_literal, "replaced_literal")
+        .column_as(nullable_source, "nullable_source")
+        .column_as(nullable_pattern, "nullable_pattern")
+        .column_as(nullable_replacement, "nullable_replacement");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT REGEXP_REPLACE($1, $2, $3, $4) AS replaced_literal, REGEXP_REPLACE(text_samples.body, $5, $6, $7) AS nullable_source, REGEXP_REPLACE(text_samples.title, text_samples.body, $3, $7) AS nullable_pattern, REGEXP_REPLACE(text_samples.title, $8, text_samples.body, $9) AS nullable_replacement FROM text_samples"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("a1b22".to_string()),
+            Value::String(r"\d+".to_string()),
+            Value::String("X".to_string()),
+            Value::String("gi".to_string()),
+            Value::String(r"\s+".to_string()),
+            Value::String(" ".to_string()),
+            Value::String("".to_string()),
+            Value::String("a".to_string()),
+            Value::String("i".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_regex_split_with_option_set_flags_and_nullable_text_arguments() {
+    let split_literal: Expr<Vec<String>> = func::regex_split("a,b;c", r"[,;]", func::RegexSplitFlags::empty());
+    let nullable_source: Expr<Option<Vec<String>>> = func::regex_split(text_sample_body(), r"\s+", func::RegexSplitFlags::CASE_INSENSITIVE);
+    let nullable_pattern: Expr<Option<Vec<String>>> =
+        func::regex_split(text_sample_title(), text_sample_body(), func::RegexSplitFlags::empty());
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(split_literal, "split_literal")
+        .column_as(nullable_source, "nullable_source")
+        .column_as(nullable_pattern, "nullable_pattern");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT REGEXP_SPLIT_TO_ARRAY($1, $2, $3) AS split_literal, REGEXP_SPLIT_TO_ARRAY(text_samples.body, $4, $5) AS nullable_source, REGEXP_SPLIT_TO_ARRAY(text_samples.title, text_samples.body, $3) AS nullable_pattern FROM text_samples"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("a,b;c".to_string()),
+            Value::String("[,;]".to_string()),
+            Value::String("".to_string()),
+            Value::String(r"\s+".to_string()),
+            Value::String("i".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_nested_regex_transforms_in_projection_filter_and_ordering_with_bound_arguments() {
+    let pattern = r"(['%_\\]+)";
+    let replacement = r"<\1>$1'%_\\";
+    let normalized_body = func::regex_replace(
+        func::lower(func::trim(func::substring(text_sample_body(), 1_i32, 99_i32))),
+        r"\s+",
+        "-",
+        func::RegexReplaceFlags::GLOBAL,
+    );
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(
+            func::regex_replace(
+                func::lower(func::trim(text_sample_title())),
+                func::lower(pattern),
+                replacement,
+                func::RegexReplaceFlags::GLOBAL | func::RegexReplaceFlags::CASE_INSENSITIVE,
+            ),
+            "replaced",
+        )
+        .column_as(
+            func::regex_split(normalized_body.clone(), pattern, func::RegexSplitFlags::empty()),
+            "parts",
+        )
+        .filter(normalized_body.eq("aa-bb"))
+        .order_by(Order::asc(func::regex_split(
+            func::trim(text_sample_body()),
+            r"\s+",
+            func::RegexSplitFlags::empty(),
+        )));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT REGEXP_REPLACE(LOWER(TRIM(text_samples.title)), LOWER($1), $2, $3) AS replaced, REGEXP_SPLIT_TO_ARRAY(REGEXP_REPLACE(LOWER(TRIM(SUBSTRING(text_samples.body, $4, $5))), $6, $7, $8), $1, $9) AS parts FROM text_samples WHERE (REGEXP_REPLACE(LOWER(TRIM(SUBSTRING(text_samples.body, $4, $5))), $6, $7, $8) = $10) ORDER BY REGEXP_SPLIT_TO_ARRAY(TRIM(text_samples.body), $6, $9) ASC"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String(pattern.to_string()),
+            Value::String(replacement.to_string()),
+            Value::String("gi".to_string()),
+            Value::I32(1),
+            Value::I32(99),
+            Value::String(r"\s+".to_string()),
+            Value::String("-".to_string()),
+            Value::String("g".to_string()),
+            Value::String("".to_string()),
+            Value::String("aa-bb".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn compiles_select_only_with_columns() {
     let query: Select<User> = Select::new(user_table()).select_only().column(user_email()).column(user_id());
 

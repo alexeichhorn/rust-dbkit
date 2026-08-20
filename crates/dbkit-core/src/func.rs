@@ -1,5 +1,7 @@
+use bitflags::bitflags;
+
 use crate::compile::CompiledSql;
-use crate::expr::{AggregateExpr, Expr, ExprNode, ExprOperand, IntoExpr, NumericExprType, TrimDirection, VectorBinaryOp};
+use crate::expr::{AggregateExpr, Expr, ExprNode, ExprOperand, IntoExpr, NumericExprType, TrimDirection, Value, VectorBinaryOp};
 use crate::query::Select;
 use crate::PgVector;
 
@@ -83,6 +85,45 @@ where
 impl IntoConcatExpr for ConcatExpr {
     fn into_concat_expr(self) -> ConcatExpr {
         self
+    }
+}
+
+bitflags! {
+    /// Composable options for [`regex_replace`]; use [`empty`](Self::empty) for default behavior.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct RegexReplaceFlags: u8 {
+        /// Uses case-insensitive matching. Maps to PostgreSQL's `i` flag.
+        const CASE_INSENSITIVE = 1 << 0;
+        /// Replaces every match instead of only the first. Maps to PostgreSQL's `g` flag.
+        const GLOBAL = 1 << 1;
+    }
+
+    /// Composable options for [`regex_split`]; use [`empty`](Self::empty) for default behavior.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct RegexSplitFlags: u8 {
+        /// Uses case-insensitive matching. Maps to PostgreSQL's `i` flag.
+        const CASE_INSENSITIVE = 1 << 0;
+    }
+}
+
+impl RegexReplaceFlags {
+    fn as_postgres_str(self) -> &'static str {
+        match (self.contains(Self::GLOBAL), self.contains(Self::CASE_INSENSITIVE)) {
+            (false, false) => "",
+            (false, true) => "i",
+            (true, false) => "g",
+            (true, true) => "gi",
+        }
+    }
+}
+
+impl RegexSplitFlags {
+    fn as_postgres_str(self) -> &'static str {
+        if self.contains(Self::CASE_INSENSITIVE) {
+            "i"
+        } else {
+            ""
+        }
     }
 }
 
@@ -501,6 +542,52 @@ where
     T: StringUnaryExpr,
 {
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
+}
+
+/// Replaces the first POSIX regular-expression match in `source`, or returns `source` unchanged when none exists.
+/// [`RegexReplaceFlags::GLOBAL`] replaces every match; [`RegexReplaceFlags::CASE_INSENSITIVE`] ignores case.
+/// `replacement` supports PostgreSQL backreferences (`\1` through `\9`, `\&`, and `\\` for a literal backslash).
+/// Returns NULL if `source`, `pattern`, or `replacement` is NULL.
+/// Maps to PostgreSQL `REGEXP_REPLACE`.
+pub fn regex_replace<S, P, R, SP, O>(
+    source: impl IntoExpr<S>,
+    pattern: impl IntoExpr<P>,
+    replacement: impl IntoExpr<R>,
+    flags: RegexReplaceFlags,
+) -> Expr<O>
+where
+    S: StringBinaryExpr<P, String, Output = SP>,
+    SP: StringBinaryExpr<R, String, Output = O>,
+{
+    Expr::new(ExprNode::Func {
+        name: "REGEXP_REPLACE",
+        args: vec![
+            source.into_expr().node,
+            pattern.into_expr().node,
+            replacement.into_expr().node,
+            ExprNode::Value(Value::String(flags.as_postgres_str().to_string())),
+        ],
+    })
+}
+
+/// Splits `source` around POSIX regular-expression matches into a text array.
+/// Returns `source` as the only element when no match exists.
+/// Zero-length matches at the start or end, or immediately after a previous match, are ignored.
+/// [`RegexSplitFlags::CASE_INSENSITIVE`] enables case-insensitive matching.
+/// Returns NULL if `source` or `pattern` is NULL.
+/// Maps to PostgreSQL `REGEXP_SPLIT_TO_ARRAY`.
+pub fn regex_split<S, P, O>(source: impl IntoExpr<S>, pattern: impl IntoExpr<P>, flags: RegexSplitFlags) -> Expr<O>
+where
+    S: StringBinaryExpr<P, Vec<String>, Output = O>,
+{
+    Expr::new(ExprNode::Func {
+        name: "REGEXP_SPLIT_TO_ARRAY",
+        args: vec![
+            source.into_expr().node,
+            pattern.into_expr().node,
+            ExprNode::Value(Value::String(flags.as_postgres_str().to_string())),
+        ],
+    })
 }
 
 pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
