@@ -1,5 +1,7 @@
 //@check-pass
+use dbkit::func::IntoConcatExpr;
 use dbkit::model;
+use dbkit::IntoExpr;
 
 #[model(table = "text_samples")]
 pub struct TextSample {
@@ -20,6 +22,10 @@ fn assert_nullable_i32(_: dbkit::Expr<Option<i32>>) {}
 fn assert_bool(_: dbkit::Expr<bool>) {}
 
 fn assert_nullable_bool(_: dbkit::Expr<Option<bool>>) {}
+
+fn assert_string_array(_: dbkit::Expr<Vec<String>>) {}
+
+fn assert_nullable_string_array(_: dbkit::Expr<Option<Vec<String>>>) {}
 
 // TODO(#32): Replace this with `TextSample::body` once generated columns preserve nullability.
 fn nullable_body() -> dbkit::Column<TextSample, Option<String>> {
@@ -82,6 +88,41 @@ fn main() {
     assert_nullable_string(dbkit::func::translate_chars(nullable_body(), "from", "to"));
     assert_nullable_string(dbkit::func::translate_chars(TextSample::title, nullable_body(), "to"));
     assert_nullable_string(dbkit::func::translate_chars(TextSample::title, "from", nullable_body()));
+    assert_string(dbkit::func::concat([TextSample::title.into_expr(), dbkit::func::lower("SUFFIX")]));
+    assert_string(dbkit::func::concat([
+        nullable_body().into_expr(),
+        dbkit::func::trim(nullable_body()),
+    ]));
+    assert_string(dbkit::func::concat([
+        TextSample::title.into_concat_expr(),
+        nullable_body().into_concat_expr(),
+    ]));
+    assert_string(dbkit::func::concat([
+        nullable_body().into_concat_expr(),
+        "SUFFIX".into_concat_expr(),
+    ]));
+    assert_string(dbkit::func::concat_with_separator(
+        "::",
+        [TextSample::title.into_expr(), dbkit::func::lower("SUFFIX")],
+    ));
+    assert_string(dbkit::func::concat_with_separator(
+        "::",
+        [TextSample::title.into_concat_expr(), nullable_body().into_concat_expr()],
+    ));
+    assert_nullable_string(dbkit::func::concat_with_separator(
+        nullable_body(),
+        [nullable_body().into_expr(), dbkit::func::trim(nullable_body())],
+    ));
+    let no_values: [dbkit::Expr<String>; 0] = [];
+    let no_separated_values: [dbkit::Expr<String>; 0] = [];
+    assert_string(dbkit::func::concat(no_values));
+    assert_string(dbkit::func::concat_with_separator("", no_separated_values));
+    assert_string_array(dbkit::func::split(TextSample::title, "::"));
+    assert_nullable_string_array(dbkit::func::split(nullable_body(), "::"));
+    assert_string_array(dbkit::func::split(TextSample::title, nullable_body()));
+    assert_string(dbkit::func::split_part(TextSample::title, "::", 1_i32));
+    assert_nullable_string(dbkit::func::split_part(nullable_body(), "::", 1_i32));
+    assert_nullable_string(dbkit::func::split_part(TextSample::title, nullable_body(), 1_i32));
 
     let normalized_title = dbkit::func::lower(dbkit::func::trim(dbkit::func::trim_start_chars(
         dbkit::func::trim(TextSample::title),
@@ -125,6 +166,12 @@ fn main() {
     );
     assert_string(transformed_title.clone());
     assert_nullable_string(transformed_body.clone());
+    let nested_part = dbkit::func::split_part(
+        dbkit::func::concat([normalized_title.clone(), dbkit::func::lower("SUFFIX")]),
+        "::",
+        dbkit::func::char_length(TextSample::title),
+    );
+    let nested_parts = dbkit::func::split(normalized_body.clone(), dbkit::func::lower("::"));
 
     let _query = TextSample::query()
         .select_only()
@@ -140,14 +187,18 @@ fn main() {
         .column_as(nested_prefix, "nested_prefix")
         .column_as(transformed_title.clone(), "transformed_title")
         .column_as(transformed_body.clone(), "transformed_body")
+        .column_as(nested_part.clone(), "nested_part")
+        .column_as(nested_parts, "nested_parts")
         .filter(TextSample::body.is_not_null())
         .filter(normalized_title.eq("alice"))
         .filter(dbkit::func::starts_with(TextSample::title, "prefix").eq(true))
         .filter(dbkit::func::position(TextSample::title, "needle").gt(0_i32))
         .filter(dbkit::func::trim_end_chars(nullable_body(), "!?").ne(""))
         .filter(dbkit::func::replace(TextSample::title, "old", "new").eq("expected"))
+        .filter(dbkit::func::split_part(TextSample::title, "::", 1_i32).eq("prefix"))
         .order_by(dbkit::Order::asc(normalized_body))
         .order_by(dbkit::Order::asc(normalized_body_len))
         .order_by(dbkit::Order::asc(nested_position))
-        .order_by(dbkit::Order::asc(transformed_title));
+        .order_by(dbkit::Order::asc(transformed_title))
+        .order_by(dbkit::Order::asc(nested_part));
 }

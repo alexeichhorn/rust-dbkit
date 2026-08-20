@@ -1,5 +1,5 @@
 use crate::compile::CompiledSql;
-use crate::expr::{AggregateExpr, Expr, ExprNode, IntoExpr, NumericExprType, TrimDirection, VectorBinaryOp};
+use crate::expr::{AggregateExpr, Expr, ExprNode, ExprOperand, IntoExpr, NumericExprType, TrimDirection, VectorBinaryOp};
 use crate::query::Select;
 use crate::PgVector;
 
@@ -27,6 +27,18 @@ impl StringLengthExpr for Option<String> {
     type Output = Option<i32>;
 }
 
+pub trait StringSplitExpr {
+    type Output;
+}
+
+impl StringSplitExpr for String {
+    type Output = Vec<String>;
+}
+
+impl StringSplitExpr for Option<String> {
+    type Output = Option<Vec<String>>;
+}
+
 pub trait StringBinaryExpr<Rhs, Result> {
     type Output;
 }
@@ -45,6 +57,33 @@ impl<Result> StringBinaryExpr<String, Result> for Option<String> {
 
 impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
     type Output = Option<Result>;
+}
+
+#[doc(hidden)]
+pub struct ConcatExpr {
+    node: ExprNode,
+}
+
+pub trait IntoConcatExpr {
+    fn into_concat_expr(self) -> ConcatExpr;
+}
+
+impl<T> IntoConcatExpr for T
+where
+    T: ExprOperand,
+    T::Value: StringUnaryExpr,
+{
+    fn into_concat_expr(self) -> ConcatExpr {
+        ConcatExpr {
+            node: self.into_operand_expr().node,
+        }
+    }
+}
+
+impl IntoConcatExpr for ConcatExpr {
+    fn into_concat_expr(self) -> ConcatExpr {
+        self
+    }
 }
 
 fn unary_string_fn<T>(name: &'static str, arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
@@ -97,6 +136,14 @@ fn ternary_string_fn<A, B, C, O>(
         name,
         args: vec![first.into_expr().node, second.into_expr().node, third.into_expr().node],
     })
+}
+
+fn string_expr_nodes<I, A>(args: I) -> Vec<ExprNode>
+where
+    I: IntoIterator<Item = A>,
+    A: IntoConcatExpr,
+{
+    args.into_iter().map(|arg| arg.into_concat_expr().node).collect()
 }
 
 fn directed_trim_fn<T>(
@@ -293,6 +340,61 @@ where
     L: StringBinaryExpr<R, bool>,
 {
     binary_string_fn("STARTS_WITH", expression, prefix)
+}
+
+/// Concatenates string expressions in order, ignoring NULL values.
+/// Maps to PostgreSQL `CONCAT`.
+pub fn concat<I, A>(values: I) -> Expr<String>
+where
+    I: IntoIterator<Item = A>,
+    A: IntoConcatExpr,
+{
+    let args = string_expr_nodes(values);
+    Expr::new(ExprNode::Func { name: "CONCAT", args })
+}
+
+/// Concatenates string expressions with `separator`, ignoring NULL values.
+/// Returns NULL when `separator` is NULL.
+/// Maps to PostgreSQL `CONCAT_WS`.
+pub fn concat_with_separator<S, I, A>(separator: impl IntoExpr<S>, values: I) -> Expr<<S as StringUnaryExpr>::Output>
+where
+    S: StringUnaryExpr,
+    I: IntoIterator<Item = A>,
+    A: IntoConcatExpr,
+{
+    let mut args = vec![separator.into_expr().node];
+    args.extend(string_expr_nodes(values));
+    Expr::new(ExprNode::Func { name: "CONCAT_WS", args })
+}
+
+/// Splits a string into a text array using a delimiter.
+/// A NULL delimiter splits the source into individual characters.
+/// Maps to PostgreSQL `STRING_TO_ARRAY`.
+pub fn split<S, D>(expression: impl IntoExpr<S>, delimiter: impl IntoExpr<D>) -> Expr<<S as StringSplitExpr>::Output>
+where
+    S: StringSplitExpr,
+    D: StringUnaryExpr,
+{
+    binary_string_fn("STRING_TO_ARRAY", expression, delimiter)
+}
+
+/// Returns the 1-based field from a delimited string; negative indexes count from the end.
+/// Maps to PostgreSQL `SPLIT_PART`.
+pub fn split_part<S, D>(
+    expression: impl IntoExpr<S>,
+    delimiter: impl IntoExpr<D>,
+    index: impl IntoExpr<i32>,
+) -> Expr<<S as StringBinaryExpr<D, String>>::Output>
+where
+    S: StringBinaryExpr<D, String>,
+{
+    let expression = expression.into_expr();
+    let delimiter = delimiter.into_expr();
+    let index = index.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "SPLIT_PART",
+        args: vec![expression.node, delimiter.node, index.node],
+    })
 }
 
 /// Returns the first `count` characters, or all but the last `|count|` when negative.
