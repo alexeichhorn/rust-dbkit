@@ -6,8 +6,7 @@ filters, and ordering.
 
 ## Practical queries
 
-This example uses generated model columns directly. It is also compiled as a rustdoc test for
-`dbkit::func`.
+This example uses generated model columns directly.
 
 ```rust
 use dbkit::func::{self, IntoConcatExpr, NormalizationForm, RegexReplaceFlags, RegexSplitFlags};
