@@ -2079,6 +2079,47 @@ async fn text_transformations_propagate_null_from_every_string_argument() -> Res
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct ComposedTextTransformationResult {
+    label: String,
+    transformed: Option<String>,
+}
+
+#[tokio::test]
+async fn nested_text_transformations_filter_real_postgresql_rows() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "matched", Some("  hELLO-old  ")).await?;
+    seed_text_sample(&tx, "other", Some("  HELLO-current  ")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+
+    let transformed = dbkit::func::reverse(dbkit::func::translate_chars(
+        dbkit::func::replace(
+            dbkit::func::title_case(dbkit::func::lower(dbkit::func::trim(TextSample::body))),
+            dbkit::func::title_case("OLD"),
+            dbkit::func::reverse("wen"),
+        ),
+        dbkit::func::lower("E"),
+        dbkit::func::upper("x"),
+    ));
+    let result: ComposedTextTransformationResult = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(transformed.clone(), "transformed")
+        .filter(transformed.eq("wXn-ollXH"))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("nested transformation match");
+
+    assert_eq!(result.label, "matched");
+    assert_eq!(result.transformed.as_deref(), Some("wXn-ollXH"));
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct ReplaceRangeBoundaryResult {
     shorter: String,
     equal: String,
