@@ -136,6 +136,8 @@ where
     string_length_fn("CHAR_LENGTH", arg)
 }
 
+/// Returns the first `count` characters, or all but the last `|count|` when negative.
+/// Maps to PostgreSQL `LEFT`.
 pub fn left<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -143,6 +145,8 @@ where
     string_fn("LEFT", arg, vec![count.into_expr().node])
 }
 
+/// Returns the last `count` characters, or all but the first `|count|` when negative.
+/// Maps to PostgreSQL `RIGHT`.
 pub fn right<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -150,6 +154,9 @@ where
     string_fn("RIGHT", arg, vec![count.into_expr().node])
 }
 
+/// Returns up to `count` characters from the 1-based `start`.
+/// From `"abcdef"`, `(2, 3)` yields `"bcd"` and `(0, 3)` yields `"ab"`; negative counts are rejected.
+/// Maps to PostgreSQL `SUBSTRING`.
 pub fn substring<T>(arg: impl IntoExpr<T>, start: impl IntoExpr<i32>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -157,6 +164,9 @@ where
     string_fn("SUBSTRING", arg, vec![start.into_expr().node, count.into_expr().node])
 }
 
+/// Repeats the text `count` times.
+/// Repeating `"ab"` three times yields `"ababab"`; non-positive counts yield an empty string.
+/// Maps to PostgreSQL `REPEAT`.
 pub fn repeat<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -164,6 +174,9 @@ where
     string_fn("REPEAT", arg, vec![count.into_expr().node])
 }
 
+/// Pads on the left to `length` by cycling `fill`, truncating the source on the right if needed.
+/// Padding `"ab"` to 5 with `"xy"` yields `"xyxab"`; empty fill adds nothing and non-positive length yields `""`.
+/// Maps to PostgreSQL `LPAD`.
 pub fn pad_start<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -171,6 +184,9 @@ where
     string_fn("LPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
 
+/// Pads on the right to `length` by cycling `fill`, truncating the source on the right if needed.
+/// Padding `"ab"` to 5 with `"xy"` yields `"abxyx"`; empty fill adds nothing and non-positive length yields `""`.
+/// Maps to PostgreSQL `RPAD`.
 pub fn pad_end<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
