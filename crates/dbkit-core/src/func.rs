@@ -261,6 +261,43 @@ where
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
 
+/// Replaces regex matches using explicit PostgreSQL flags, preserving nullability across all arguments.
+/// Pass `""` for the default first match or `"g"` to replace every match.
+pub fn regex_replace<S, P, R, F, SP, SPR, O>(
+    source: impl IntoExpr<S>,
+    pattern: impl IntoExpr<P>,
+    replacement: impl IntoExpr<R>,
+    flags: impl IntoExpr<F>,
+) -> Expr<O>
+where
+    S: StringBinaryExpr<P, String, Output = SP>,
+    SP: StringBinaryExpr<R, String, Output = SPR>,
+    SPR: StringBinaryExpr<F, String, Output = O>,
+{
+    Expr::new(ExprNode::Func {
+        name: "REGEXP_REPLACE",
+        args: vec![
+            source.into_expr().node,
+            pattern.into_expr().node,
+            replacement.into_expr().node,
+            flags.into_expr().node,
+        ],
+    })
+}
+
+/// Splits text into a PostgreSQL text array using a regex and explicit flags.
+/// The array is nullable when any argument is nullable; its elements remain non-null strings.
+pub fn regex_split<S, P, F, SP, O>(source: impl IntoExpr<S>, pattern: impl IntoExpr<P>, flags: impl IntoExpr<F>) -> Expr<O>
+where
+    S: StringBinaryExpr<P, String, Output = SP>,
+    SP: StringBinaryExpr<F, Vec<String>, Output = O>,
+{
+    Expr::new(ExprNode::Func {
+        name: "REGEXP_SPLIT_TO_ARRAY",
+        args: vec![source.into_expr().node, pattern.into_expr().node, flags.into_expr().node],
+    })
+}
+
 pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
     let expr = arg.into_expr();
     Expr::new(ExprNode::Func {
