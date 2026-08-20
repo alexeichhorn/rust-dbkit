@@ -64,6 +64,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_lower_non_text.rs".into(),
         "fail_trim_chars_non_text.rs".into(),
         "fail_char_length_non_text.rs".into(),
+        "fail_string_extraction_argument_types.rs".into(),
+        "fail_string_function_aliases.rs".into(),
         "fail_string_length_non_text.rs".into(),
         "fail_string_search_non_text.rs".into(),
         "fail_filter_non_aggregate.rs".into(),

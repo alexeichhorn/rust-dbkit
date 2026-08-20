@@ -1627,6 +1627,266 @@ async fn nested_normalized_handle_lookup_matches_equivalent_inputs() -> Result<(
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct ExtractionSizingResult {
+    label: String,
+    left_value: Option<String>,
+    right_value: Option<String>,
+    substring_value: Option<String>,
+    repeated_value: Option<String>,
+    start_padded: Option<String>,
+    end_padded: Option<String>,
+}
+
+#[tokio::test]
+async fn string_extraction_and_sizing_preserve_characters_and_nulls() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "ascii", Some("abcdef")).await?;
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+    seed_text_sample(&tx, "unicode", Some("é🦀界")).await?;
+
+    let rows: Vec<ExtractionSizingResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(dbkit::func::left(TextSample::body, 2_i32), "left_value")
+        .column_as(dbkit::func::right(TextSample::body, 2_i32), "right_value")
+        .column_as(dbkit::func::substring(TextSample::body, 2_i32, 3_i32), "substring_value")
+        .column_as(dbkit::func::repeat(TextSample::body, 2_i32), "repeated_value")
+        .column_as(dbkit::func::pad_start(TextSample::body, 8_i32, "xy"), "start_padded")
+        .column_as(dbkit::func::pad_end(TextSample::body, 8_i32, "xy"), "end_padded")
+        .order_by(dbkit::Order::asc(TextSample::label))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    let values: Vec<_> = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.label,
+                row.left_value,
+                row.right_value,
+                row.substring_value,
+                row.repeated_value,
+                row.start_padded,
+                row.end_padded,
+            )
+        })
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            (
+                "ascii".to_string(),
+                Some("ab".to_string()),
+                Some("ef".to_string()),
+                Some("bcd".to_string()),
+                Some("abcdefabcdef".to_string()),
+                Some("xyabcdef".to_string()),
+                Some("abcdefxy".to_string()),
+            ),
+            (
+                "empty".to_string(),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("xyxyxyxy".to_string()),
+                Some("xyxyxyxy".to_string()),
+            ),
+            ("missing".to_string(), None, None, None, None, None, None),
+            (
+                "unicode".to_string(),
+                Some("é🦀".to_string()),
+                Some("🦀界".to_string()),
+                Some("🦀界".to_string()),
+                Some("é🦀界é🦀界".to_string()),
+                Some("xyxyxé🦀界".to_string()),
+                Some("é🦀界xyxyx".to_string()),
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct StringFunctionBoundaryResult {
+    left_zero: String,
+    left_long: String,
+    left_negative: String,
+    right_zero: String,
+    right_long: String,
+    right_negative: String,
+    substring_one: String,
+    substring_zero_start: String,
+    substring_negative_start: String,
+    substring_zero_count: String,
+    substring_long_count: String,
+    repeat_zero: String,
+    repeat_one: String,
+    repeat_negative: String,
+    pad_start_shorter: String,
+    pad_start_equal: String,
+    pad_start_longer: String,
+    pad_start_single_fill: String,
+    pad_start_empty_fill: String,
+    pad_start_negative: String,
+    pad_end_shorter: String,
+    pad_end_equal: String,
+    pad_end_longer: String,
+    pad_end_single_fill: String,
+    pad_end_empty_fill: String,
+    pad_end_negative: String,
+}
+
+#[tokio::test]
+async fn string_extraction_and_sizing_follow_postgres_boundary_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "boundary", None).await?;
+
+    let result: StringFunctionBoundaryResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::left("abcdef", 0_i32), "left_zero")
+        .column_as(dbkit::func::left("abcdef", 99_i32), "left_long")
+        .column_as(dbkit::func::left("abcdef", -2_i32), "left_negative")
+        .column_as(dbkit::func::right("abcdef", 0_i32), "right_zero")
+        .column_as(dbkit::func::right("abcdef", 99_i32), "right_long")
+        .column_as(dbkit::func::right("abcdef", -2_i32), "right_negative")
+        .column_as(dbkit::func::substring("abcdef", 1_i32, 3_i32), "substring_one")
+        .column_as(dbkit::func::substring("abcdef", 0_i32, 3_i32), "substring_zero_start")
+        .column_as(dbkit::func::substring("abcdef", -2_i32, 5_i32), "substring_negative_start")
+        .column_as(dbkit::func::substring("abcdef", 2_i32, 0_i32), "substring_zero_count")
+        .column_as(dbkit::func::substring("abcdef", 2_i32, 99_i32), "substring_long_count")
+        .column_as(dbkit::func::repeat("ab", 0_i32), "repeat_zero")
+        .column_as(dbkit::func::repeat("ab", 1_i32), "repeat_one")
+        .column_as(dbkit::func::repeat("ab", -2_i32), "repeat_negative")
+        .column_as(dbkit::func::pad_start("abcdef", 4_i32, "xy"), "pad_start_shorter")
+        .column_as(dbkit::func::pad_start("abcdef", 6_i32, "xy"), "pad_start_equal")
+        .column_as(dbkit::func::pad_start("abcdef", 9_i32, "xy"), "pad_start_longer")
+        .column_as(dbkit::func::pad_start("ab", 5_i32, "."), "pad_start_single_fill")
+        .column_as(dbkit::func::pad_start("abcdef", 9_i32, ""), "pad_start_empty_fill")
+        .column_as(dbkit::func::pad_start("abcdef", -1_i32, "xy"), "pad_start_negative")
+        .column_as(dbkit::func::pad_end("abcdef", 4_i32, "xy"), "pad_end_shorter")
+        .column_as(dbkit::func::pad_end("abcdef", 6_i32, "xy"), "pad_end_equal")
+        .column_as(dbkit::func::pad_end("abcdef", 9_i32, "xy"), "pad_end_longer")
+        .column_as(dbkit::func::pad_end("ab", 5_i32, "."), "pad_end_single_fill")
+        .column_as(dbkit::func::pad_end("abcdef", 9_i32, ""), "pad_end_empty_fill")
+        .column_as(dbkit::func::pad_end("abcdef", -1_i32, "xy"), "pad_end_negative")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("boundary result");
+
+    assert_eq!(result.left_zero, "");
+    assert_eq!(result.left_long, "abcdef");
+    assert_eq!(result.left_negative, "abcd");
+    assert_eq!(result.right_zero, "");
+    assert_eq!(result.right_long, "abcdef");
+    assert_eq!(result.right_negative, "cdef");
+    assert_eq!(result.substring_one, "abc");
+    assert_eq!(result.substring_zero_start, "ab");
+    assert_eq!(result.substring_negative_start, "ab");
+    assert_eq!(result.substring_zero_count, "");
+    assert_eq!(result.substring_long_count, "bcdef");
+    assert_eq!(result.repeat_zero, "");
+    assert_eq!(result.repeat_one, "ab");
+    assert_eq!(result.repeat_negative, "");
+    assert_eq!(result.pad_start_shorter, "abcd");
+    assert_eq!(result.pad_start_equal, "abcdef");
+    assert_eq!(result.pad_start_longer, "xyxabcdef");
+    assert_eq!(result.pad_start_single_fill, "...ab");
+    assert_eq!(result.pad_start_empty_fill, "abcdef");
+    assert_eq!(result.pad_start_negative, "");
+    assert_eq!(result.pad_end_shorter, "abcd");
+    assert_eq!(result.pad_end_equal, "abcdef");
+    assert_eq!(result.pad_end_longer, "abcdefxyx");
+    assert_eq!(result.pad_end_single_fill, "ab...");
+    assert_eq!(result.pad_end_empty_fill, "abcdef");
+    assert_eq!(result.pad_end_negative, "");
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct ComposedStringFunctionResult {
+    extracted: Option<String>,
+    padded: Option<String>,
+    repeated: Option<String>,
+}
+
+#[tokio::test]
+async fn string_extraction_and_sizing_compose_with_normalization_and_expression_counts() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "xxx", Some("  AbCd  ")).await?;
+
+    let normalized = dbkit::func::lower(dbkit::func::trim(TextSample::body));
+    let count = dbkit::func::char_length(TextSample::label);
+    let result: ComposedStringFunctionResult = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::left(dbkit::func::trim(TextSample::body), count.clone()), "extracted")
+        .column_as(
+            dbkit::func::pad_end(
+                dbkit::func::substring(normalized.clone(), 2_i32, count.clone()),
+                8_i32,
+                dbkit::func::lower("Q%_\\'"),
+            ),
+            "padded",
+        )
+        .column_as(
+            dbkit::func::repeat(dbkit::func::right(normalized.clone(), count), 2_i32),
+            "repeated",
+        )
+        .filter(dbkit::func::left(normalized, 2_i32).eq("ab"))
+        .order_by(dbkit::Order::asc(dbkit::func::pad_start(TextSample::label, 5_i32, "0")))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("composed string result");
+
+    assert_eq!(result.extracted.as_deref(), Some("AbC"));
+    assert_eq!(result.padded.as_deref(), Some("bcdq%_\\'"));
+    assert_eq!(result.repeated.as_deref(), Some("bcdbcd"));
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableStringResult {
+    value: Option<String>,
+}
+
+#[tokio::test]
+async fn substring_rejects_negative_count() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_text_sample(&tx, "negative", Some("abcdef")).await?;
+
+    let result: Result<Vec<NullableStringResult>, dbkit::Error> = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::substring(TextSample::body, 1_i32, -1_i32), "value")
+        .into_model()
+        .all(&tx)
+        .await;
+
+    let error = result.expect_err("PostgreSQL must reject a negative substring count");
+    assert!(
+        error.to_string().contains("negative substring length not allowed"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct RegionAgg {
     region: String,
     total: dbkit::sqlx::types::BigDecimal,

@@ -39,6 +39,22 @@ fn main() {
     assert_nullable_string(dbkit::func::trim_end(nullable_body()));
     assert_string(dbkit::func::trim_end_chars(TextSample::title, "xy"));
     assert_nullable_string(dbkit::func::trim_end_chars(nullable_body(), "xy"));
+    assert_string(dbkit::func::left(TextSample::title, 2_i32));
+    assert_nullable_string(dbkit::func::left(nullable_body(), 2_i32));
+    assert_string(dbkit::func::right(TextSample::title, 2_i32));
+    assert_nullable_string(dbkit::func::right(nullable_body(), 2_i32));
+    assert_string(dbkit::func::substring(TextSample::title, 2_i32, 3_i32));
+    assert_nullable_string(dbkit::func::substring(nullable_body(), 2_i32, 3_i32));
+    assert_string(dbkit::func::repeat(TextSample::title, dbkit::func::char_length(TextSample::title)));
+    assert_nullable_string(dbkit::func::repeat(nullable_body(), 2_i32));
+    assert_string(dbkit::func::pad_start(
+        TextSample::title,
+        dbkit::func::char_length(TextSample::title),
+        "xy",
+    ));
+    assert_nullable_string(dbkit::func::pad_start(nullable_body(), 8_i32, "xy"));
+    assert_string(dbkit::func::pad_end(TextSample::title, 8_i32, "xy"));
+    assert_nullable_string(dbkit::func::pad_end(nullable_body(), 8_i32, "xy"));
     assert_i32(dbkit::func::byte_length(TextSample::title));
     assert_nullable_i32(dbkit::func::byte_length(nullable_body()));
     assert_i32(dbkit::func::bit_length("UTF-8"));
@@ -60,6 +76,21 @@ fn main() {
     let nested_character_expression = dbkit::func::lower("XY");
     let custom_trimmed = dbkit::func::trim_chars(TextSample::title, nested_character_expression);
     let normalized_body_len = dbkit::func::char_length(normalized_body.clone());
+    let nested_sizing = dbkit::func::pad_end(
+        dbkit::func::substring(
+            dbkit::func::lower(dbkit::func::trim(TextSample::title)),
+            dbkit::func::char_length("x"),
+            dbkit::func::char_length(TextSample::title),
+        ),
+        dbkit::func::char_length(TextSample::title),
+        dbkit::func::lower("XY"),
+    );
+    let repeated_suffix = dbkit::func::repeat(
+        dbkit::func::right(nullable_body(), dbkit::func::char_length(TextSample::title)),
+        2_i32,
+    );
+    assert_string(nested_sizing.clone());
+    assert_nullable_string(repeated_suffix.clone());
     let nested_position = dbkit::func::position(normalized_body.clone(), dbkit::func::lower("needle"));
     let nested_prefix = dbkit::func::starts_with(normalized_body.clone(), dbkit::func::lower(TextSample::title));
 
@@ -69,6 +100,8 @@ fn main() {
         .column_as(normalized_body.clone(), "normalized_body")
         .column_as(custom_trimmed, "custom_trimmed")
         .column_as(normalized_body_len.clone(), "normalized_body_len")
+        .column_as(nested_sizing, "nested_sizing")
+        .column_as(repeated_suffix, "repeated_suffix")
         .column_as(dbkit::func::byte_length(normalized_body.clone()), "normalized_body_bytes")
         .column_as(dbkit::func::bit_length(normalized_body.clone()), "normalized_body_bits")
         .column_as(nested_position.clone(), "nested_position")

@@ -103,6 +103,10 @@ fn text_sample_title() -> Column<TextSample, String> {
     Column::new(text_samples_table(), "title")
 }
 
+fn text_sample_width() -> Column<TextSample, i32> {
+    Column::new(text_samples_table(), "width")
+}
+
 #[test]
 fn compiles_basic_filter() {
     let expr = user_email().eq("a@b.com");
@@ -391,6 +395,73 @@ fn compiles_normalized_handle_lookup() {
         "SELECT text_samples.* FROM text_samples WHERE (LOWER(TRIM(TRIM(LEADING $1 FROM TRIM(text_samples.title)))) = $2)"
     );
     assert_eq!(sql.binds, vec![Value::String("@".to_string()), Value::String(handle.to_string())]);
+}
+
+#[test]
+fn compiles_string_extraction_and_sizing_functions_with_expected_types() {
+    let left_title: Expr<String> = func::left(text_sample_title(), 2_i32);
+    let right_body: Expr<Option<String>> = func::right(text_sample_body(), text_sample_width());
+    let substring_title: Expr<String> = func::substring(func::lower(text_sample_title()), 2_i32, text_sample_width());
+    let repeated_literal: Expr<String> = func::repeat("ab", 3_i32);
+    let padded_title: Expr<String> = func::pad_start(text_sample_title(), 8_i32, "xy");
+    let padded_body: Expr<Option<String>> = func::pad_end(text_sample_body(), func::char_length(text_sample_title()), func::lower("Z"));
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(left_title, "left_title")
+        .column_as(right_body, "right_body")
+        .column_as(substring_title, "substring_title")
+        .column_as(repeated_literal, "repeated_literal")
+        .column_as(padded_title, "padded_title")
+        .column_as(padded_body, "padded_body");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT LEFT(text_samples.title, $1) AS left_title, RIGHT(text_samples.body, text_samples.width) AS right_body, SUBSTRING(LOWER(text_samples.title), $1, text_samples.width) AS substring_title, REPEAT($2, $3) AS repeated_literal, LPAD(text_samples.title, $4, $5) AS padded_title, RPAD(text_samples.body, CHAR_LENGTH(text_samples.title), LOWER($6)) AS padded_body FROM text_samples"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::I32(2),
+            Value::String("ab".to_string()),
+            Value::I32(3),
+            Value::I32(8),
+            Value::String("xy".to_string()),
+            Value::String("Z".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_nested_string_functions_in_projection_filter_and_ordering() {
+    let fill = "'%_\\";
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(
+            func::substring(func::left(func::lower(text_sample_title()), 5_i32), 2_i32, 3_i32),
+            "slice",
+        )
+        .filter(func::repeat(func::right(func::trim(text_sample_title()), 2_i32), 2_i32).eq("abab"))
+        .order_by(Order::asc(func::pad_end(func::left(text_sample_body(), 4_i32), 8_i32, fill)));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT SUBSTRING(LEFT(LOWER(text_samples.title), $1), $2, $3) AS slice FROM text_samples WHERE (REPEAT(RIGHT(TRIM(text_samples.title), $2), $2) = $4) ORDER BY RPAD(LEFT(text_samples.body, $5), $6, $7) ASC"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::I32(5),
+            Value::I32(2),
+            Value::I32(3),
+            Value::String("abab".to_string()),
+            Value::I32(4),
+            Value::I32(8),
+            Value::String(fill.to_string()),
+        ]
+    );
 }
 
 #[test]
