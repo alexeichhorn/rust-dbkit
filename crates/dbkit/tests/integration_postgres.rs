@@ -2025,6 +2025,36 @@ async fn concat_functions_follow_postgres_null_empty_and_unicode_semantics() -> 
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct MixedModelColumnConcatResult {
+    joined: String,
+}
+
+#[tokio::test]
+async fn concat_required_and_nullable_model_columns() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "required", Some("optional")).await?;
+    seed_text_sample(&tx, "required", None).await?;
+
+    let rows: Vec<MixedModelColumnConcatResult> = TextSample::query()
+        .select_only()
+        .column_as(dbkit::func::concat([TextSample::label, TextSample::body]), "joined")
+        .order_by(dbkit::Order::asc(TextSample::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.into_iter().map(|row| row.joined).collect::<Vec<_>>(),
+        ["requiredoptional", "required"]
+    );
+
+    Ok(())
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct SplitResult {
     normal: Vec<String>,
     repeated: Vec<String>,
