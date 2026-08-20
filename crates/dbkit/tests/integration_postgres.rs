@@ -1440,6 +1440,7 @@ async fn custom_trim_uses_a_character_set_and_handles_edge_cases() -> Result<(),
     assert_eq!(unicode_match.id, unicode.id);
 
     let escaped_match = TextSample::query()
+        .filter(TextSample::label.eq("escaped"))
         .filter(dbkit::func::trim_chars(TextSample::body, "'\\").eq("alpha"))
         .one(&tx)
         .await?

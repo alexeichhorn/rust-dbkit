@@ -1,4 +1,4 @@
-use crate::expr::{BinaryOp, BoolOp, ExprNode, IntervalField, UnaryOp, Value, VectorBinaryOp};
+use crate::expr::{BinaryOp, BoolOp, ExprNode, IntervalField, TrimDirection, UnaryOp, Value, VectorBinaryOp};
 use crate::schema::ColumnRef;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -150,6 +150,25 @@ impl ToSql for ExprNode {
                     }
                     arg.to_sql(builder);
                 }
+                builder.push_sql(")");
+            }
+            ExprNode::Trim {
+                direction,
+                expr,
+                characters,
+            } => {
+                builder.push_sql("TRIM(");
+                builder.push_sql(match direction {
+                    TrimDirection::Both => "BOTH",
+                    TrimDirection::Leading => "LEADING",
+                    TrimDirection::Trailing => "TRAILING",
+                });
+                if let Some(characters) = characters {
+                    builder.push_sql(" ");
+                    characters.to_sql(builder);
+                }
+                builder.push_sql(" FROM ");
+                expr.to_sql(builder);
                 builder.push_sql(")");
             }
             ExprNode::AggregateFilter { aggregate, predicate } => {
