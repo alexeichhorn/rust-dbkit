@@ -107,5 +107,7 @@ fn main() {
     let mut active = NullabilityRow::new_active();
     active.required_text = "required".into();
     active.nullable_text = None.into();
+    active.nullable_text = dbkit::ActiveValue::Null;
+    active.nullable_text = dbkit::ActiveValue::UnchangedNull;
     active.nullable_text.set_null();
 }
