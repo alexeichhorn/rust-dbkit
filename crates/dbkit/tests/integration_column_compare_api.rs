@@ -83,6 +83,91 @@ async fn ne_col_filters_changed_hash_rows() -> Result<(), dbkit::Error> {
 }
 
 #[tokio::test]
+async fn eq_col_and_ne_col_compare_required_and_nullable_columns_in_both_directions() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    JobColCompare::insert_many(vec![
+        JobColCompareInsert {
+            content_hash: "equal".into(),
+            last_content_hash: "equal".into(),
+            embedding_hash: Some("equal".into()),
+            embedding: Some("equal".into()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            content_hash: "required".into(),
+            last_content_hash: "required".into(),
+            embedding_hash: Some("different".into()),
+            embedding: Some("different".into()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            content_hash: "null".into(),
+            last_content_hash: "null".into(),
+            embedding_hash: Some("null".into()),
+            embedding: Some("null".into()),
+            retry_count: 0,
+            max_retries: 3,
+        },
+        JobColCompareInsert {
+            content_hash: "missing".into(),
+            last_content_hash: "missing".into(),
+            embedding_hash: None,
+            embedding: None,
+            retry_count: 0,
+            max_retries: 3,
+        },
+    ])
+    .execute(&tx)
+    .await?;
+
+    let required_to_nullable_equal = JobColCompare::query()
+        .filter(JobColCompare::content_hash.eq_col(JobColCompare::embedding_hash))
+        .order_by(dbkit::Order::asc(JobColCompare::id))
+        .all(&tx)
+        .await?;
+    let nullable_to_required_equal = JobColCompare::query()
+        .filter(JobColCompare::embedding_hash.eq_col(JobColCompare::content_hash))
+        .order_by(dbkit::Order::asc(JobColCompare::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(
+        required_to_nullable_equal
+            .into_iter()
+            .map(|row| row.content_hash)
+            .collect::<Vec<_>>(),
+        ["equal", "null"]
+    );
+    assert_eq!(
+        nullable_to_required_equal
+            .into_iter()
+            .map(|row| row.content_hash)
+            .collect::<Vec<_>>(),
+        ["equal", "null"]
+    );
+
+    let required_to_nullable_different = JobColCompare::query()
+        .filter(JobColCompare::content_hash.ne_col(JobColCompare::embedding_hash))
+        .all(&tx)
+        .await?;
+    let nullable_to_required_different = JobColCompare::query()
+        .filter(JobColCompare::embedding_hash.ne_col(JobColCompare::content_hash))
+        .all(&tx)
+        .await?;
+    assert_eq!(required_to_nullable_different.len(), 1);
+    assert_eq!(nullable_to_required_different.len(), 1);
+    assert_eq!(required_to_nullable_different[0].content_hash, "required");
+    assert_eq!(nullable_to_required_different[0].content_hash, "required");
+
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn lt_col_and_ge_col_work_for_numeric_column_comparisons() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;

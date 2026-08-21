@@ -1039,6 +1039,36 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     assert_eq!(some_row.note.as_deref(), Some("hello"));
 
     let updated = NullableRow::update()
+        .set(NullableRow::note, "direct")
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated[0].note.as_deref(), Some("direct"));
+
+    let updated = NullableRow::update()
+        .set(NullableRow::note, Some("optional"))
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated[0].note.as_deref(), Some("optional"));
+
+    let direct_match = NullableRow::query()
+        .filter(NullableRow::note.eq("optional"))
+        .one(&tx)
+        .await?
+        .expect("direct nullable value match");
+    assert_eq!(direct_match.id, some_row.id);
+
+    let optional_match = NullableRow::query()
+        .filter(NullableRow::note.eq(Some("optional")))
+        .one(&tx)
+        .await?
+        .expect("optional nullable value match");
+    assert_eq!(optional_match.id, some_row.id);
+
+    let updated = NullableRow::update()
         .set(NullableRow::note, None)
         .filter(NullableRow::id.eq(some_row.id))
         .returning_all()
@@ -2368,13 +2398,19 @@ async fn concat_functions_follow_postgres_null_empty_and_unicode_semantics() -> 
     Ok(())
 }
 
-#[derive(dbkit::sqlx::FromRow, Debug)]
+#[derive(dbkit::sqlx::FromRow, Debug, PartialEq, Eq)]
 struct MixedModelColumnConcatResult {
     joined: String,
+    separated: String,
+    nullable_separator: Option<String>,
+    dynamic_joined: String,
+    dynamic_separated: String,
+    empty_joined: String,
+    empty_separated: String,
 }
 
 #[tokio::test]
-async fn concat_required_and_nullable_model_columns() -> Result<(), dbkit::Error> {
+async fn concat_macros_support_required_nullable_dynamic_and_empty_values() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
@@ -2382,17 +2418,53 @@ async fn concat_required_and_nullable_model_columns() -> Result<(), dbkit::Error
     seed_text_sample(&tx, "required", Some("optional")).await?;
     seed_text_sample(&tx, "required", None).await?;
 
+    let dynamic_values = vec![TextSample::label.into_expr(), dbkit::func::lower("TAIL")];
+    let dynamic_separated_values = vec![TextSample::label.into_expr(), dbkit::func::lower("TAIL")];
     let rows: Vec<MixedModelColumnConcatResult> = TextSample::query()
         .select_only()
         .column_as(dbkit::func::concat!([TextSample::label, TextSample::body]), "joined")
+        .column_as(
+            dbkit::func::concat_with_separator!("|", [TextSample::label, TextSample::body]),
+            "separated",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator!(TextSample::body, [TextSample::label, "suffix"]),
+            "nullable_separator",
+        )
+        .column_as(dbkit::func::concat!(dynamic_values), "dynamic_joined")
+        .column_as(
+            dbkit::func::concat_with_separator!("|", dynamic_separated_values),
+            "dynamic_separated",
+        )
+        .column_as(dbkit::func::concat!([]), "empty_joined")
+        .column_as(dbkit::func::concat_with_separator!("|", []), "empty_separated")
         .order_by(dbkit::Order::asc(TextSample::id))
         .into_model()
         .all(&tx)
         .await?;
 
     assert_eq!(
-        rows.into_iter().map(|row| row.joined).collect::<Vec<_>>(),
-        ["requiredoptional", "required"]
+        rows,
+        vec![
+            MixedModelColumnConcatResult {
+                joined: "requiredoptional".to_string(),
+                separated: "required|optional".to_string(),
+                nullable_separator: Some("requiredoptionalsuffix".to_string()),
+                dynamic_joined: "requiredtail".to_string(),
+                dynamic_separated: "required|tail".to_string(),
+                empty_joined: String::new(),
+                empty_separated: String::new(),
+            },
+            MixedModelColumnConcatResult {
+                joined: "required".to_string(),
+                separated: "required".to_string(),
+                nullable_separator: None,
+                dynamic_joined: "requiredtail".to_string(),
+                dynamic_separated: "required|tail".to_string(),
+                empty_joined: String::new(),
+                empty_separated: String::new(),
+            },
+        ]
     );
 
     Ok(())
