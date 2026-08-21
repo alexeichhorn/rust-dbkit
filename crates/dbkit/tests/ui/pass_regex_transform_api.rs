@@ -19,38 +19,37 @@ fn assert_string_array(_: dbkit::Expr<Vec<String>>) {}
 
 fn assert_nullable_string_array(_: dbkit::Expr<Option<Vec<String>>>) {}
 
-// TODO(#32): Replace this with `TextSample::body` once generated columns preserve nullability.
-fn nullable_body() -> dbkit::Column<TextSample, Option<String>> {
-    dbkit::Column::new(TextSample::TABLE, "body")
-}
-
 fn main() {
     let all_case_insensitive = RegexReplaceFlags::GLOBAL | RegexReplaceFlags::CASE_INSENSITIVE;
     assert_string(dbkit::func::regex_replace(TextSample::title, "a", "x", RegexReplaceFlags::empty()));
-    assert_nullable_string(dbkit::func::regex_replace(nullable_body(), "a", "x", all_case_insensitive));
+    assert_nullable_string(dbkit::func::regex_replace(TextSample::body, "a", "x", all_case_insensitive));
     assert_nullable_string(dbkit::func::regex_replace(
         TextSample::title,
-        nullable_body(),
+        TextSample::body,
         "x",
         RegexReplaceFlags::empty(),
     ));
     assert_nullable_string(dbkit::func::regex_replace(
         TextSample::title,
         "a",
-        nullable_body(),
+        TextSample::body,
         RegexReplaceFlags::CASE_INSENSITIVE,
     ));
 
     assert_string_array(dbkit::func::regex_split(TextSample::title, r"\s+", RegexSplitFlags::empty()));
-    assert_nullable_string_array(dbkit::func::regex_split(nullable_body(), r"\s+", RegexSplitFlags::CASE_INSENSITIVE));
+    assert_nullable_string_array(dbkit::func::regex_split(
+        TextSample::body,
+        r"\s+",
+        RegexSplitFlags::CASE_INSENSITIVE,
+    ));
     assert_nullable_string_array(dbkit::func::regex_split(
         TextSample::title,
-        nullable_body(),
+        TextSample::body,
         RegexSplitFlags::empty(),
     ));
 
     let normalized = dbkit::func::regex_replace(
-        dbkit::func::lower(dbkit::func::trim(dbkit::func::substring(nullable_body(), 1_i32, 99_i32))),
+        dbkit::func::lower(dbkit::func::trim(dbkit::func::substring(TextSample::body, 1_i32, 99_i32))),
         dbkit::func::lower(r"[A-Z]+"),
         dbkit::func::lower("WORD"),
         all_case_insensitive,

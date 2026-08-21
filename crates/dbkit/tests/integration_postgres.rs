@@ -2384,7 +2384,7 @@ async fn concat_required_and_nullable_model_columns() -> Result<(), dbkit::Error
 
     let rows: Vec<MixedModelColumnConcatResult> = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::concat([TextSample::label, TextSample::body]), "joined")
+        .column_as(dbkit::func::concat!([TextSample::label, TextSample::body]), "joined")
         .order_by(dbkit::Order::asc(TextSample::id))
         .into_model()
         .all(&tx)

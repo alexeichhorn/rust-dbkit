@@ -27,11 +27,11 @@ fn job_last_content_hash() -> Column<Job, String> {
     Column::new(jobs_table(), "last_content_hash")
 }
 
-fn job_embedding() -> Column<Job, String> {
+fn job_embedding() -> Column<Job, Option<String>> {
     Column::new(jobs_table(), "embedding")
 }
 
-fn job_embedding_hash() -> Column<Job, String> {
+fn job_embedding_hash() -> Column<Job, Option<String>> {
     Column::new(jobs_table(), "embedding_hash")
 }
 
@@ -79,7 +79,7 @@ fn compiles_ge_col_between_numeric_columns() {
 }
 
 #[test]
-fn compiles_ne_col_between_potentially_nullable_columns() {
+fn compiles_ne_col_between_nullable_columns() {
     let expr = job_embedding_hash().ne_col(job_embedding());
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT jobs.* FROM jobs WHERE (jobs.embedding_hash <> jobs.embedding)");
@@ -87,7 +87,7 @@ fn compiles_ne_col_between_potentially_nullable_columns() {
 }
 
 #[test]
-fn compiles_is_distinct_from_col_between_potentially_nullable_columns() {
+fn compiles_is_distinct_from_col_between_nullable_columns() {
     let expr = job_embedding_hash().is_distinct_from_col(job_embedding());
     let sql = expr_sql(expr);
     assert_eq!(
@@ -98,7 +98,7 @@ fn compiles_is_distinct_from_col_between_potentially_nullable_columns() {
 }
 
 #[test]
-fn compiles_is_not_distinct_from_col_between_potentially_nullable_columns() {
+fn compiles_is_not_distinct_from_col_between_nullable_columns() {
     let expr = job_embedding_hash().is_not_distinct_from_col(job_embedding());
     let sql = expr_sql(expr);
     assert_eq!(

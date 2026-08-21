@@ -27,11 +27,11 @@ fn user_id() -> Column<User, i64> {
     Column::new(user_table(), "id")
 }
 
-fn user_email() -> Column<User, String> {
+fn user_email() -> Column<User, Option<String>> {
     Column::new(user_table(), "email")
 }
 
-fn user_backup_email() -> Column<User, String> {
+fn user_backup_email() -> Column<User, Option<String>> {
     Column::new(user_table(), "backup_email")
 }
 
