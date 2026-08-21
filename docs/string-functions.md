@@ -7,6 +7,7 @@ filters, and ordering.
 ## Practical queries
 
 This example uses generated model columns directly.
+The projection uses `sqlx::FromRow`, which requires `sqlx` as a direct dependency.
 
 ```rust
 use dbkit::func::{self, IntoConcatExpr, NormalizationForm, RegexReplaceFlags, RegexSplitFlags};
