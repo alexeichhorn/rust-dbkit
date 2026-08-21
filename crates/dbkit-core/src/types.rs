@@ -246,36 +246,21 @@ impl<'r, const N: usize> sqlx::Decode<'r, sqlx::Postgres> for PgVector<N> {
     }
 }
 
-#[doc(hidden)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Nullable;
-
-#[doc(hidden)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NonNullable;
-
 /// Tracks whether a generated active-model field is unset, changed, or unchanged.
-///
-/// Model generation uses the hidden nullability parameter to expose NULL operations only for
-/// fields declared as `Option<T>`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ActiveValue<T, Nullability = Nullable> {
+pub enum ActiveValue<T> {
     Unset,
     Set(T),
     Unchanged(T),
-    UnchangedNull,
-    Null,
-    #[doc(hidden)]
-    __Marker(std::marker::PhantomData<Nullability>),
 }
 
-impl<T, Nullability> Default for ActiveValue<T, Nullability> {
+impl<T> Default for ActiveValue<T> {
     fn default() -> Self {
         Self::Unset
     }
 }
 
-impl<T, Nullability> ActiveValue<T, Nullability> {
+impl<T> ActiveValue<T> {
     pub fn set(&mut self, value: T) {
         *self = Self::Set(value);
     }
@@ -289,42 +274,37 @@ impl<T, Nullability> ActiveValue<T, Nullability> {
     }
 
     pub fn is_unchanged(&self) -> bool {
-        matches!(self, Self::Unchanged(_) | Self::UnchangedNull)
+        matches!(self, Self::Unchanged(_))
     }
 }
 
-impl<T> ActiveValue<T, Nullable> {
-    /// Creates an unchanged nullable value from a loaded model field.
-    pub fn unchanged_option(value: Option<T>) -> Self {
-        match value {
-            Some(value) => Self::Unchanged(value),
-            None => Self::UnchangedNull,
-        }
-    }
-
+impl<T> ActiveValue<Option<T>> {
     /// Marks a nullable field to be written as SQL NULL.
     pub fn set_null(&mut self) {
-        *self = Self::Null;
+        *self = Self::Set(None);
     }
 }
 
-impl<T, Nullability> From<T> for ActiveValue<T, Nullability> {
+impl<T> From<T> for ActiveValue<T> {
     fn from(value: T) -> Self {
         Self::Set(value)
     }
 }
 
-impl<T> From<Option<T>> for ActiveValue<T, Nullable> {
-    fn from(value: Option<T>) -> Self {
-        match value {
-            Some(value) => Self::Set(value),
-            None => Self::Null,
-        }
+impl<T> From<T> for ActiveValue<Option<T>> {
+    fn from(value: T) -> Self {
+        Self::Set(Some(value))
     }
 }
 
-impl<Nullability> From<&str> for ActiveValue<String, Nullability> {
+impl From<&str> for ActiveValue<String> {
     fn from(value: &str) -> Self {
         Self::Set(value.to_string())
+    }
+}
+
+impl From<&str> for ActiveValue<Option<String>> {
+    fn from(value: &str) -> Self {
+        Self::Set(Some(value.to_string()))
     }
 }
