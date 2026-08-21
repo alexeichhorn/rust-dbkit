@@ -21,7 +21,7 @@ let rows = Schedule::query()
     .filter(dbkit::interval::hours(Schedule::base_interval_hours).eq_col(Schedule::lease_window))
     .order_by(dbkit::Order::asc(dbkit::interval::minutes(dbkit::func::coalesce(
         Schedule::backoff_minutes,
-        15_i32,
+        15,
     ))))
     .all(&db)
     .await?;

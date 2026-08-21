@@ -243,6 +243,8 @@ where
     })
 }
 
+/// Converts text to uppercase according to the database locale, preserving input nullability.
+/// Maps to PostgreSQL `UPPER`.
 pub fn upper<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -269,7 +271,8 @@ where
 }
 
 /// Replaces every exact occurrence of `from` with `to`.
-/// Returns NULL if any argument is NULL. Maps to PostgreSQL `REPLACE`.
+/// Returns NULL if any argument is NULL.
+/// Maps to PostgreSQL `REPLACE`.
 pub fn replace<S, F, T>(
     expression: impl IntoExpr<S>,
     from: impl IntoExpr<F>,
@@ -283,7 +286,8 @@ where
 }
 
 /// Replaces `count` characters from the 1-based `start` with `replacement`.
-/// Returns NULL if either string argument is NULL. Maps to PostgreSQL's callable `OVERLAY` form.
+/// Returns NULL if either string argument is NULL.
+/// Maps to PostgreSQL's callable `OVERLAY` form.
 pub fn replace_range<S, R>(
     expression: impl IntoExpr<S>,
     replacement: impl IntoExpr<R>,
@@ -305,7 +309,8 @@ where
 }
 
 /// Replaces characters positionally, deleting `from` characters without a corresponding `to` character.
-/// Returns NULL if any argument is NULL. Maps to PostgreSQL `TRANSLATE`.
+/// Returns NULL if any argument is NULL.
+/// Maps to PostgreSQL `TRANSLATE`.
 pub fn translate_chars<S, F, T>(
     expression: impl IntoExpr<S>,
     from: impl IntoExpr<F>,
@@ -318,7 +323,8 @@ where
     ternary_string_fn("TRANSLATE", expression, from, to)
 }
 
-/// Reverses the characters in a string. Maps to PostgreSQL `REVERSE`.
+/// Reverses the characters in a string.
+/// Maps to PostgreSQL `REVERSE`.
 pub fn reverse<T>(expression: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -326,6 +332,8 @@ where
     unary_string_fn("REVERSE", expression)
 }
 
+/// Removes spaces from both ends of a text expression, preserving input nullability.
+/// Maps to PostgreSQL `TRIM(expression)`.
 pub fn trim<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringUnaryExpr>::Output>
 where
     T: StringUnaryExpr,
@@ -379,6 +387,8 @@ where
     directed_trim_fn(arg, TrimDirection::Trailing, Some(characters.into_expr()))
 }
 
+/// Returns the number of characters in a text expression, preserving input nullability.
+/// Maps to PostgreSQL `CHAR_LENGTH`.
 pub fn char_length<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
 where
     T: StringLengthExpr,
@@ -416,6 +426,7 @@ where
 
 /// Tests whether `expression` begins with the exact, case-sensitive `prefix`.
 /// Returns NULL if either argument is NULL; `starts_with("PostgreSQL", "Post")` evaluates to `true`.
+/// Requires PostgreSQL 11 or newer.
 /// Maps to PostgreSQL `STARTS_WITH`.
 pub fn starts_with<L, R>(expression: impl IntoExpr<L>, prefix: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
 where
@@ -460,7 +471,9 @@ where
     binary_string_fn("STRING_TO_ARRAY", expression, delimiter)
 }
 
-/// Returns the 1-based field from a delimited string; negative indexes count from the end.
+/// Returns the 1-based field from a delimited string.
+/// Negative indexes count from the end on PostgreSQL 14 or newer.
+/// PostgreSQL rejects an index of zero and returns an empty string for an out-of-range index.
 /// Maps to PostgreSQL `SPLIT_PART`.
 pub fn split_part<S, D>(
     expression: impl IntoExpr<S>,
@@ -480,6 +493,7 @@ where
 }
 
 /// Tests whether a POSIX regular expression matches anywhere in the text.
+/// Requires PostgreSQL 15 or newer.
 /// Maps to PostgreSQL `REGEXP_LIKE`.
 pub fn regex_is_match<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, bool>>::Output>
 where
@@ -489,6 +503,7 @@ where
 }
 
 /// Counts non-overlapping POSIX regular-expression matches.
+/// Requires PostgreSQL 15 or newer.
 /// Maps to PostgreSQL `REGEXP_COUNT`.
 pub fn regex_count<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
 where
@@ -498,6 +513,7 @@ where
 }
 
 /// Returns the 1-based position of the first match, or zero when absent.
+/// Requires PostgreSQL 15 or newer.
 /// Maps to PostgreSQL `REGEXP_INSTR`.
 pub fn regex_position<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<<L as StringBinaryExpr<R, i32>>::Output>
 where
@@ -506,7 +522,7 @@ where
     binary_string_fn("REGEXP_INSTR", expression, pattern)
 }
 
-/// Returns captures from the first match, or NULL when there is no match.
+/// Returns captures from the first match, or NULL when there is no match. Requires PostgreSQL 10 or newer.
 /// Capture elements are nullable because optional groups can be unmatched.
 /// Maps to PostgreSQL `REGEXP_MATCH`.
 pub fn regex_captures<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<Option<Vec<Option<String>>>>
@@ -518,6 +534,7 @@ where
 }
 
 /// Returns the first matching substring, or NULL when there is no match.
+/// Requires PostgreSQL 15 or newer.
 /// Maps to PostgreSQL `REGEXP_SUBSTR`.
 pub fn regex_extract<L, R>(expression: impl IntoExpr<L>, pattern: impl IntoExpr<R>) -> Expr<Option<String>>
 where
@@ -631,7 +648,7 @@ where
     })
 }
 
-/// Normalizes text using the selected Unicode form. Requires `UTF8`.
+/// Normalizes text using the selected Unicode form. Requires PostgreSQL 13 or newer and `UTF8`.
 /// Maps to PostgreSQL `NORMALIZE(expression, form)`.
 pub fn normalize<T>(arg: impl IntoExpr<T>, form: NormalizationForm) -> Expr<<T as StringUnaryExpr>::Output>
 where
@@ -644,6 +661,7 @@ where
 }
 
 /// Returns the numeric code of the first character, or zero for empty text.
+/// Other multibyte encodings accept only ASCII characters.
 /// Maps to PostgreSQL `ASCII`, which returns Unicode code points with `UTF8`.
 pub fn first_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as StringLengthExpr>::Output>
 where
@@ -652,7 +670,8 @@ where
     string_length_fn("ASCII", arg)
 }
 
-/// Returns the character for an integer code point.
+/// Returns the character for an integer code point. PostgreSQL rejects zero and invalid code points.
+/// Other multibyte encodings accept only ASCII characters.
 /// Maps to PostgreSQL `CHR`, which interprets Unicode code points with `UTF8`.
 pub fn from_codepoint<T>(arg: impl IntoExpr<T>) -> Expr<<T as CodepointExpr>::Output>
 where
