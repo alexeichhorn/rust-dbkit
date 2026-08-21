@@ -151,6 +151,14 @@ fn compiles_eq_none_as_is_null() {
 }
 
 #[test]
+fn compiles_eq_some_on_nullable_column_as_bound_value() {
+    let expr = user_email().eq(Some("a@b.com".to_string()));
+    let sql = expr_sql(expr);
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email = $1)");
+    assert_eq!(sql.binds, vec![Value::String("a@b.com".to_string())]);
+}
+
+#[test]
 fn compiles_ne_none_as_is_not_null() {
     let expr = user_email().ne(None);
     let sql = expr_sql(expr);
