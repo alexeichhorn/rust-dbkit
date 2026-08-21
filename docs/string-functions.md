@@ -25,6 +25,20 @@ struct Article {
     codepoint: i32,
 }
 
+#[derive(sqlx::FromRow)]
+struct ArticleText {
+    display_title: String,
+    heading: String,
+    parts: Vec<String>,
+    last_part: String,
+    captures: Option<Vec<Option<String>>>,
+    cleaned_body: String,
+    words: Vec<String>,
+    normalized_title: String,
+    first_codepoint: i32,
+    character: String,
+}
+
 let normalized_title = func::lower(func::trim(Article::title));
 let _matching_articles = Article::query()
     .filter(normalized_title.clone().eq("rust and postgres"))
@@ -58,7 +72,8 @@ let _article_text = Article::query()
     .column_as(func::normalize(Article::title, NormalizationForm::Nfc), "normalized_title")
     .column_as(func::first_codepoint(Article::title), "first_codepoint")
     .column_as(func::from_codepoint(Article::codepoint), "character")
-    .filter(func::regex_is_match(Article::body, Article::pattern).eq(true));
+    .filter(func::regex_is_match(Article::body, Article::pattern).eq(true))
+    .into_model::<ArticleText>();
 
 // PostgreSQL 18 and UTF8 only.
 let _unicode_check = Article::query()
