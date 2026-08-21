@@ -109,7 +109,7 @@ fn compiles_insert_returning_all() {
 
 #[test]
 fn compiles_insert_with_null() {
-    let query: Insert<User> = Insert::new(user_table()).value(user_email(), None::<String>).returning_all();
+    let query: Insert<User> = Insert::new(user_table()).value(user_email(), None).returning_all();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "INSERT INTO users (email) VALUES (NULL) RETURNING users.*");
@@ -131,7 +131,7 @@ fn compiles_insert_with_some_for_nullable_column() {
 fn compiles_insert_many_rows() {
     let query: Insert<User> = Insert::new(user_table())
         .row(|row| row.value(user_email(), "a@b.com").value(user_name(), "Alice"))
-        .row(|row| row.value(user_email(), None::<String>).value(user_name(), "Bob"))
+        .row(|row| row.value(user_email(), None).value(user_name(), "Bob"))
         .returning_all();
 
     let sql = query.compile();
@@ -269,7 +269,7 @@ fn compiles_insert_on_conflict_do_update_with_four_selected_overwrite_columns() 
 #[test]
 fn compiles_insert_on_conflict_do_update_with_null_insert_values_and_preserves_bind_order() {
     let query: Insert<User> = Insert::new(user_table())
-        .value(user_email(), None::<String>)
+        .value(user_email(), None)
         .value(user_name(), "fallback-name")
         .on_conflict_do_update(user_email(), user_name())
         .returning_all();
@@ -325,7 +325,7 @@ fn compiles_update_with_composite_key_filters() {
 #[test]
 fn compiles_update_set_null() {
     let query: Update<User> = Update::new(user_table())
-        .set(user_email(), None::<String>)
+        .set(user_email(), None)
         .filter(user_id().eq(1_i64))
         .returning_all();
 

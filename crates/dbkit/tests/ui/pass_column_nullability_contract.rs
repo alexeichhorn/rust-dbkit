@@ -35,15 +35,14 @@ fn main() {
     assert_bool(NullabilityRow::required_text.eq("owned required".to_string()));
     assert_bool(NullabilityRow::nullable_text.eq("present"));
     assert_bool(NullabilityRow::nullable_text.eq("owned".to_string()));
-    assert_bool(NullabilityRow::nullable_text.eq(Some("present")));
     assert_bool(NullabilityRow::nullable_text.eq(Some("owned".to_string())));
-    assert_bool(NullabilityRow::nullable_text.eq(None::<String>));
+    assert_bool(NullabilityRow::nullable_text.eq(None));
 
     let _filters = NullabilityRow::query()
         .filter(NullabilityRow::required_text.ne("other"))
         .filter(NullabilityRow::required_text.like("req%"))
         .filter(NullabilityRow::required_text.in_(["required", "other"]))
-        .filter(NullabilityRow::nullable_text.ne(None::<String>))
+        .filter(NullabilityRow::nullable_text.ne(None))
         .filter(NullabilityRow::nullable_count.between(1_i32, 10_i32));
 
     assert_bool(NullabilityRow::required_text.eq_col(NullabilityRow::nullable_text));
@@ -62,7 +61,7 @@ fn main() {
     assert_string(dbkit::func::lower(NullabilityRow::required_text));
     assert_nullable_string(dbkit::func::lower(NullabilityRow::nullable_text));
     assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq("present"));
-    assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq(None::<String>));
+    assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq(None));
     assert_string(dbkit::func::coalesce(NullabilityRow::nullable_text, "fallback"));
     assert_bool(dbkit::func::lower(NullabilityRow::required_text).eq_col(NullabilityRow::nullable_text));
     assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq_col(NullabilityRow::required_text));
@@ -81,18 +80,17 @@ fn main() {
         .value(NullabilityRow::nullable_count, Some(2_i32));
 
     let _insert_nulls = dbkit::Insert::<NullabilityRow>::new(NullabilityRow::TABLE)
-        .value(NullabilityRow::nullable_text, None::<String>)
+        .value(NullabilityRow::nullable_text, None)
         .value(NullabilityRow::nullable_count, None::<i32>);
 
     let _insert_rows = dbkit::Insert::<NullabilityRow>::new(NullabilityRow::TABLE).row(|row| {
         row.value(NullabilityRow::required_text, "required")
-            .value(NullabilityRow::nullable_text, None::<String>)
+            .value(NullabilityRow::nullable_text, None)
     });
 
     let _borrowed_update = NullabilityRow::update()
         .set(NullabilityRow::required_text, "updated")
         .set(NullabilityRow::nullable_text, "present");
-    let _optional_borrowed_update = NullabilityRow::update().set(NullabilityRow::nullable_text, Some("updated"));
     let _owned_update = NullabilityRow::update()
         .set(NullabilityRow::required_text, "owned required".to_string())
         .set(NullabilityRow::nullable_text, "owned".to_string());
@@ -100,11 +98,11 @@ fn main() {
         .set(NullabilityRow::nullable_text, Some("owned".to_string()))
         .set(NullabilityRow::nullable_count, Some(2_i32));
     let _null_update = NullabilityRow::update()
-        .set(NullabilityRow::nullable_text, None::<String>)
+        .set(NullabilityRow::nullable_text, None)
         .set(NullabilityRow::nullable_count, None::<i32>);
 
     let mut active = NullabilityRow::new_active();
     active.required_text = "required".into();
-    active.nullable_text = None::<String>.into();
+    active.nullable_text = None.into();
     active.nullable_text.set_null();
 }

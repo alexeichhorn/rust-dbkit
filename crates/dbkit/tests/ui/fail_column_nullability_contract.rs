@@ -22,4 +22,5 @@ fn main() {
     require_non_nullable_expression(dbkit::func::lower(NullabilityRow::nullable_text)); //~ E0308
     require_nullable_expression(dbkit::func::lower(NullabilityRow::required_text));
     //~^ E0308
+    let _borrowed_optional = NullabilityRow::nullable_text.eq(Some("present")); //~ E0277
 }

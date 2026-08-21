@@ -89,12 +89,6 @@ impl ColumnValue<Option<String>> for &str {
     }
 }
 
-impl ColumnValue<Option<String>> for Option<&str> {
-    fn into_value(self) -> Option<Value> {
-        Some(self.map_or(Value::Null, |value| Value::String(value.to_string())))
-    }
-}
-
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Self::Bool(value)
