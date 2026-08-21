@@ -254,6 +254,10 @@ pub struct Nullable;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NonNullable;
 
+/// Tracks whether a generated active-model field is unset, changed, or unchanged.
+///
+/// Model generation uses the hidden nullability parameter to expose NULL operations only for
+/// fields declared as `Option<T>`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActiveValue<T, Nullability = Nullable> {
     Unset,
@@ -290,6 +294,7 @@ impl<T, Nullability> ActiveValue<T, Nullability> {
 }
 
 impl<T> ActiveValue<T, Nullable> {
+    /// Creates an unchanged nullable value from a loaded model field.
     pub fn unchanged_option(value: Option<T>) -> Self {
         match value {
             Some(value) => Self::Unchanged(value),
@@ -297,6 +302,7 @@ impl<T> ActiveValue<T, Nullable> {
         }
     }
 
+    /// Marks a nullable field to be written as SQL NULL.
     pub fn set_null(&mut self) {
         *self = Self::Null;
     }

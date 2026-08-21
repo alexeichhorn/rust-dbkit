@@ -10,7 +10,7 @@ This example uses generated model columns directly.
 The projection uses `sqlx::FromRow`, which requires `sqlx` as a direct dependency.
 
 ```rust
-use dbkit::func::{self, IntoConcatExpr, NormalizationForm, RegexReplaceFlags, RegexSplitFlags};
+use dbkit::func::{self, NormalizationForm, RegexReplaceFlags, RegexSplitFlags};
 use dbkit::{model, Order};
 
 #[model(table = "articles")]
@@ -45,12 +45,9 @@ let _matching_articles = Article::query()
     .filter(normalized_title.clone().eq("rust and postgres"))
     .order_by(Order::asc(normalized_title));
 
-let heading = func::concat_with_separator(
+let heading = func::concat_with_separator!(
     " - ",
-    [
-        Article::title.into_concat_expr(),
-        Article::subtitle.into_concat_expr(),
-    ],
+    [Article::title, Article::subtitle],
 );
 let cleaned_body = func::regex_replace(
     Article::body,
@@ -145,17 +142,23 @@ FROM start FOR count)`.
 
 | dbkit API | PostgreSQL mapping | Behavior |
 | --- | --- | --- |
-| `concat(values)` | `CONCAT(values...)` | Concatenates values and ignores NULL items. The result type is `String`. |
-| `concat_with_separator(separator, values)` | `CONCAT_WS(separator, values...)` | Inserts the separator and ignores NULL items. A NULL separator returns NULL. |
+| `concat!([values...])` | `CONCAT(values...)` | Concatenates values and ignores NULL items. The result type is `String`. |
+| `concat_with_separator!(separator, [values...])` | `CONCAT_WS(separator, values...)` | Inserts the separator and ignores NULL items. A NULL separator returns NULL. |
 | `split(text, delimiter)` | `STRING_TO_ARRAY(text, delimiter)` | Returns `Vec<String>`. A NULL delimiter splits into characters; an empty delimiter returns one field. |
 | `split_part(text, delimiter, index)` | `SPLIT_PART(text, delimiter, index)` | Returns the indexed field. Indexes are 1-based and zero is an error. |
 
 `split_part` returns an empty string when the index is out of range. Negative indexes count from the
 end on PostgreSQL 14 or newer.
 
-When a concat list mixes required and optional columns, call `.into_concat_expr()` on every item so
-Rust can put them in one array. PostgreSQL ignores NULL items. `concat_with_separator` returns NULL
-only when the separator is NULL.
+Use the macros for inline lists. Their bracket form accepts a mix of required columns, nullable
+columns, literals, and string expressions without manual conversions. PostgreSQL ignores NULL
+items. Empty bracket lists are supported. `concat_with_separator!` returns NULL only when the
+separator is NULL.
+
+The macros also accept an existing iterable without brackets. The `concat` and
+`concat_with_separator` functions remain available for homogeneous iterables and dynamically built
+`Vec<ConcatExpr>` values. Building a dynamic vector with mixed item types still requires
+`IntoConcatExpr::into_concat_expr()` at the point where the vector is assembled.
 
 The two-argument `split` helper cannot create NULL array elements because it does not expose
 PostgreSQL's optional `null_string` argument. A nullable source produces `Option<Vec<String>>`.

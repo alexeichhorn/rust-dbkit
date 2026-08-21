@@ -30,6 +30,9 @@ Notes:
 
 ## NULL Handling With `Option<T>`
 
+The model macro keeps required and nullable fields distinct. Filters and mutations reject `None`
+for required fields at compile time.
+
 ```rust
 // assuming `NullableRow { note: Option<String> }`
 let row = NullableRow::insert(NullableRowInsert { note: None })
@@ -42,6 +45,21 @@ let rows = NullableRow::query()
     .all(&db)
     .await?;
 ```
+
+Nullable columns also accept direct non-null values, so string literals do not need allocation:
+
+```rust
+NullableRow::query().filter(NullableRow::note.eq("present"));
+NullableRow::update().set(NullableRow::note, "updated");
+```
+
+When a value is dynamically optional, use the column's owned type, such as `Option<String>`.
+`Option<&str>` is intentionally not accepted for nullable string columns; this keeps bare `None`
+unambiguous. Direct `&str` values remain supported.
+
+SQL functions preserve nullability when PostgreSQL propagates NULL. See
+[Expressions and aggregation](expressions.md) for practical `coalesce` and column-comparison
+examples.
 
 ## PgVector Embeddings
 
@@ -163,7 +181,7 @@ let updated = Task::update()
     .await?;
 
 Task::update()
-    .set(Task::previous_state, None::<TaskState>)
+    .set(Task::previous_state, None)
     .filter(Task::id.eq(42_i64))
     .execute(&db)
     .await?;

@@ -88,6 +88,17 @@ impl IntoConcatExpr for ConcatExpr {
     }
 }
 
+/// Concatenates string expressions in order, ignoring NULL values.
+/// Accepts an inline list with different expression types or an existing iterable.
+///
+/// # Example
+///
+/// ```
+/// # use dbkit_core::func::concat;
+/// let expression = concat!(["Hello", " ", "world"]);
+/// ```
+///
+/// Maps to PostgreSQL `CONCAT`.
 #[macro_export]
 macro_rules! concat {
     ([$($value:expr),* $(,)?] $(,)?) => {{
@@ -101,6 +112,18 @@ macro_rules! concat {
     };
 }
 
+/// Concatenates string expressions with `separator`, ignoring NULL values.
+/// Accepts an inline list with different expression types or an existing iterable.
+/// Returns NULL when `separator` is NULL.
+///
+/// # Example
+///
+/// ```
+/// # use dbkit_core::func::concat_with_separator;
+/// let expression = concat_with_separator!(" / ", ["docs", "rust"]);
+/// ```
+///
+/// Maps to PostgreSQL `CONCAT_WS`.
 #[macro_export]
 macro_rules! concat_with_separator {
     ($separator:expr, [$($value:expr),* $(,)?] $(,)?) => {{
@@ -464,6 +487,7 @@ where
 }
 
 /// Concatenates string expressions in order, ignoring NULL values.
+/// Use `concat!([first, second])` for an inline list containing different expression types.
 /// Maps to PostgreSQL `CONCAT`.
 pub fn concat<I, A>(values: I) -> Expr<String>
 where
@@ -476,6 +500,8 @@ where
 
 /// Concatenates string expressions with `separator`, ignoring NULL values.
 /// Returns NULL when `separator` is NULL.
+/// Use `concat_with_separator!(separator, [first, second])` for an inline list containing different
+/// expression types.
 /// Maps to PostgreSQL `CONCAT_WS`.
 pub fn concat_with_separator<S, I, A>(separator: impl IntoExpr<S>, values: I) -> Expr<<S as StringUnaryExpr>::Output>
 where
@@ -832,6 +858,11 @@ impl<T> CoalesceOutput<Option<T>> for T {
     type Output = T;
 }
 
+/// Returns the first non-NULL argument.
+///
+/// The result is required when either argument supplies a required value and remains optional when
+/// both arguments are optional.
+/// Maps to PostgreSQL `COALESCE`.
 pub fn coalesce<L, R>(a: impl IntoExpr<L>, b: impl IntoExpr<R>) -> Expr<<L as CoalesceOutput<R>>::Output>
 where
     L: CoalesceOutput<R>,

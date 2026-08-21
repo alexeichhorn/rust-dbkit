@@ -394,8 +394,12 @@ impl User {
     pub const id: db::Column<User, i64> = db::Column::new("id");
     pub const name: db::Column<User, String> = db::Column::new("name");
     pub const email: db::Column<User, String> = db::Column::new("email");
+    pub const motto: db::Column<User, Option<String>> = db::Column::new("motto");
 }
 ```
+
+Generated column types preserve model nullability. This lets filters, mutations, and composed
+expressions reject NULL for required fields while propagating NULL for optional fields.
 
 ### Expressions
 
@@ -647,6 +651,16 @@ User::update()
   .await?;
 ```
 
+`None` is accepted only for columns generated from `Option<T>` fields:
+
+```rust
+User::update()
+  .set(User::motto, None)
+  .filter(User::id.eq(1))
+  .execute(&db)
+  .await?;
+```
+
 Optionally: patch struct `UserPatch` with `Option<T>` fields.
 
 ### Delete
@@ -781,7 +795,8 @@ For each model `X`, derive generates:
 ### Core traits
 
 - `Expr<T>`: typed SQL expression producing `T`
-- `Column<M, T>`: expression referencing a table column
+- `Column<M, T>`: expression referencing a required table column
+- `Column<M, Option<T>>`: expression referencing a nullable table column
 - `Select<Out>`: select query builder
 
 ### SQL compilation
@@ -1068,4 +1083,3 @@ fn f(u: &impl UserBase) { ... }
 ```
 
 This avoids “generic params everywhere” without losing generality.
-
