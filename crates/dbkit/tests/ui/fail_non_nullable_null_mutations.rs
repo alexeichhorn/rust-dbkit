@@ -21,6 +21,6 @@ fn main() {
     let mut active = NullabilityRow::new_active();
     active.required_text = None::<String>.into(); //~ E0277
     active.required_text.set_null(); //~ E0599
-    active.required_text = dbkit::ActiveValue::Null; //~ E0308
-    active.required_text = dbkit::ActiveValue::UnchangedNull; //~ E0308
+    active.required_text = dbkit::ActiveValue::Set(None); //~ E0308
+    active.required_text = dbkit::ActiveValue::Unchanged(None); //~ E0308
 }

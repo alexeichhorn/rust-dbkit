@@ -106,8 +106,11 @@ fn main() {
 
     let mut active = NullabilityRow::new_active();
     active.required_text = "required".into();
+    active.nullable_text = "present".into();
+    active.nullable_text = "owned".to_string().into();
+    active.nullable_text = Some("optional".to_string()).into();
     active.nullable_text = None.into();
-    active.nullable_text = dbkit::ActiveValue::Null;
-    active.nullable_text = dbkit::ActiveValue::UnchangedNull;
+    active.nullable_text = dbkit::ActiveValue::Set(None);
+    active.nullable_text = dbkit::ActiveValue::Unchanged(None);
     active.nullable_text.set_null();
 }
