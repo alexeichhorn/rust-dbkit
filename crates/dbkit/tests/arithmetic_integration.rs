@@ -302,7 +302,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
             NullableArithmeticRecord::nullable_left * NullableArithmeticRecord::nullable_right,
             "multiplied",
         )
-        .column_as(100_i32 - NullableArithmeticRecord::nullable_left, "literal_minus_nullable")
+        .column_as(100 - NullableArithmeticRecord::nullable_left, "literal_minus_nullable")
         .column_as(
             NullableArithmeticRecord::nullable_at + NullableArithmeticRecord::required_interval,
             "nullable_time_required_interval",
@@ -355,7 +355,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[3].nullable_time_nullable_interval, None);
 
     let matching = NullableArithmeticRecord::query()
-        .filter((100_i32 - NullableArithmeticRecord::nullable_left).eq(96_i32))
+        .filter((100 - NullableArithmeticRecord::nullable_left).eq(96_i32))
         .filter((NullableArithmeticRecord::nullable_left + NullableArithmeticRecord::required_value).eq(14_i32))
         .filter((NullableArithmeticRecord::nullable_at + NullableArithmeticRecord::required_interval).eq(base + Duration::hours(1)))
         .order_by(Order::asc(NullableArithmeticRecord::id))
@@ -364,7 +364,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(matching.iter().map(|row| row.id).collect::<Vec<_>>(), vec![1, 3]);
 
     let null_results = NullableArithmeticRecord::query()
-        .filter((100_i32 - NullableArithmeticRecord::nullable_left).is_null())
+        .filter((100 - NullableArithmeticRecord::nullable_left).is_null())
         .order_by(Order::asc(NullableArithmeticRecord::id))
         .all(&tx)
         .await?;

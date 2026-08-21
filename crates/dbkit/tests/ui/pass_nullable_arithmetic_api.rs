@@ -59,9 +59,9 @@ fn main() {
     assert_nullable_i32(NullableArithmeticRow::nullable_i32 * NullableArithmeticRow::nullable_i32);
 
     // Literals on the left preserve nullability too, including non-commutative subtraction.
-    assert_i32(1_i32 - NullableArithmeticRow::required_i32);
+    assert_i32(1 - NullableArithmeticRow::required_i32);
     assert_nullable_i32(1_i32 + NullableArithmeticRow::nullable_i32);
-    assert_nullable_i32(1_i32 - NullableArithmeticRow::nullable_i32);
+    assert_nullable_i32(1 - NullableArithmeticRow::nullable_i32);
     assert_nullable_i32(2_i32 * NullableArithmeticRow::nullable_i32);
 
     // SMALLINT arithmetic still promotes to INTEGER when either operand is nullable.

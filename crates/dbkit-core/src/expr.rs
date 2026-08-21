@@ -803,37 +803,45 @@ impl<const N: usize> ExprOperand for PgVector<N> {
     }
 }
 
+macro_rules! impl_nullable_arithmetic_op {
+    ($trait:ident, $lhs:ty, $rhs:ty, $output:ty) => {
+        impl $trait<$rhs> for Option<$lhs> {
+            type Output = Option<$output>;
+        }
+
+        impl $trait<Option<$rhs>> for $lhs {
+            type Output = Option<$output>;
+        }
+
+        impl $trait<Option<$rhs>> for Option<$lhs> {
+            type Output = Option<$output>;
+        }
+    };
+}
+
 macro_rules! impl_numeric_arithmetic {
-    ($($ty:ty),* $(,)?) => {
+    ($(($ty:ty, $output:ty)),* $(,)?) => {
         $(
             impl SqlAdd<$ty> for $ty {
-                type Output = $ty;
+                type Output = $output;
             }
 
             impl SqlSub<$ty> for $ty {
-                type Output = $ty;
+                type Output = $output;
             }
 
             impl SqlMul<$ty> for $ty {
-                type Output = $ty;
+                type Output = $output;
             }
+
+            impl_nullable_arithmetic_op!(SqlAdd, $ty, $ty, $output);
+            impl_nullable_arithmetic_op!(SqlSub, $ty, $ty, $output);
+            impl_nullable_arithmetic_op!(SqlMul, $ty, $ty, $output);
         )*
     };
 }
 
-impl SqlAdd<i16> for i16 {
-    type Output = i32;
-}
-
-impl SqlSub<i16> for i16 {
-    type Output = i32;
-}
-
-impl SqlMul<i16> for i16 {
-    type Output = i32;
-}
-
-impl_numeric_arithmetic!(i32, i64, f32, f64);
+impl_numeric_arithmetic!((i16, i32), (i32, i32), (i64, i64), (f32, f32), (f64, f64));
 
 impl SqlAdd<PgInterval> for chrono::NaiveDateTime {
     type Output = chrono::NaiveDateTime;
@@ -850,6 +858,11 @@ impl SqlAdd<PgInterval> for chrono::DateTime<chrono::Utc> {
 impl SqlSub<PgInterval> for chrono::DateTime<chrono::Utc> {
     type Output = chrono::DateTime<chrono::Utc>;
 }
+
+impl_nullable_arithmetic_op!(SqlAdd, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
+impl_nullable_arithmetic_op!(SqlSub, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
+impl_nullable_arithmetic_op!(SqlAdd, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
+impl_nullable_arithmetic_op!(SqlSub, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
 
 impl<Kind> Add<Expr<PgInterval, Kind>> for chrono::NaiveDateTime {
     type Output = Expr<chrono::NaiveDateTime>;
@@ -962,6 +975,38 @@ where
         arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Mul, rhs.into_operand_expr().node)
     }
 }
+
+macro_rules! impl_literal_numeric_op {
+    ($trait:ident, $method:ident, $sql_trait:ident, $op:expr, $($lhs:ty),+ $(,)?) => {
+        $(
+            impl<M, Rhs> $trait<Column<M, Rhs>> for $lhs
+            where
+                $lhs: $sql_trait<Rhs>,
+            {
+                type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
+
+                fn $method(self, rhs: Column<M, Rhs>) -> Self::Output {
+                    arithmetic_expr(self.into_expr().node, $op, ExprNode::Column(rhs.as_ref()))
+                }
+            }
+
+            impl<Rhs, Kind> $trait<Expr<Rhs, Kind>> for $lhs
+            where
+                $lhs: $sql_trait<Rhs>,
+            {
+                type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
+
+                fn $method(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
+                    arithmetic_expr(self.into_expr().node, $op, rhs.node)
+                }
+            }
+        )+
+    };
+}
+
+impl_literal_numeric_op!(Add, add, SqlAdd, BinaryOp::Add, i16, i32, i64, f32, f64);
+impl_literal_numeric_op!(Sub, sub, SqlSub, BinaryOp::Sub, i16, i32, i64, f32, f64);
+impl_literal_numeric_op!(Mul, mul, SqlMul, BinaryOp::Mul, i16, i32, i64, f32, f64);
 
 impl<T, Kind> Expr<T, Kind>
 where
