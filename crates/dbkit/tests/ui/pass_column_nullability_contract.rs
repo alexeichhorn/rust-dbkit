@@ -61,6 +61,8 @@ fn main() {
 
     assert_string(dbkit::func::lower(NullabilityRow::required_text));
     assert_nullable_string(dbkit::func::lower(NullabilityRow::nullable_text));
+    assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq("present"));
+    assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq(None::<String>));
     assert_string(dbkit::func::coalesce(NullabilityRow::nullable_text, "fallback"));
     assert_bool(dbkit::func::lower(NullabilityRow::required_text).eq_col(NullabilityRow::nullable_text));
     assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq_col(NullabilityRow::required_text));

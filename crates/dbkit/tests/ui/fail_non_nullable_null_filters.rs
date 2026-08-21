@@ -17,4 +17,6 @@ fn main() {
     let _between_none = NullabilityRow::required_text.between("a", None::<String>); //~ E0277
     let _like_none = NullabilityRow::required_text.like(None::<String>); //~ E0277
     let _in_none = NullabilityRow::required_text.in_([None::<String>]); //~ E0277
+    let _expression_eq_none = dbkit::func::lower(NullabilityRow::required_text).eq(None::<String>);
+    //~^ E0277
 }
