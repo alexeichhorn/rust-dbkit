@@ -88,6 +88,34 @@ impl IntoConcatExpr for ConcatExpr {
     }
 }
 
+#[macro_export]
+macro_rules! concat {
+    ([$($value:expr),* $(,)?] $(,)?) => {{
+        let values: ::std::vec::Vec<$crate::func::ConcatExpr> = ::std::vec![
+            $($crate::func::IntoConcatExpr::into_concat_expr($value)),*
+        ];
+        $crate::func::concat(values)
+    }};
+    ($values:expr $(,)?) => {
+        $crate::func::concat($values)
+    };
+}
+
+#[macro_export]
+macro_rules! concat_with_separator {
+    ($separator:expr, [$($value:expr),* $(,)?] $(,)?) => {{
+        let values: ::std::vec::Vec<$crate::func::ConcatExpr> = ::std::vec![
+            $($crate::func::IntoConcatExpr::into_concat_expr($value)),*
+        ];
+        $crate::func::concat_with_separator($separator, values)
+    }};
+    ($separator:expr, $values:expr $(,)?) => {
+        $crate::func::concat_with_separator($separator, $values)
+    };
+}
+
+pub use crate::{concat, concat_with_separator};
+
 bitflags! {
     /// Composable options for [`regex_replace`]; use [`empty`](Self::empty) for default behavior.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -787,7 +815,27 @@ where
     })
 }
 
-pub fn coalesce<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+#[doc(hidden)]
+pub trait CoalesceOutput<Rhs> {
+    type Output;
+}
+
+impl<T> CoalesceOutput<T> for T {
+    type Output = T;
+}
+
+impl<T> CoalesceOutput<T> for Option<T> {
+    type Output = T;
+}
+
+impl<T> CoalesceOutput<Option<T>> for T {
+    type Output = T;
+}
+
+pub fn coalesce<L, R>(a: impl IntoExpr<L>, b: impl IntoExpr<R>) -> Expr<<L as CoalesceOutput<R>>::Output>
+where
+    L: CoalesceOutput<R>,
+{
     let left = a.into_expr();
     let right = b.into_expr();
     Expr::new(ExprNode::Func {

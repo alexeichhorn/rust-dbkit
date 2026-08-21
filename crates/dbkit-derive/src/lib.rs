@@ -258,7 +258,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
             let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
-            let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
+            let ty = &field.ty;
             quote!(pub const #ident: ::dbkit::Column<#default_model_ty, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
         })
         .collect::<Vec<_>>();
@@ -303,8 +303,12 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let active_fields = scalar_fields.iter().map(|field| {
         let ident = &field.ident;
         let vis = &field.field.vis;
-        let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
-        quote!(#vis #ident: ::dbkit::ActiveValue<#ty>)
+        if let Some(ty) = option_inner_type(&field.ty) {
+            quote!(#vis #ident: ::dbkit::ActiveValue<#ty, ::dbkit::Nullable>)
+        } else {
+            let ty = &field.ty;
+            quote!(#vis #ident: ::dbkit::ActiveValue<#ty, ::dbkit::NonNullable>)
+        }
     });
 
     let active_from_model = scalar_fields.iter().map(|field| {
@@ -329,25 +333,35 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         } else {
             quote!()
         };
-        quote!(
-            match #ident {
-                ::dbkit::ActiveValue::Unset => {
-                    #required_check
+        if is_option {
+            quote!(
+                match #ident {
+                    ::dbkit::ActiveValue::Unset => {}
+                    ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => {
+                        insert = insert.value(#default_model_path::#ident, value);
+                    }
+                    ::dbkit::ActiveValue::UnchangedNull | ::dbkit::ActiveValue::Null => {
+                        insert = insert.value(#default_model_path::#ident, None::<#ty>);
+                    }
+                    _ => unreachable!(),
                 }
-                ::dbkit::ActiveValue::Set(value) => {
-                    insert = insert.value(#default_model_path::#ident, value);
+            )
+        } else {
+            quote!(
+                match #ident {
+                    ::dbkit::ActiveValue::Unset => {
+                        #required_check
+                    }
+                    ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => {
+                        insert = insert.value(#default_model_path::#ident, value);
+                    }
+                    ::dbkit::ActiveValue::UnchangedNull | ::dbkit::ActiveValue::Null => {
+                        return Err(::dbkit::Error::Decode(format!("required field cannot be NULL: {}", #name)));
+                    }
+                    _ => unreachable!(),
                 }
-                ::dbkit::ActiveValue::Unchanged(value) => {
-                    insert = insert.value(#default_model_path::#ident, value);
-                }
-                ::dbkit::ActiveValue::UnchangedNull => {
-                    insert = insert.value(#default_model_path::#ident, None::<#ty>);
-                }
-                ::dbkit::ActiveValue::Null => {
-                    insert = insert.value(#default_model_path::#ident, None::<#ty>);
-                }
-            }
-        )
+            )
+        }
     });
 
     let active_insert_fn = quote!(
@@ -383,6 +397,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                             #pk_name
                         )));
                     }
+                    _ => unreachable!(),
                 };
             )
         });
@@ -393,20 +408,38 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let update_steps = scalar_fields.iter().filter(|field| !field.is_key).map(|field| {
             let ident = &field.ident;
             let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
-            quote!(
-                match #ident {
-                    ::dbkit::ActiveValue::Unset => {}
-                    ::dbkit::ActiveValue::Set(value) => {
-                        update = update.set(#default_model_path::#ident, value);
-                        any_set = true;
+            let name = ident.to_string();
+            if option_inner_type(&field.ty).is_some() {
+                quote!(
+                    match #ident {
+                        ::dbkit::ActiveValue::Unset => {}
+                        ::dbkit::ActiveValue::Set(value) => {
+                            update = update.set(#default_model_path::#ident, value);
+                            any_set = true;
+                        }
+                        ::dbkit::ActiveValue::Unchanged(_) | ::dbkit::ActiveValue::UnchangedNull => {}
+                        ::dbkit::ActiveValue::Null => {
+                            update = update.set(#default_model_path::#ident, None::<#ty>);
+                            any_set = true;
+                        }
+                        _ => unreachable!(),
                     }
-                    ::dbkit::ActiveValue::Unchanged(_) | ::dbkit::ActiveValue::UnchangedNull => {}
-                    ::dbkit::ActiveValue::Null => {
-                        update = update.set(#default_model_path::#ident, None::<#ty>);
-                        any_set = true;
+                )
+            } else {
+                quote!(
+                    match #ident {
+                        ::dbkit::ActiveValue::Unset | ::dbkit::ActiveValue::Unchanged(_) => {}
+                        ::dbkit::ActiveValue::Set(value) => {
+                            update = update.set(#default_model_path::#ident, value);
+                            any_set = true;
+                        }
+                        ::dbkit::ActiveValue::UnchangedNull | ::dbkit::ActiveValue::Null => {
+                            return Err(::dbkit::Error::Decode(format!("required field cannot be NULL: {}", #name)));
+                        }
+                        _ => unreachable!(),
                     }
-                }
-            )
+                )
+            }
         });
         quote!(
             pub async fn update(
@@ -448,6 +481,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                             #pk_name
                         )));
                     }
+                    _ => unreachable!(),
                 };
             )
         });
@@ -482,6 +516,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                     any_changed = true;
                 }
                 ::dbkit::ActiveValue::Unset => {}
+                _ => unreachable!(),
             }
         )
     });
@@ -500,6 +535,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                             #name
                         )));
                     }
+                    _ => unreachable!(),
                 },
             )
         } else {
@@ -514,6 +550,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                             #name
                         )));
                     }
+                    _ => unreachable!(),
                 },
             )
         }
@@ -759,7 +796,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
             let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
-            quote!(#name => Some(self.#ident.clone().into()),)
+            if option_inner_type(&field.ty).is_some() {
+                quote!(#name => Some(self.#ident.clone().map_or(::dbkit::Value::Null, ::core::convert::Into::into)),)
+            } else {
+                quote!(#name => Some(self.#ident.clone().into()),)
+            }
         });
 
     let model_value_impl = quote!(

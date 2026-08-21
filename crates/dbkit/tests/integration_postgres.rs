@@ -1069,7 +1069,7 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     assert_eq!(optional_match.id, some_row.id);
 
     let updated = NullableRow::update()
-        .set(NullableRow::note, None)
+        .set(NullableRow::note, None::<String>)
         .filter(NullableRow::id.eq(some_row.id))
         .returning_all()
         .all(&tx)
@@ -1077,7 +1077,7 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     assert_eq!(updated.len(), 1);
     assert!(updated[0].note.is_none());
 
-    let null_rows = NullableRow::query().filter(NullableRow::note.eq(None)).all(&tx).await?;
+    let null_rows = NullableRow::query().filter(NullableRow::note.eq(None::<String>)).all(&tx).await?;
     assert_eq!(null_rows.len(), 2);
     assert!(null_rows.iter().all(|row| row.note.is_none()));
 

@@ -41,12 +41,12 @@ where
     }
 }
 
-impl<T> ColumnValue<T> for Option<T>
+impl<T> ColumnValue<Option<T>> for Option<T>
 where
     T: Into<Value>,
 {
     fn into_value(self) -> Option<Value> {
-        self.map(Into::into)
+        Some(self.map_or(Value::Null, Into::into))
     }
 }
 
@@ -86,6 +86,12 @@ where
 impl ColumnValue<Option<String>> for &str {
     fn into_value(self) -> Option<Value> {
         Some(Value::String(self.to_string()))
+    }
+}
+
+impl ColumnValue<Option<String>> for Option<&str> {
+    fn into_value(self) -> Option<Value> {
+        Some(self.map_or(Value::Null, |value| Value::String(value.to_string())))
     }
 }
 
@@ -194,18 +200,6 @@ impl From<PgInterval> for Value {
 impl<const N: usize> From<PgVector<N>> for Value {
     fn from(value: PgVector<N>) -> Self {
         Self::Vector(value.to_vec())
-    }
-}
-
-impl<T> From<Option<T>> for Value
-where
-    T: Into<Value>,
-{
-    fn from(value: Option<T>) -> Self {
-        match value {
-            Some(v) => v.into(),
-            None => Self::Null,
-        }
     }
 }
 
@@ -396,6 +390,15 @@ pub struct ExprComparisonMarker;
 pub trait ComparisonValue<T, Marker = ValueComparisonMarker> {
     fn into_comparison_expr(self) -> Expr<T>;
 }
+
+#[doc(hidden)]
+pub trait CompatibleColumn<Rhs> {}
+
+impl<T> CompatibleColumn<T> for T {}
+
+impl<T> CompatibleColumn<Option<T>> for T {}
+
+impl<T> CompatibleColumn<T> for Option<T> {}
 
 pub trait SqlAdd<Rhs> {
     type Output;
@@ -991,7 +994,10 @@ where
         }
     }
 
-    pub fn eq_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Eq,
@@ -1020,7 +1026,10 @@ where
         }
     }
 
-    pub fn ne_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Ne,
@@ -1028,7 +1037,10 @@ where
         })
     }
 
-    pub fn is_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::IsDistinctFrom,
@@ -1036,7 +1048,10 @@ where
         })
     }
 
-    pub fn is_not_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_not_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::IsNotDistinctFrom,
@@ -1055,7 +1070,10 @@ where
         })
     }
 
-    pub fn lt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Lt,
@@ -1074,7 +1092,10 @@ where
         })
     }
 
-    pub fn le_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Le,
@@ -1093,7 +1114,10 @@ where
         })
     }
 
-    pub fn gt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Gt,
@@ -1112,7 +1136,10 @@ where
         })
     }
 
-    pub fn ge_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Ge,
@@ -1249,7 +1276,10 @@ where
         }
     }
 
-    pub fn eq_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Eq,
@@ -1257,7 +1287,10 @@ where
         })
     }
 
-    pub fn ne_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ne,
@@ -1265,7 +1298,10 @@ where
         })
     }
 
-    pub fn is_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::IsDistinctFrom,
@@ -1273,7 +1309,10 @@ where
         })
     }
 
-    pub fn is_not_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_not_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::IsNotDistinctFrom,
@@ -1313,7 +1352,10 @@ where
         })
     }
 
-    pub fn lt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Lt,
@@ -1332,7 +1374,10 @@ where
         })
     }
 
-    pub fn le_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Le,
@@ -1351,7 +1396,10 @@ where
         })
     }
 
-    pub fn gt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Gt,
@@ -1370,7 +1418,10 @@ where
         })
     }
 
-    pub fn ge_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ge,
@@ -1380,18 +1431,18 @@ where
 
     pub fn between<L, U>(self, low: L, high: U) -> Expr<bool>
     where
-        L: Into<Value>,
-        U: Into<Value>,
+        L: ColumnValue<T>,
+        U: ColumnValue<T>,
     {
         let left = ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ge,
-            right: Box::new(ExprNode::Value(low.into())),
+            right: Box::new(ExprNode::Value(low.into_value().unwrap_or(Value::Null))),
         };
         let right = ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Le,
-            right: Box::new(ExprNode::Value(high.into())),
+            right: Box::new(ExprNode::Value(high.into_value().unwrap_or(Value::Null))),
         };
         Expr::new(ExprNode::Bool {
             left: Box::new(left),
@@ -1402,22 +1453,22 @@ where
 
     pub fn like<V>(self, pattern: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
             expr: Box::new(ExprNode::Column(self.as_ref())),
-            pattern: pattern.into(),
+            pattern: pattern.into_value().unwrap_or(Value::Null),
             case_insensitive: false,
         })
     }
 
     pub fn ilike<V>(self, pattern: V) -> Expr<bool>
     where
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
             expr: Box::new(ExprNode::Column(self.as_ref())),
-            pattern: pattern.into(),
+            pattern: pattern.into_value().unwrap_or(Value::Null),
             case_insensitive: true,
         })
     }
@@ -1425,11 +1476,11 @@ where
     pub fn in_<I, V>(self, values: I) -> Expr<bool>
     where
         I: IntoIterator<Item = V>,
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
         Expr::new(ExprNode::In {
             expr: Box::new(ExprNode::Column(self.as_ref())),
-            values: values.into_iter().map(Into::into).collect(),
+            values: values.into_iter().map(|value| value.into_value().unwrap_or(Value::Null)).collect(),
         })
     }
 

@@ -246,39 +246,38 @@ impl<'r, const N: usize> sqlx::Decode<'r, sqlx::Postgres> for PgVector<N> {
     }
 }
 
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Nullable;
+
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NonNullable;
+
 #[derive(Debug, Clone, PartialEq)]
-pub enum ActiveValue<T> {
+pub enum ActiveValue<T, Nullability = Nullable> {
     Unset,
     Set(T),
     Unchanged(T),
     UnchangedNull,
     Null,
+    #[doc(hidden)]
+    __Marker(std::marker::PhantomData<Nullability>),
 }
 
-impl<T> Default for ActiveValue<T> {
+impl<T, Nullability> Default for ActiveValue<T, Nullability> {
     fn default() -> Self {
         Self::Unset
     }
 }
 
-impl<T> ActiveValue<T> {
+impl<T, Nullability> ActiveValue<T, Nullability> {
     pub fn set(&mut self, value: T) {
         *self = Self::Set(value);
     }
 
     pub fn unchanged(value: T) -> Self {
         Self::Unchanged(value)
-    }
-
-    pub fn unchanged_option(value: Option<T>) -> Self {
-        match value {
-            Some(value) => Self::Unchanged(value),
-            None => Self::UnchangedNull,
-        }
-    }
-
-    pub fn set_null(&mut self) {
-        *self = Self::Null;
     }
 
     pub fn is_unset(&self) -> bool {
@@ -290,13 +289,26 @@ impl<T> ActiveValue<T> {
     }
 }
 
-impl<T> From<T> for ActiveValue<T> {
+impl<T> ActiveValue<T, Nullable> {
+    pub fn unchanged_option(value: Option<T>) -> Self {
+        match value {
+            Some(value) => Self::Unchanged(value),
+            None => Self::UnchangedNull,
+        }
+    }
+
+    pub fn set_null(&mut self) {
+        *self = Self::Null;
+    }
+}
+
+impl<T, Nullability> From<T> for ActiveValue<T, Nullability> {
     fn from(value: T) -> Self {
         Self::Set(value)
     }
 }
 
-impl<T> From<Option<T>> for ActiveValue<T> {
+impl<T> From<Option<T>> for ActiveValue<T, Nullable> {
     fn from(value: Option<T>) -> Self {
         match value {
             Some(value) => Self::Set(value),
@@ -305,7 +317,7 @@ impl<T> From<Option<T>> for ActiveValue<T> {
     }
 }
 
-impl From<&str> for ActiveValue<String> {
+impl<Nullability> From<&str> for ActiveValue<String, Nullability> {
     fn from(value: &str) -> Self {
         Self::Set(value.to_string())
     }

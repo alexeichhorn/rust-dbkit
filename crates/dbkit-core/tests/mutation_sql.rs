@@ -109,7 +109,7 @@ fn compiles_insert_returning_all() {
 
 #[test]
 fn compiles_insert_with_null() {
-    let query: Insert<User> = Insert::new(user_table()).value(user_email(), None).returning_all();
+    let query: Insert<User> = Insert::new(user_table()).value(user_email(), None::<String>).returning_all();
 
     let sql = query.compile();
     assert_eq!(sql.sql, "INSERT INTO users (email) VALUES (NULL) RETURNING users.*");
@@ -325,7 +325,7 @@ fn compiles_update_with_composite_key_filters() {
 #[test]
 fn compiles_update_set_null() {
     let query: Update<User> = Update::new(user_table())
-        .set(user_email(), None)
+        .set(user_email(), None::<String>)
         .filter(user_id().eq(1_i64))
         .returning_all();
 
