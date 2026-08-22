@@ -875,7 +875,10 @@ where
     })
 }
 
-pub fn least<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+pub fn least<L, R>(a: impl IntoExpr<L>, b: impl IntoExpr<R>) -> Expr<<L as CoalesceOutput<R>>::Output>
+where
+    L: CoalesceOutput<R>,
+{
     let left = a.into_expr();
     let right = b.into_expr();
     Expr::new(ExprNode::Func {
@@ -884,7 +887,10 @@ pub fn least<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     })
 }
 
-pub fn greatest<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+pub fn greatest<L, R>(a: impl IntoExpr<L>, b: impl IntoExpr<R>) -> Expr<<L as CoalesceOutput<R>>::Output>
+where
+    L: CoalesceOutput<R>,
+{
     let left = a.into_expr();
     let right = b.into_expr();
     Expr::new(ExprNode::Func {
