@@ -171,6 +171,16 @@ fn compiles_ne_none_as_is_not_null() {
 }
 
 #[test]
+fn compiles_power_with_nullable_numeric_column() {
+    let powered: Expr<Option<f64>> = func::power(user_score(), 2_i64);
+    let query: Select<User> = Select::new(user_table()).select_only().column_as(powered, "powered");
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT POWER(users.score, $1) AS powered FROM users");
+    assert_eq!(sql.binds, vec![Value::I64(2)]);
+}
+
+#[test]
 fn compiles_nullable_ordered_comparisons_with_optional_values() {
     let some_sql = expr_sql(user_score().lt(Some(5_i64)));
     assert_eq!(some_sql.sql, "SELECT users.* FROM users WHERE (users.score < $1)");

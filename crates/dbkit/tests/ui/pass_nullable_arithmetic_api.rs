@@ -26,6 +26,8 @@ pub struct NullableArithmeticRow {
 
 fn assert_i32(_: Expr<i32>) {}
 
+fn assert_f64(_: Expr<f64>) {}
+
 fn assert_nullable_i32(_: Expr<Option<i32>>) {}
 
 fn assert_nullable_i64(_: Expr<Option<i64>>) {}
@@ -37,6 +39,10 @@ fn assert_nullable_f64(_: Expr<Option<f64>>) {}
 fn assert_nullable_naive(_: Expr<Option<NaiveDateTime>>) {}
 
 fn assert_nullable_utc(_: Expr<Option<DateTime<Utc>>>) {}
+
+fn assert_interval(_: Expr<PgInterval>) {}
+
+fn assert_nullable_interval(_: Expr<Option<PgInterval>>) {}
 
 fn main() {
     // Required arithmetic remains required.
@@ -73,6 +79,33 @@ fn main() {
     assert_nullable_i64(NullableArithmeticRow::nullable_i64 + NullableArithmeticRow::required_i64);
     assert_nullable_f32(NullableArithmeticRow::required_f32 - NullableArithmeticRow::nullable_f32);
     assert_nullable_f64(NullableArithmeticRow::nullable_f64 * NullableArithmeticRow::nullable_f64);
+
+    // Numeric functions propagate NULL from either operand.
+    assert_f64(dbkit::func::power(NullableArithmeticRow::required_f64, 2_f64));
+    assert_nullable_f64(dbkit::func::power(NullableArithmeticRow::nullable_i16, 2_i16));
+    assert_nullable_f64(dbkit::func::power(NullableArithmeticRow::nullable_i32, 2_i32));
+    assert_nullable_f64(dbkit::func::power(NullableArithmeticRow::nullable_i64, 2_i64));
+    assert_nullable_f64(dbkit::func::power(NullableArithmeticRow::nullable_f32, 2_f32));
+    assert_nullable_f64(dbkit::func::power(NullableArithmeticRow::nullable_f64, 2_f64));
+    assert_nullable_f64(dbkit::func::power(
+        NullableArithmeticRow::required_i32,
+        NullableArithmeticRow::nullable_i32,
+    ));
+    assert_nullable_f64(dbkit::func::power(
+        NullableArithmeticRow::nullable_i32,
+        NullableArithmeticRow::nullable_i32,
+    ));
+
+    // Interval constructors preserve the input's nullability.
+    assert_interval(dbkit::interval::hours(NullableArithmeticRow::required_i32));
+    assert_nullable_interval(dbkit::interval::days(NullableArithmeticRow::nullable_i32));
+    assert_nullable_interval(dbkit::interval::hours(NullableArithmeticRow::nullable_i32));
+    assert_nullable_interval(dbkit::interval::minutes(NullableArithmeticRow::nullable_i32));
+    assert_nullable_interval(dbkit::interval::seconds(NullableArithmeticRow::nullable_i16));
+    assert_nullable_interval(dbkit::interval::seconds(NullableArithmeticRow::nullable_i32));
+    assert_nullable_interval(dbkit::interval::seconds(NullableArithmeticRow::nullable_i64));
+    assert_nullable_interval(dbkit::interval::seconds(NullableArithmeticRow::nullable_f32));
+    assert_nullable_interval(dbkit::interval::seconds(NullableArithmeticRow::nullable_f64));
 
     // Nullable arithmetic remains nullable when expressions are nested on either side.
     assert_nullable_i32(
