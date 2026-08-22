@@ -381,6 +381,9 @@ pub struct ValueComparisonMarker;
 #[doc(hidden)]
 pub struct ExprComparisonMarker;
 
+#[doc(hidden)]
+pub struct OptionalValueComparisonMarker;
+
 pub trait ComparisonValue<T, Marker = ValueComparisonMarker> {
     fn into_comparison_expr(self) -> Expr<T>;
 }
@@ -538,6 +541,15 @@ where
 {
     fn into_comparison_expr(self) -> Expr<T> {
         Expr::new(ExprNode::Value(self.into()))
+    }
+}
+
+impl<T> ComparisonValue<Option<T>, OptionalValueComparisonMarker> for Option<T>
+where
+    T: Into<Value>,
+{
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(ExprNode::Value(self.map_or(Value::Null, Into::into)))
     }
 }
 
