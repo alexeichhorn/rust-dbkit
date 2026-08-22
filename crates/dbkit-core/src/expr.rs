@@ -876,34 +876,46 @@ impl_nullable_arithmetic_op!(SqlSub, chrono::NaiveDateTime, PgInterval, chrono::
 impl_nullable_arithmetic_op!(SqlAdd, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
 impl_nullable_arithmetic_op!(SqlSub, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
 
-impl<Kind> Add<Expr<PgInterval, Kind>> for chrono::NaiveDateTime {
-    type Output = Expr<chrono::NaiveDateTime>;
+impl<Rhs, Kind> Add<Expr<Rhs, Kind>> for chrono::NaiveDateTime
+where
+    chrono::NaiveDateTime: SqlAdd<Rhs>,
+{
+    type Output = Expr<<chrono::NaiveDateTime as SqlAdd<Rhs>>::Output>;
 
-    fn add(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+    fn add(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
-impl<Kind> Sub<Expr<PgInterval, Kind>> for chrono::NaiveDateTime {
-    type Output = Expr<chrono::NaiveDateTime>;
+impl<Rhs, Kind> Sub<Expr<Rhs, Kind>> for chrono::NaiveDateTime
+where
+    chrono::NaiveDateTime: SqlSub<Rhs>,
+{
+    type Output = Expr<<chrono::NaiveDateTime as SqlSub<Rhs>>::Output>;
 
-    fn sub(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+    fn sub(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
 
-impl<Kind> Add<Expr<PgInterval, Kind>> for chrono::DateTime<chrono::Utc> {
-    type Output = Expr<chrono::DateTime<chrono::Utc>>;
+impl<Rhs, Kind> Add<Expr<Rhs, Kind>> for chrono::DateTime<chrono::Utc>
+where
+    chrono::DateTime<chrono::Utc>: SqlAdd<Rhs>,
+{
+    type Output = Expr<<chrono::DateTime<chrono::Utc> as SqlAdd<Rhs>>::Output>;
 
-    fn add(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+    fn add(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
-impl<Kind> Sub<Expr<PgInterval, Kind>> for chrono::DateTime<chrono::Utc> {
-    type Output = Expr<chrono::DateTime<chrono::Utc>>;
+impl<Rhs, Kind> Sub<Expr<Rhs, Kind>> for chrono::DateTime<chrono::Utc>
+where
+    chrono::DateTime<chrono::Utc>: SqlSub<Rhs>,
+{
+    type Output = Expr<<chrono::DateTime<chrono::Utc> as SqlSub<Rhs>>::Output>;
 
-    fn sub(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+    fn sub(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
