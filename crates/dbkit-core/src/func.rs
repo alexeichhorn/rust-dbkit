@@ -893,10 +893,46 @@ pub fn greatest<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     })
 }
 
-pub fn power<B, E>(base: impl IntoExpr<B>, exponent: impl IntoExpr<E>) -> Expr<f64>
+#[doc(hidden)]
+pub trait PowerOutput<Rhs> {
+    type Output;
+}
+
+impl<B, E> PowerOutput<E> for B
 where
     B: NumericExprType,
     E: NumericExprType,
+{
+    type Output = f64;
+}
+
+impl<B, E> PowerOutput<E> for Option<B>
+where
+    B: NumericExprType,
+    E: NumericExprType,
+{
+    type Output = Option<f64>;
+}
+
+impl<B, E> PowerOutput<Option<E>> for B
+where
+    B: NumericExprType,
+    E: NumericExprType,
+{
+    type Output = Option<f64>;
+}
+
+impl<B, E> PowerOutput<Option<E>> for Option<B>
+where
+    B: NumericExprType,
+    E: NumericExprType,
+{
+    type Output = Option<f64>;
+}
+
+pub fn power<B, E>(base: impl IntoExpr<B>, exponent: impl IntoExpr<E>) -> Expr<<B as PowerOutput<E>>::Output>
+where
+    B: PowerOutput<E>,
 {
     let base = base.into_expr();
     let exponent = exponent.into_expr();
