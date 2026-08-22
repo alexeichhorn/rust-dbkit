@@ -971,9 +971,34 @@ pub trait VectorExpr<const N: usize> {}
 impl<const N: usize> VectorExpr<N> for PgVector<N> {}
 impl<const N: usize> VectorExpr<N> for Option<PgVector<N>> {}
 
-fn vector_binary_fn<const N: usize, L, R>(name: &'static str, left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+#[doc(hidden)]
+pub trait VectorOutput<Rhs, const N: usize> {
+    type Output;
+}
+
+impl<const N: usize> VectorOutput<PgVector<N>, N> for PgVector<N> {
+    type Output = f32;
+}
+
+impl<const N: usize> VectorOutput<Option<PgVector<N>>, N> for PgVector<N> {
+    type Output = Option<f32>;
+}
+
+impl<const N: usize> VectorOutput<PgVector<N>, N> for Option<PgVector<N>> {
+    type Output = Option<f32>;
+}
+
+impl<const N: usize> VectorOutput<Option<PgVector<N>>, N> for Option<PgVector<N>> {
+    type Output = Option<f32>;
+}
+
+fn vector_binary_fn<const N: usize, L, R>(
+    name: &'static str,
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     let left = left.into_expr();
@@ -984,9 +1009,13 @@ where
     })
 }
 
-fn vector_binary_operator<const N: usize, L, R>(op: VectorBinaryOp, left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+fn vector_binary_operator<const N: usize, L, R>(
+    op: VectorBinaryOp,
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     let left = left.into_expr();
@@ -1005,9 +1034,9 @@ where
 /// ANN note:
 /// - This form is operator-based and can use pgvector ivfflat/hnsw indexes for
 ///   `ORDER BY ... LIMIT` nearest-neighbor queries.
-pub fn l2_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn l2_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::L2Distance, left, right)
@@ -1020,9 +1049,9 @@ where
 /// ANN note:
 /// - This form is operator-based and can use pgvector ivfflat/hnsw indexes for
 ///   `ORDER BY ... LIMIT` nearest-neighbor queries.
-pub fn cosine_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn cosine_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::CosineDistance, left, right)
@@ -1037,9 +1066,9 @@ where
 ///   but function expressions are generally not pgvector ANN index-compatible for
 ///   `ORDER BY ... LIMIT`.
 /// - For ANN-indexed retrieval, use [`inner_product_distance`] with `ORDER BY ASC`.
-pub fn inner_product<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn inner_product<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_fn::<N, L, R>("INNER_PRODUCT", left, right)
@@ -1052,9 +1081,9 @@ where
 /// ANN note:
 /// - This form is operator-based and can use pgvector ivfflat/hnsw indexes for
 ///   `ORDER BY ... LIMIT` nearest-neighbor queries.
-pub fn l1_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn l1_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::L1Distance, left, right)
@@ -1070,9 +1099,12 @@ where
 /// - Thresholds are inverted relative to true inner product
 ///   (for example `inner_product > 0.9` corresponds to
 ///   `inner_product_distance < -0.9`).
-pub fn inner_product_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn inner_product_distance<const N: usize, L, R>(
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::InnerProductDistance, left, right)
