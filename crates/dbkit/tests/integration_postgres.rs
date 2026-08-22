@@ -1244,6 +1244,29 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
     assert_eq!(combined_match.len(), 1);
     assert_eq!(combined_match[0].id, row1.id);
 
+    let greatest_fallback = FuncRow::query()
+        .filter(dbkit::func::greatest(FuncRow::email, "").eq(""))
+        .all(&tx)
+        .await?;
+    let mut greatest_fallback_ids: Vec<i64> = greatest_fallback.iter().map(|row| row.id).collect();
+    greatest_fallback_ids.sort();
+    assert_eq!(greatest_fallback_ids, vec![row2.id, row3.id]);
+
+    let least_fallback = FuncRow::query()
+        .filter(dbkit::func::least("zzzz", FuncRow::email).eq("zzzz"))
+        .all(&tx)
+        .await?;
+    let mut least_fallback_ids: Vec<i64> = least_fallback.iter().map(|row| row.id).collect();
+    least_fallback_ids.sort();
+    assert_eq!(least_fallback_ids, vec![row2.id, row3.id]);
+
+    let both_null = FuncRow::query()
+        .filter(dbkit::func::greatest(FuncRow::email, FuncRow::backup_email).is_null())
+        .all(&tx)
+        .await?;
+    assert_eq!(both_null.len(), 1);
+    assert_eq!(both_null[0].id, row3.id);
+
     let _ = later_start;
 
     Ok(())

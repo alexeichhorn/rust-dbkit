@@ -181,6 +181,25 @@ fn compiles_power_with_nullable_numeric_column() {
 }
 
 #[test]
+fn compiles_greatest_and_least_with_nullable_operands() {
+    let lower_bounded: Expr<i64> = func::greatest(user_score(), 0_i64);
+    let upper_bounded: Expr<i64> = func::least(100_i64, user_score());
+    let nullable: Expr<Option<i64>> = func::greatest(user_score(), user_score());
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(lower_bounded, "lower_bounded")
+        .column_as(upper_bounded, "upper_bounded")
+        .column_as(nullable, "nullable");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT GREATEST(users.score, $1) AS lower_bounded, LEAST($2, users.score) AS upper_bounded, GREATEST(users.score, users.score) AS nullable FROM users"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(0), Value::I64(100)]);
+}
+
+#[test]
 fn compiles_nullable_ordered_comparisons_with_optional_values() {
     let some_sql = expr_sql(user_score().lt(Some(5_i64)));
     assert_eq!(some_sql.sql, "SELECT users.* FROM users WHERE (users.score < $1)");

@@ -24,6 +24,10 @@ fn assert_string(_: dbkit::Expr<String>) {}
 
 fn assert_nullable_string(_: dbkit::Expr<Option<String>>) {}
 
+fn assert_i32(_: dbkit::Expr<i32>) {}
+
+fn assert_nullable_i32(_: dbkit::Expr<Option<i32>>) {}
+
 fn assert_bool(_: dbkit::Expr<bool>) {}
 
 fn main() {
@@ -80,6 +84,35 @@ fn main() {
     assert_string(dbkit::func::coalesce(NullabilityRow::required_text, NullabilityRow::nullable_text));
     assert_nullable_string(dbkit::func::coalesce(NullabilityRow::nullable_text, NullabilityRow::nullable_text));
     assert_string(dbkit::func::coalesce(NullabilityRow::required_text, NullabilityRow::required_text));
+
+    // PostgreSQL GREATEST and LEAST ignore NULL arguments, so one required argument guarantees a required result.
+    assert_i32(dbkit::func::greatest(
+        NullabilityRow::required_count,
+        NullabilityRow::required_count,
+    ));
+    assert_i32(dbkit::func::least(NullabilityRow::required_count, NullabilityRow::required_count));
+    assert_i32(dbkit::func::greatest(NullabilityRow::nullable_count, 0_i32));
+    assert_i32(dbkit::func::greatest(0_i32, NullabilityRow::nullable_count));
+    assert_i32(dbkit::func::least(NullabilityRow::nullable_count, 100_i32));
+    assert_i32(dbkit::func::least(100_i32, NullabilityRow::nullable_count));
+    assert_i32(dbkit::func::greatest(
+        NullabilityRow::nullable_count,
+        NullabilityRow::required_count,
+    ));
+    assert_i32(dbkit::func::greatest(
+        NullabilityRow::required_count,
+        NullabilityRow::nullable_count,
+    ));
+    assert_i32(dbkit::func::least(NullabilityRow::required_count, NullabilityRow::nullable_count));
+    assert_i32(dbkit::func::least(NullabilityRow::nullable_count, NullabilityRow::required_count));
+    assert_nullable_i32(dbkit::func::greatest(
+        NullabilityRow::nullable_count,
+        NullabilityRow::nullable_limit,
+    ));
+    assert_nullable_i32(dbkit::func::least(NullabilityRow::nullable_count, NullabilityRow::nullable_limit));
+    assert_string(dbkit::func::greatest(NullabilityRow::nullable_text, "fallback"));
+    assert_nullable_string(dbkit::func::least(NullabilityRow::nullable_text, NullabilityRow::nullable_text));
+
     assert_bool(dbkit::func::lower(NullabilityRow::required_text).eq_col(NullabilityRow::nullable_text));
     assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq_col(NullabilityRow::required_text));
 
