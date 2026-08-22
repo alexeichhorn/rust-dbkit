@@ -1,4 +1,4 @@
-use dbkit_core::{func, Column, Order, Select, Table, Value};
+use dbkit_core::{func, Column, Expr, Order, Select, Table, Value};
 
 #[test]
 fn value_from_pgvector() {
@@ -108,10 +108,11 @@ fn select_compiles_optional_vector_distance_operator() {
     let table = Table::new("embedding_rows");
     let optional_embedding_col: Column<(), Option<dbkit_core::PgVector<3>>> = Column::new(table, "embedding_optional");
     let query = dbkit_core::PgVector::<3>::new([0.2, 0.3, 0.4]).expect("vector");
+    let distance: Expr<Option<f32>> = func::cosine_distance(optional_embedding_col.clone(), query);
 
     let compiled = Select::<()>::new(table)
         .filter(optional_embedding_col.clone().is_not_null())
-        .order_by(Order::asc(func::cosine_distance(optional_embedding_col, query)))
+        .order_by(Order::asc(distance))
         .limit(5)
         .compile();
 

@@ -1,5 +1,5 @@
 //@check-pass
-use dbkit::model;
+use dbkit::{model, Expr};
 
 #[model(table = "embedding_rows")]
 pub struct EmbeddingRow {
@@ -10,9 +10,29 @@ pub struct EmbeddingRow {
     pub embedding_optional: Option<dbkit::PgVector<3>>,
 }
 
+fn assert_f32(_: Expr<f32>) {}
+
+fn assert_nullable_f32(_: Expr<Option<f32>>) {}
+
 fn main() {
     let query = dbkit::PgVector::<3>::new([1.0, 0.0, 0.0]).expect("vector");
     let replacement = dbkit::PgVector::<3>::new([0.0, 1.0, 0.0]).expect("vector");
+
+    assert_f32(dbkit::func::l2_distance(EmbeddingRow::embedding, query.clone()));
+    assert_f32(dbkit::func::cosine_distance(EmbeddingRow::embedding, query.clone()));
+    assert_f32(dbkit::func::inner_product(EmbeddingRow::embedding, query.clone()));
+    assert_f32(dbkit::func::l1_distance(EmbeddingRow::embedding, query.clone()));
+    assert_f32(dbkit::func::inner_product_distance(EmbeddingRow::embedding, query.clone()));
+    assert_nullable_f32(dbkit::func::l2_distance(EmbeddingRow::embedding_optional, query.clone()));
+    assert_nullable_f32(dbkit::func::cosine_distance(EmbeddingRow::embedding_optional, query.clone()));
+    assert_nullable_f32(dbkit::func::inner_product(EmbeddingRow::embedding_optional, query.clone()));
+    assert_nullable_f32(dbkit::func::l1_distance(EmbeddingRow::embedding_optional, query.clone()));
+    assert_nullable_f32(dbkit::func::inner_product_distance(EmbeddingRow::embedding_optional, query.clone()));
+    assert_nullable_f32(dbkit::func::l2_distance(query.clone(), EmbeddingRow::embedding_optional));
+    assert_nullable_f32(dbkit::func::cosine_distance(
+        EmbeddingRow::embedding_optional,
+        EmbeddingRow::embedding_optional,
+    ));
 
     let _query = EmbeddingRow::query()
         .filter(EmbeddingRow::embedding.eq(query.clone()))
@@ -20,10 +40,7 @@ fn main() {
         .filter(dbkit::func::l2_distance(EmbeddingRow::embedding, query.clone()).lt(0.5_f32))
         .filter(dbkit::func::cosine_distance(EmbeddingRow::embedding, query.clone()).lt(0.2_f32))
         .filter(dbkit::func::inner_product(EmbeddingRow::embedding, query.clone()).gt(0.8_f32))
-        .order_by(dbkit::Order::asc(dbkit::func::l1_distance(
-            EmbeddingRow::embedding,
-            query,
-        )));
+        .order_by(dbkit::Order::asc(dbkit::func::l1_distance(EmbeddingRow::embedding, query)));
 
     let _insert = EmbeddingRow::insert(EmbeddingRowInsert {
         id: 1,
