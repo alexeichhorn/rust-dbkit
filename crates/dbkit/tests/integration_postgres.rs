@@ -1047,7 +1047,7 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     assert_eq!(updated[0].note.as_deref(), Some("direct"));
 
     let updated = NullableRow::update()
-        .set(NullableRow::note, "optional")
+        .set(NullableRow::note, Some("optional".to_string()))
         .filter(NullableRow::id.eq(some_row.id))
         .returning_all()
         .all(&tx)
@@ -1062,7 +1062,7 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     assert_eq!(direct_match.id, some_row.id);
 
     let optional_match = NullableRow::query()
-        .filter(NullableRow::note.eq("optional"))
+        .filter(NullableRow::note.eq(Some("optional".to_string())))
         .one(&tx)
         .await?
         .expect("optional nullable value match");
