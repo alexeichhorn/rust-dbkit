@@ -9,6 +9,7 @@ pub struct NullabilityRow {
     pub nullable_text: Option<String>,
     pub required_count: i32,
     pub nullable_count: Option<i32>,
+    pub nullable_limit: Option<i32>,
 }
 
 fn assert_required_text_column(_: dbkit::Column<NullabilityRow, String>) {}
@@ -30,6 +31,7 @@ fn main() {
     assert_nullable_text_column(NullabilityRow::nullable_text);
     assert_required_count_column(NullabilityRow::required_count);
     assert_nullable_count_column(NullabilityRow::nullable_count);
+    assert_nullable_count_column(NullabilityRow::nullable_limit);
 
     assert_bool(NullabilityRow::required_text.eq("required"));
     assert_bool(NullabilityRow::required_text.eq("owned required".to_string()));
@@ -65,6 +67,10 @@ fn main() {
     assert_bool(NullabilityRow::nullable_count.le_col(NullabilityRow::required_count));
     assert_bool(NullabilityRow::required_count.gt_col(NullabilityRow::nullable_count));
     assert_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::required_count));
+    assert_bool(NullabilityRow::nullable_count.lt_col(NullabilityRow::nullable_limit));
+    assert_bool(NullabilityRow::nullable_count.le_col(NullabilityRow::nullable_limit));
+    assert_bool(NullabilityRow::nullable_count.gt_col(NullabilityRow::nullable_limit));
+    assert_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::nullable_limit));
 
     assert_string(dbkit::func::lower(NullabilityRow::required_text));
     assert_nullable_string(dbkit::func::lower(NullabilityRow::nullable_text));
@@ -83,6 +89,7 @@ fn main() {
         nullable_text: None,
         required_count: 1,
         nullable_count: Some(2),
+        nullable_limit: None,
     });
 
     let _insert_values = dbkit::Insert::<NullabilityRow>::new(NullabilityRow::TABLE)

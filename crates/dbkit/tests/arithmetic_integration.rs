@@ -372,3 +372,54 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
 
     Ok(())
 }
+
+#[tokio::test]
+async fn nullable_ordered_column_comparisons_exclude_null_operands() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_nullable_arithmetic_schema(&tx).await?;
+
+    tx.execute(
+        "INSERT INTO nullable_arithmetic_records \
+            (required_value, nullable_left, nullable_right, required_at, nullable_at, required_interval, nullable_interval) \
+         VALUES \
+            (0, 4, 2, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (0, 1, 2, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (0, 3, 3, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (0, NULL, 2, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (0, 4, NULL, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (0, NULL, NULL, NOW(), NULL, INTERVAL '1 hour', NULL)",
+        PgArguments::default(),
+    )
+    .await?;
+
+    let less = NullableArithmeticRecord::query()
+        .filter(NullableArithmeticRecord::nullable_left.lt_col(NullableArithmeticRecord::nullable_right))
+        .order_by(Order::asc(NullableArithmeticRecord::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(less.iter().map(|row| row.id).collect::<Vec<_>>(), vec![2]);
+
+    let less_or_equal = NullableArithmeticRecord::query()
+        .filter(NullableArithmeticRecord::nullable_left.le_col(NullableArithmeticRecord::nullable_right))
+        .order_by(Order::asc(NullableArithmeticRecord::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(less_or_equal.iter().map(|row| row.id).collect::<Vec<_>>(), vec![2, 3]);
+
+    let greater = NullableArithmeticRecord::query()
+        .filter(NullableArithmeticRecord::nullable_left.gt_col(NullableArithmeticRecord::nullable_right))
+        .order_by(Order::asc(NullableArithmeticRecord::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(greater.iter().map(|row| row.id).collect::<Vec<_>>(), vec![1]);
+
+    let greater_or_equal = NullableArithmeticRecord::query()
+        .filter(NullableArithmeticRecord::nullable_left.ge_col(NullableArithmeticRecord::nullable_right))
+        .order_by(Order::asc(NullableArithmeticRecord::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(greater_or_equal.iter().map(|row| row.id).collect::<Vec<_>>(), vec![1, 3]);
+
+    Ok(())
+}
