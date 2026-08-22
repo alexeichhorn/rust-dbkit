@@ -37,6 +37,14 @@ fn main() {
     assert_bool(NullabilityRow::nullable_text.eq("owned".to_string()));
     assert_bool(NullabilityRow::nullable_text.eq(Some("owned".to_string())));
     assert_bool(NullabilityRow::nullable_text.eq(None));
+    assert_bool(NullabilityRow::nullable_count.lt(Some(5_i32)));
+    assert_bool(NullabilityRow::nullable_count.lt(None));
+    assert_bool(NullabilityRow::nullable_count.le(Some(5_i32)));
+    assert_bool(NullabilityRow::nullable_count.le(None));
+    assert_bool(NullabilityRow::nullable_count.gt(Some(5_i32)));
+    assert_bool(NullabilityRow::nullable_count.gt(None));
+    assert_bool(NullabilityRow::nullable_count.ge(Some(5_i32)));
+    assert_bool(NullabilityRow::nullable_count.ge(None));
 
     let _filters = NullabilityRow::query()
         .filter(NullabilityRow::required_text.ne("other"))

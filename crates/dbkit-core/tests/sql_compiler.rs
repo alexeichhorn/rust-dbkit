@@ -35,6 +35,10 @@ fn user_backup_email() -> Column<User, Option<String>> {
     Column::new(user_table(), "backup_email")
 }
 
+fn user_score() -> Column<User, Option<i64>> {
+    Column::new(user_table(), "score")
+}
+
 fn event_table() -> Table {
     Table::new("events")
 }
@@ -164,6 +168,17 @@ fn compiles_ne_none_as_is_not_null() {
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NOT NULL)");
     assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_nullable_ordered_comparisons_with_optional_values() {
+    let some_sql = expr_sql(user_score().lt(Some(5_i64)));
+    assert_eq!(some_sql.sql, "SELECT users.* FROM users WHERE (users.score < $1)");
+    assert_eq!(some_sql.binds, vec![Value::I64(5)]);
+
+    let none_sql = expr_sql(user_score().ge(None));
+    assert_eq!(none_sql.sql, "SELECT users.* FROM users WHERE (users.score >= NULL)");
+    assert!(none_sql.binds.is_empty());
 }
 
 #[test]
