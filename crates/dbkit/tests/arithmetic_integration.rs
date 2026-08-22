@@ -48,6 +48,8 @@ struct NullableArithmeticResult {
     nullable_time_required_interval: Option<NaiveDateTime>,
     required_time_nullable_interval: Option<NaiveDateTime>,
     nullable_time_nullable_interval: Option<NaiveDateTime>,
+    literal_time_plus_nullable_interval: Option<NaiveDateTime>,
+    literal_time_minus_nullable_interval: Option<NaiveDateTime>,
 }
 
 fn db_url() -> String {
@@ -315,6 +317,14 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
             NullableArithmeticRecord::nullable_at + NullableArithmeticRecord::nullable_interval,
             "nullable_time_nullable_interval",
         )
+        .column_as(
+            base + dbkit::interval::hours(NullableArithmeticRecord::nullable_left),
+            "literal_time_plus_nullable_interval",
+        )
+        .column_as(
+            base - dbkit::interval::hours(NullableArithmeticRecord::nullable_right),
+            "literal_time_minus_nullable_interval",
+        )
         .order_by(Order::asc(NullableArithmeticRecord::id))
         .into_model()
         .all(&tx)
@@ -329,6 +339,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[0].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[0].required_time_nullable_interval, Some(base - Duration::hours(2)));
     assert_eq!(rows[0].nullable_time_nullable_interval, Some(base + Duration::hours(2)));
+    assert_eq!(rows[0].literal_time_plus_nullable_interval, Some(base + Duration::hours(4)));
+    assert_eq!(rows[0].literal_time_minus_nullable_interval, Some(base - Duration::hours(2)));
 
     assert_eq!(rows[1].added, None);
     assert_eq!(rows[1].subtracted, Some(8));
@@ -337,6 +349,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[1].nullable_time_required_interval, None);
     assert_eq!(rows[1].required_time_nullable_interval, Some(base - Duration::hours(2)));
     assert_eq!(rows[1].nullable_time_nullable_interval, None);
+    assert_eq!(rows[1].literal_time_plus_nullable_interval, None);
+    assert_eq!(rows[1].literal_time_minus_nullable_interval, Some(base - Duration::hours(2)));
 
     assert_eq!(rows[2].added, Some(14));
     assert_eq!(rows[2].subtracted, None);
@@ -345,6 +359,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[2].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[2].required_time_nullable_interval, None);
     assert_eq!(rows[2].nullable_time_nullable_interval, None);
+    assert_eq!(rows[2].literal_time_plus_nullable_interval, Some(base + Duration::hours(4)));
+    assert_eq!(rows[2].literal_time_minus_nullable_interval, None);
 
     assert_eq!(rows[3].added, None);
     assert_eq!(rows[3].subtracted, None);
@@ -353,6 +369,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[3].nullable_time_required_interval, None);
     assert_eq!(rows[3].required_time_nullable_interval, None);
     assert_eq!(rows[3].nullable_time_nullable_interval, None);
+    assert_eq!(rows[3].literal_time_plus_nullable_interval, None);
+    assert_eq!(rows[3].literal_time_minus_nullable_interval, None);
 
     let matching = NullableArithmeticRecord::query()
         .filter((100 - NullableArithmeticRecord::nullable_left).eq(96_i32))

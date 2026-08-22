@@ -1,3 +1,4 @@
+use chrono::{DateTime, NaiveDateTime, Utc};
 use dbkit_core::{func, Column, Expr, Order, PgInterval, Select, Table, Value};
 
 #[derive(Debug)]
@@ -123,6 +124,34 @@ fn compiles_interval_constructors_with_nullable_columns() {
          MAKE_INTERVAL(secs => schedules.optional_seconds) AS seconds FROM schedules"
     );
     assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_timestamp_literals_with_nullable_interval_expressions() {
+    let utc: DateTime<Utc> = DateTime::from_timestamp(1_700_000_000, 0).expect("timestamp");
+    let naive = utc.naive_utc();
+
+    let naive_added: Expr<Option<NaiveDateTime>> = naive + dbkit_core::interval::hours(schedule_optional_interval_units());
+    let naive_subtracted: Expr<Option<NaiveDateTime>> = naive - dbkit_core::interval::hours(schedule_optional_interval_units());
+    let utc_added: Expr<Option<DateTime<Utc>>> = utc + dbkit_core::interval::hours(schedule_optional_interval_units());
+    let utc_subtracted: Expr<Option<DateTime<Utc>>> = utc - dbkit_core::interval::hours(schedule_optional_interval_units());
+
+    let query: Select<Schedule> = Select::new(schedule_table())
+        .select_only()
+        .column_as(naive_added, "naive_added")
+        .column_as(naive_subtracted, "naive_subtracted")
+        .column_as(utc_added, "utc_added")
+        .column_as(utc_subtracted, "utc_subtracted");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT ($1 + MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS naive_added, \
+         ($1 - MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS naive_subtracted, \
+         ($2 + MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS utc_added, \
+         ($2 - MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS utc_subtracted FROM schedules"
+    );
+    assert_eq!(sql.binds, vec![Value::DateTime(naive), Value::DateTimeUtc(utc)]);
 }
 
 #[test]

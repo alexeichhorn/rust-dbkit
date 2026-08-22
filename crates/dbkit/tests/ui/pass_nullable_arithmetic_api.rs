@@ -133,6 +133,14 @@ fn main() {
     assert_nullable_utc(NullableArithmeticRow::required_utc - NullableArithmeticRow::nullable_interval);
     assert_nullable_utc(NullableArithmeticRow::nullable_utc - NullableArithmeticRow::nullable_interval);
 
+    // Timestamp literals on the left preserve NULL from interval expressions.
+    let utc_literal = DateTime::from_timestamp(1_700_000_000, 0).expect("timestamp");
+    let naive_literal = utc_literal.naive_utc();
+    assert_nullable_naive(naive_literal + dbkit::interval::hours(NullableArithmeticRow::nullable_i32));
+    assert_nullable_naive(naive_literal - dbkit::interval::hours(NullableArithmeticRow::nullable_i32));
+    assert_nullable_utc(utc_literal + dbkit::interval::hours(NullableArithmeticRow::nullable_i32));
+    assert_nullable_utc(utc_literal - dbkit::interval::hours(NullableArithmeticRow::nullable_i32));
+
     // Nullable arithmetic expressions compose with ordinary and NULL filters.
     let _query = NullableArithmeticRow::query()
         .filter((100_i32 - NullableArithmeticRow::nullable_i32).gt(50_i32))
