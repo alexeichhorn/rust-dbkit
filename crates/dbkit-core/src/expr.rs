@@ -396,6 +396,25 @@ pub trait CompatibleColumn<Rhs> {
     type Output;
 }
 
+#[doc(hidden)]
+pub trait ValueComparisonOutput {
+    type Output;
+}
+
+impl<T> ValueComparisonOutput for T
+where
+    T: Into<Value>,
+{
+    type Output = bool;
+}
+
+impl<T> ValueComparisonOutput for Option<T>
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
+
 impl<T> CompatibleColumn<T> for T
 where
     T: Into<Value>,
@@ -1097,8 +1116,9 @@ impl<T, Kind> Expr<T, Kind>
 where
     T: 'static,
 {
-    pub fn eq<V>(self, value: V) -> Expr<bool>
+    pub fn eq<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -1129,8 +1149,9 @@ where
         })
     }
 
-    pub fn ne<V>(self, value: V) -> Expr<bool>
+    pub fn ne<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -1183,8 +1204,9 @@ where
         })
     }
 
-    pub fn lt<V>(self, value: V) -> Expr<bool>
+    pub fn lt<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1205,8 +1227,9 @@ where
         })
     }
 
-    pub fn le<V>(self, value: V) -> Expr<bool>
+    pub fn le<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1227,8 +1250,9 @@ where
         })
     }
 
-    pub fn gt<V>(self, value: V) -> Expr<bool>
+    pub fn gt<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1249,8 +1273,9 @@ where
         })
     }
 
-    pub fn ge<V>(self, value: V) -> Expr<bool>
+    pub fn ge<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1271,8 +1296,9 @@ where
         })
     }
 
-    pub fn between<L, U>(self, low: L, high: U) -> Expr<bool>
+    pub fn between<L, U>(self, low: L, high: U) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         L: ColumnValue<T>,
         U: ColumnValue<T>,
     {
@@ -1296,8 +1322,9 @@ where
         })
     }
 
-    pub fn like<V>(self, pattern: V) -> Expr<bool>
+    pub fn like<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
@@ -1307,8 +1334,9 @@ where
         })
     }
 
-    pub fn ilike<V>(self, pattern: V) -> Expr<bool>
+    pub fn ilike<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
@@ -1332,8 +1360,9 @@ where
         })
     }
 
-    pub fn in_<I, V>(self, values: I) -> Expr<bool>
+    pub fn in_<I, V>(self, values: I) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         I: IntoIterator<Item = V>,
         V: ColumnValue<T>,
     {
@@ -1390,8 +1419,9 @@ impl<M, T> Column<M, T>
 where
     T: 'static,
 {
-    pub fn eq<V>(self, value: V) -> Expr<bool>
+    pub fn eq<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -1455,8 +1485,9 @@ where
         })
     }
 
-    pub fn ne<V>(self, value: V) -> Expr<bool>
+    pub fn ne<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -1476,8 +1507,9 @@ where
         }
     }
 
-    pub fn lt<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn lt<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
@@ -1498,8 +1530,9 @@ where
         })
     }
 
-    pub fn le<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn le<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
@@ -1520,8 +1553,9 @@ where
         })
     }
 
-    pub fn gt<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn gt<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
@@ -1542,8 +1576,9 @@ where
         })
     }
 
-    pub fn ge<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn ge<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
@@ -1564,8 +1599,9 @@ where
         })
     }
 
-    pub fn between<L, U>(self, low: L, high: U) -> Expr<bool>
+    pub fn between<L, U>(self, low: L, high: U) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         L: ColumnValue<T>,
         U: ColumnValue<T>,
     {
@@ -1586,8 +1622,9 @@ where
         })
     }
 
-    pub fn like<V>(self, pattern: V) -> Expr<bool>
+    pub fn like<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
@@ -1597,8 +1634,9 @@ where
         })
     }
 
-    pub fn ilike<V>(self, pattern: V) -> Expr<bool>
+    pub fn ilike<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
@@ -1608,8 +1646,9 @@ where
         })
     }
 
-    pub fn in_<I, V>(self, values: I) -> Expr<bool>
+    pub fn in_<I, V>(self, values: I) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         I: IntoIterator<Item = V>,
         V: ColumnValue<T>,
     {

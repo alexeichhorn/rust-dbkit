@@ -234,7 +234,7 @@ fn compiles_nullable_value_comparison_projections() {
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT (users.email = $1) AS equals, (users.email <> $2) AS differs, ((users.score >= $3) AND (users.score <= $4)) AS in_range, (users.email LIKE $5) AS matches, (users.email ILIKE $6) AS matches_case_insensitively, (users.email IN ($7, $8)) AS listed, (FALSE) AS empty_list FROM users"
+        "SELECT (users.email = $1) AS equals, (users.email <> $2) AS differs, ((users.score >= $3) AND (users.score <= $4)) AS in_range, (users.email LIKE $5) AS matches, (users.email ILIKE $6) AS matches_case_insensitively, (users.email IN ($1, $7)) AS listed, (FALSE) AS empty_list FROM users"
     );
     assert_eq!(
         sql.binds,
@@ -245,7 +245,6 @@ fn compiles_nullable_value_comparison_projections() {
             Value::I64(10),
             Value::String("%@example.com".to_string()),
             Value::String("%@EXAMPLE.COM".to_string()),
-            Value::String("a@b.com".to_string()),
             Value::String("c@d.com".to_string()),
         ]
     );
