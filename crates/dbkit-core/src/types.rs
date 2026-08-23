@@ -261,8 +261,8 @@ impl<T> Default for ActiveValue<T> {
 }
 
 impl<T> ActiveValue<T> {
-    pub fn set(&mut self, value: T) {
-        *self = Self::Set(value);
+    pub fn set(&mut self, value: impl Into<T>) {
+        *self = Self::Set(value.into());
     }
 
     pub fn unchanged(value: T) -> Self {
