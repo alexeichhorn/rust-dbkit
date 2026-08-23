@@ -80,7 +80,7 @@ where
             return Ok(());
         }
 
-        let filter = Expr::new(ExprNode::In {
+        let filter: Expr<bool> = Expr::new(ExprNode::In {
             expr: Box::new(ExprNode::Column(relation.child_key)),
             values: keys.clone(),
         });
@@ -157,7 +157,7 @@ where
             return Ok(());
         }
 
-        let filter = Expr::new(ExprNode::In {
+        let filter: Expr<bool> = Expr::new(ExprNode::In {
             expr: Box::new(ExprNode::Column(relation.parent_key)),
             values: keys.clone(),
         });
@@ -253,7 +253,7 @@ where
             return Ok(());
         }
 
-        let join_filter = Expr::new(ExprNode::In {
+        let join_filter: Expr<bool> = Expr::new(ExprNode::In {
             expr: Box::new(ExprNode::Column(join_parent_key)),
             values: parent_keys.clone(),
         });
@@ -297,7 +297,7 @@ where
             return Ok(());
         }
 
-        let child_filter = Expr::new(ExprNode::In {
+        let child_filter: Expr<bool> = Expr::new(ExprNode::In {
             expr: Box::new(ExprNode::Column(relation.child_key)),
             values: child_keys.clone(),
         });

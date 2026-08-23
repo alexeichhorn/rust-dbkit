@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
-use crate::expr::{Expr, ExprNode, IntoExpr};
+use crate::expr::{into_predicate, BooleanExprType, Expr, ExprNode, IntoExpr};
 use crate::func;
 use crate::load::{ApplyLoad, LoadChain, NoLoad};
 use crate::rel::RelationInfo;
@@ -176,8 +176,11 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         self
     }
 
-    pub fn filter(mut self, expr: Expr<bool>) -> Self {
-        self.filters.push(expr);
+    pub fn filter<T>(mut self, expr: Expr<T>) -> Self
+    where
+        T: BooleanExprType,
+    {
+        self.filters.push(into_predicate(expr));
         self
     }
 
@@ -225,19 +228,25 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         self
     }
 
-    pub fn join_on(mut self, table: Table, on: Expr<bool>) -> Self {
+    pub fn join_on<T>(mut self, table: Table, on: Expr<T>) -> Self
+    where
+        T: BooleanExprType,
+    {
         self.joins.push(Join {
             table,
-            on,
+            on: into_predicate(on),
             kind: JoinKind::Inner,
         });
         self
     }
 
-    pub fn left_join_on(mut self, table: Table, on: Expr<bool>) -> Self {
+    pub fn left_join_on<T>(mut self, table: Table, on: Expr<T>) -> Self
+    where
+        T: BooleanExprType,
+    {
         self.joins.push(Join {
             table,
-            on,
+            on: into_predicate(on),
             kind: JoinKind::Left,
         });
         self
@@ -568,8 +577,11 @@ impl<Out, Loads, DistinctState, GroupState> Select<Out, Loads, NoRowLock, Distin
         }
     }
 
-    pub fn having(mut self, expr: Expr<bool>) -> Select<Out, Loads, NoRowLock, DistinctState, Grouped> {
-        self.having.push(expr);
+    pub fn having<T>(mut self, expr: Expr<T>) -> Select<Out, Loads, NoRowLock, DistinctState, Grouped>
+    where
+        T: BooleanExprType,
+    {
+        self.having.push(into_predicate(expr));
         Select {
             table: self.table,
             columns: self.columns,

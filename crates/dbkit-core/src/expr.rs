@@ -348,7 +348,10 @@ impl<T, Kind> Expr<T, Kind> {
 
 impl<T> AggregateExpr<T> {
     /// Applies a PostgreSQL aggregate `FILTER (WHERE ...)` clause.
-    pub fn filter(self, predicate: Expr<bool>) -> Expr<T> {
+    pub fn filter<B>(self, predicate: Expr<B>) -> Expr<T>
+    where
+        B: BooleanExprType,
+    {
         Expr::new(ExprNode::AggregateFilter {
             aggregate: Box::new(self.node),
             predicate: Box::new(predicate.node),
@@ -389,13 +392,71 @@ pub trait ComparisonValue<T, Marker = ValueComparisonMarker> {
 }
 
 #[doc(hidden)]
-pub trait CompatibleColumn<Rhs> {}
+pub trait CompatibleColumn<Rhs> {
+    type Output;
+}
 
-impl<T> CompatibleColumn<T> for T {}
+impl<T> CompatibleColumn<T> for T
+where
+    T: Into<Value>,
+{
+    type Output = bool;
+}
 
-impl<T> CompatibleColumn<Option<T>> for T {}
+impl<T> CompatibleColumn<Option<T>> for T
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
 
-impl<T> CompatibleColumn<T> for Option<T> {}
+impl<T> CompatibleColumn<T> for Option<T>
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
+
+impl<T> CompatibleColumn<Option<T>> for Option<T>
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
+
+#[doc(hidden)]
+pub trait BooleanExprType {}
+
+impl BooleanExprType for bool {}
+impl BooleanExprType for Option<bool> {}
+
+#[doc(hidden)]
+pub trait BooleanOutput<Rhs>: BooleanExprType {
+    type Output: BooleanExprType;
+}
+
+impl BooleanOutput<bool> for bool {
+    type Output = bool;
+}
+
+impl BooleanOutput<Option<bool>> for bool {
+    type Output = Option<bool>;
+}
+
+impl BooleanOutput<bool> for Option<bool> {
+    type Output = Option<bool>;
+}
+
+impl BooleanOutput<Option<bool>> for Option<bool> {
+    type Output = Option<bool>;
+}
+
+pub(crate) fn into_predicate<T>(expr: Expr<T>) -> Expr<bool>
+where
+    T: BooleanExprType,
+{
+    Expr::new(expr.node)
+}
 
 pub trait SqlAdd<Rhs> {
     type Output;
@@ -1057,7 +1118,7 @@ where
         }
     }
 
-    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1089,7 +1150,7 @@ where
         }
     }
 
-    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1133,7 +1194,7 @@ where
         })
     }
 
-    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1155,7 +1216,7 @@ where
         })
     }
 
-    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1177,7 +1238,7 @@ where
         })
     }
 
-    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1199,7 +1260,7 @@ where
         })
     }
 
-    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1289,8 +1350,15 @@ where
     }
 }
 
-impl<Kind> Expr<bool, Kind> {
-    pub fn and(self, other: Expr<bool>) -> Expr<bool> {
+impl<T, Kind> Expr<T, Kind>
+where
+    T: BooleanExprType,
+{
+    pub fn and<U>(self, other: Expr<U>) -> Expr<<T as BooleanOutput<U>>::Output>
+    where
+        T: BooleanOutput<U>,
+        U: BooleanExprType,
+    {
         Expr::new(ExprNode::Bool {
             left: Box::new(self.node),
             op: BoolOp::And,
@@ -1298,7 +1366,11 @@ impl<Kind> Expr<bool, Kind> {
         })
     }
 
-    pub fn or(self, other: Expr<bool>) -> Expr<bool> {
+    pub fn or<U>(self, other: Expr<U>) -> Expr<<T as BooleanOutput<U>>::Output>
+    where
+        T: BooleanOutput<U>,
+        U: BooleanExprType,
+    {
         Expr::new(ExprNode::Bool {
             left: Box::new(self.node),
             op: BoolOp::Or,
@@ -1306,7 +1378,7 @@ impl<Kind> Expr<bool, Kind> {
         })
     }
 
-    pub fn not(self) -> Expr<bool> {
+    pub fn not(self) -> Expr<T> {
         Expr::new(ExprNode::Unary {
             op: UnaryOp::Not,
             expr: Box::new(self.node),
@@ -1339,7 +1411,7 @@ where
         }
     }
 
-    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1350,7 +1422,7 @@ where
         })
     }
 
-    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1415,7 +1487,7 @@ where
         })
     }
 
-    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1437,7 +1509,7 @@ where
         })
     }
 
-    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1459,7 +1531,7 @@ where
         })
     }
 
-    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1481,7 +1553,7 @@ where
         })
     }
 
-    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
     where
         T: CompatibleColumn<U>,
     {
@@ -1589,8 +1661,11 @@ impl Condition {
         }
     }
 
-    pub fn add(mut self, expr: Expr<bool>) -> Self {
-        self.exprs.push(expr);
+    pub fn add<T>(mut self, expr: Expr<T>) -> Self
+    where
+        T: BooleanExprType,
+    {
+        self.exprs.push(into_predicate(expr));
         self
     }
 
