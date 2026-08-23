@@ -778,14 +778,6 @@ pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
     })
 }
 
-pub fn sum<T>(arg: impl IntoExpr<T>) -> AggregateExpr<T> {
-    let expr = arg.into_expr();
-    Expr::new(ExprNode::Func {
-        name: "SUM",
-        args: vec![expr.node],
-    })
-}
-
 pub trait NullableAggregateOutput {
     type Output;
 }
@@ -818,6 +810,31 @@ impl_nullable_aggregate_output!(
     chrono::NaiveTime,
     crate::PgInterval,
 );
+
+#[doc(hidden)]
+pub trait SumInput: NullableAggregateOutput {}
+
+macro_rules! impl_sum_input {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl SumInput for $ty {}
+            impl SumInput for Option<$ty> {}
+        )+
+    };
+}
+
+impl_sum_input!(i16, i32, i64, f32, f64, crate::PgInterval);
+
+pub fn sum<T>(arg: impl IntoExpr<T>) -> AggregateExpr<<T as NullableAggregateOutput>::Output>
+where
+    T: SumInput,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "SUM",
+        args: vec![expr.node],
+    })
+}
 
 pub fn min<T>(arg: impl IntoExpr<T>) -> AggregateExpr<<T as NullableAggregateOutput>::Output>
 where
