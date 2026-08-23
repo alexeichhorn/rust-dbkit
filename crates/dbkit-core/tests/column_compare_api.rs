@@ -80,10 +80,23 @@ fn compiles_ge_col_between_numeric_columns() {
 
 #[test]
 fn compiles_ne_col_between_nullable_columns() {
-    let expr = job_embedding_hash().ne_col(job_embedding());
-    let sql = expr_sql(expr);
-    assert_eq!(sql.sql, "SELECT jobs.* FROM jobs WHERE (jobs.embedding_hash <> jobs.embedding)");
+    let differs: Expr<Option<bool>> = job_embedding_hash().ne_col(job_embedding());
+    let query: Select<Job> = Select::new(jobs_table()).select_only().column_as(differs, "differs");
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT (jobs.embedding_hash <> jobs.embedding) AS differs FROM jobs");
     assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_nullable_column_comparisons_in_boolean_predicates() {
+    let predicate: Expr<Option<bool>> = job_embedding_hash().eq_col(job_content_hash()).and(job_id().gt(0_i64));
+    let query: Select<Job> = Select::new(jobs_table()).filter(predicate);
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT jobs.* FROM jobs WHERE ((jobs.embedding_hash = jobs.content_hash) AND (jobs.id > $1))"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(0)]);
 }
 
 #[test]

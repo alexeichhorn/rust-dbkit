@@ -30,6 +30,8 @@ fn assert_nullable_i32(_: dbkit::Expr<Option<i32>>) {}
 
 fn assert_bool(_: dbkit::Expr<bool>) {}
 
+fn assert_nullable_bool(_: dbkit::Expr<Option<bool>>) {}
+
 fn main() {
     assert_required_text_column(NullabilityRow::required_text);
     assert_nullable_text_column(NullabilityRow::nullable_text);
@@ -59,22 +61,36 @@ fn main() {
         .filter(NullabilityRow::nullable_text.ne(None))
         .filter(NullabilityRow::nullable_count.between(1_i32, 10_i32));
 
-    assert_bool(NullabilityRow::required_text.eq_col(NullabilityRow::nullable_text));
-    assert_bool(NullabilityRow::nullable_text.eq_col(NullabilityRow::required_text));
-    assert_bool(NullabilityRow::required_text.ne_col(NullabilityRow::nullable_text));
-    assert_bool(NullabilityRow::nullable_text.ne_col(NullabilityRow::required_text));
+    assert_bool(NullabilityRow::required_text.eq_col(NullabilityRow::required_text));
+    assert_bool(NullabilityRow::required_text.ne_col(NullabilityRow::required_text));
+    assert_nullable_bool(NullabilityRow::required_text.eq_col(NullabilityRow::nullable_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.eq_col(NullabilityRow::required_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.eq_col(NullabilityRow::nullable_text));
+    assert_nullable_bool(NullabilityRow::required_text.ne_col(NullabilityRow::nullable_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.ne_col(NullabilityRow::required_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.ne_col(NullabilityRow::nullable_text));
     assert_bool(NullabilityRow::required_text.is_distinct_from_col(NullabilityRow::nullable_text));
     assert_bool(NullabilityRow::nullable_text.is_distinct_from_col(NullabilityRow::required_text));
+    assert_bool(NullabilityRow::nullable_text.is_distinct_from_col(NullabilityRow::nullable_text));
     assert_bool(NullabilityRow::required_text.is_not_distinct_from_col(NullabilityRow::nullable_text));
     assert_bool(NullabilityRow::nullable_text.is_not_distinct_from_col(NullabilityRow::required_text));
-    assert_bool(NullabilityRow::required_count.lt_col(NullabilityRow::nullable_count));
-    assert_bool(NullabilityRow::nullable_count.le_col(NullabilityRow::required_count));
-    assert_bool(NullabilityRow::required_count.gt_col(NullabilityRow::nullable_count));
-    assert_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::required_count));
-    assert_bool(NullabilityRow::nullable_count.lt_col(NullabilityRow::nullable_limit));
-    assert_bool(NullabilityRow::nullable_count.le_col(NullabilityRow::nullable_limit));
-    assert_bool(NullabilityRow::nullable_count.gt_col(NullabilityRow::nullable_limit));
-    assert_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::nullable_limit));
+    assert_bool(NullabilityRow::nullable_text.is_not_distinct_from_col(NullabilityRow::nullable_text));
+    assert_bool(NullabilityRow::required_count.lt_col(NullabilityRow::required_count));
+    assert_bool(NullabilityRow::required_count.le_col(NullabilityRow::required_count));
+    assert_bool(NullabilityRow::required_count.gt_col(NullabilityRow::required_count));
+    assert_bool(NullabilityRow::required_count.ge_col(NullabilityRow::required_count));
+    assert_nullable_bool(NullabilityRow::required_count.lt_col(NullabilityRow::nullable_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.lt_col(NullabilityRow::required_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.lt_col(NullabilityRow::nullable_limit));
+    assert_nullable_bool(NullabilityRow::required_count.le_col(NullabilityRow::nullable_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.le_col(NullabilityRow::required_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.le_col(NullabilityRow::nullable_limit));
+    assert_nullable_bool(NullabilityRow::required_count.gt_col(NullabilityRow::nullable_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.gt_col(NullabilityRow::required_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.gt_col(NullabilityRow::nullable_limit));
+    assert_nullable_bool(NullabilityRow::required_count.ge_col(NullabilityRow::nullable_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::required_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::nullable_limit));
 
     assert_string(dbkit::func::lower(NullabilityRow::required_text));
     assert_nullable_string(dbkit::func::lower(NullabilityRow::nullable_text));
@@ -113,8 +129,49 @@ fn main() {
     assert_string(dbkit::func::greatest(NullabilityRow::nullable_text, "fallback"));
     assert_nullable_string(dbkit::func::least(NullabilityRow::nullable_text, NullabilityRow::nullable_text));
 
-    assert_bool(dbkit::func::lower(NullabilityRow::required_text).eq_col(NullabilityRow::nullable_text));
-    assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq_col(NullabilityRow::required_text));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::required_text).eq_col(NullabilityRow::nullable_text));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq_col(NullabilityRow::required_text));
+
+    let nullable_count_expr = NullabilityRow::nullable_count + NullabilityRow::required_count;
+    assert_nullable_bool(nullable_count_expr.clone().eq_col(NullabilityRow::required_count));
+    assert_nullable_bool(nullable_count_expr.clone().ne_col(NullabilityRow::required_count));
+    assert_nullable_bool(nullable_count_expr.clone().lt_col(NullabilityRow::required_count));
+    assert_nullable_bool(nullable_count_expr.clone().le_col(NullabilityRow::required_count));
+    assert_nullable_bool(nullable_count_expr.clone().gt_col(NullabilityRow::required_count));
+    assert_nullable_bool(nullable_count_expr.ge_col(NullabilityRow::required_count));
+
+    let nullable_comparison = NullabilityRow::nullable_text.eq_col(NullabilityRow::required_text);
+    let required_comparison = NullabilityRow::required_text.eq_col(NullabilityRow::required_text);
+    assert_nullable_bool(nullable_comparison.clone().and(required_comparison.clone()));
+    assert_nullable_bool(required_comparison.clone().and(nullable_comparison.clone()));
+    assert_nullable_bool(
+        nullable_comparison
+            .clone()
+            .and(NullabilityRow::nullable_text.ne_col(NullabilityRow::required_text)),
+    );
+    assert_nullable_bool(nullable_comparison.clone().or(required_comparison.clone()));
+    assert_nullable_bool(required_comparison.or(nullable_comparison.clone()));
+    assert_nullable_bool(
+        nullable_comparison
+            .clone()
+            .or(NullabilityRow::nullable_text.ne_col(NullabilityRow::required_text)),
+    );
+    assert_nullable_bool(nullable_comparison.clone().not());
+
+    let _nullable_predicates = NullabilityRow::query()
+        .filter(nullable_comparison.clone())
+        .filter(nullable_comparison.clone().and(NullabilityRow::id.gt(0_i64)));
+    let _nullable_join = NullabilityRow::query().join_on(NullabilityRow::TABLE, nullable_comparison.clone());
+    let _nullable_left_join = NullabilityRow::query().left_join_on(NullabilityRow::TABLE, nullable_comparison.clone());
+    let _nullable_having = NullabilityRow::query()
+        .group_by(NullabilityRow::required_text)
+        .having(nullable_comparison.clone());
+    let _nullable_condition = dbkit::Condition::all().add(nullable_comparison.clone()).into_expr();
+    let _filtered_aggregate = dbkit::func::count(NullabilityRow::id).filter(nullable_comparison.clone());
+    let _filtered_update = NullabilityRow::update()
+        .set(NullabilityRow::required_text, "updated")
+        .filter(nullable_comparison.clone());
+    let _filtered_delete = NullabilityRow::delete().filter(nullable_comparison);
 
     let _generated_insert = NullabilityRow::insert(NullabilityRowInsert {
         id: 1,

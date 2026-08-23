@@ -17,6 +17,19 @@ pub struct JobColCompare {
     pub max_retries: i64,
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug, PartialEq)]
+struct NullableComparisonProjection {
+    case_name: String,
+    equal: Option<bool>,
+    not_equal: Option<bool>,
+    less: Option<bool>,
+    less_or_equal: Option<bool>,
+    greater: Option<bool>,
+    greater_or_equal: Option<bool>,
+    distinct: bool,
+    not_distinct: bool,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -162,6 +175,170 @@ async fn eq_col_and_ne_col_compare_required_and_nullable_columns_in_both_directi
     assert_eq!(nullable_to_required_different.len(), 1);
     assert_eq!(required_to_nullable_different[0].content_hash, "required");
     assert_eq!(nullable_to_required_different[0].content_hash, "required");
+
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn nullable_column_comparison_projections_follow_postgres_three_valued_logic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    JobColCompare::insert_many(vec![
+        JobColCompareInsert {
+            content_hash: "required".into(),
+            last_content_hash: "equal".into(),
+            embedding_hash: Some("b".into()),
+            embedding: Some("b".into()),
+            retry_count: 0,
+            max_retries: 0,
+        },
+        JobColCompareInsert {
+            content_hash: "required".into(),
+            last_content_hash: "less".into(),
+            embedding_hash: Some("a".into()),
+            embedding: Some("b".into()),
+            retry_count: 0,
+            max_retries: 0,
+        },
+        JobColCompareInsert {
+            content_hash: "required".into(),
+            last_content_hash: "greater".into(),
+            embedding_hash: Some("b".into()),
+            embedding: Some("a".into()),
+            retry_count: 0,
+            max_retries: 0,
+        },
+        JobColCompareInsert {
+            content_hash: "required".into(),
+            last_content_hash: "left_null".into(),
+            embedding_hash: None,
+            embedding: Some("a".into()),
+            retry_count: 0,
+            max_retries: 0,
+        },
+        JobColCompareInsert {
+            content_hash: "required".into(),
+            last_content_hash: "right_null".into(),
+            embedding_hash: Some("a".into()),
+            embedding: None,
+            retry_count: 0,
+            max_retries: 0,
+        },
+        JobColCompareInsert {
+            content_hash: "required".into(),
+            last_content_hash: "both_null".into(),
+            embedding_hash: None,
+            embedding: None,
+            retry_count: 0,
+            max_retries: 0,
+        },
+    ])
+    .execute(&tx)
+    .await?;
+
+    let rows: Vec<NullableComparisonProjection> = JobColCompare::query()
+        .select_only()
+        .column_as(JobColCompare::last_content_hash, "case_name")
+        .column_as(JobColCompare::embedding_hash.eq_col(JobColCompare::embedding), "equal")
+        .column_as(JobColCompare::embedding_hash.ne_col(JobColCompare::embedding), "not_equal")
+        .column_as(JobColCompare::embedding_hash.lt_col(JobColCompare::embedding), "less")
+        .column_as(JobColCompare::embedding_hash.le_col(JobColCompare::embedding), "less_or_equal")
+        .column_as(JobColCompare::embedding_hash.gt_col(JobColCompare::embedding), "greater")
+        .column_as(JobColCompare::embedding_hash.ge_col(JobColCompare::embedding), "greater_or_equal")
+        .column_as(
+            JobColCompare::embedding_hash.is_distinct_from_col(JobColCompare::embedding),
+            "distinct",
+        )
+        .column_as(
+            JobColCompare::embedding_hash.is_not_distinct_from_col(JobColCompare::embedding),
+            "not_distinct",
+        )
+        .order_by(dbkit::Order::asc(JobColCompare::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows,
+        vec![
+            NullableComparisonProjection {
+                case_name: "equal".into(),
+                equal: Some(true),
+                not_equal: Some(false),
+                less: Some(false),
+                less_or_equal: Some(true),
+                greater: Some(false),
+                greater_or_equal: Some(true),
+                distinct: false,
+                not_distinct: true,
+            },
+            NullableComparisonProjection {
+                case_name: "less".into(),
+                equal: Some(false),
+                not_equal: Some(true),
+                less: Some(true),
+                less_or_equal: Some(true),
+                greater: Some(false),
+                greater_or_equal: Some(false),
+                distinct: true,
+                not_distinct: false,
+            },
+            NullableComparisonProjection {
+                case_name: "greater".into(),
+                equal: Some(false),
+                not_equal: Some(true),
+                less: Some(false),
+                less_or_equal: Some(false),
+                greater: Some(true),
+                greater_or_equal: Some(true),
+                distinct: true,
+                not_distinct: false,
+            },
+            NullableComparisonProjection {
+                case_name: "left_null".into(),
+                equal: None,
+                not_equal: None,
+                less: None,
+                less_or_equal: None,
+                greater: None,
+                greater_or_equal: None,
+                distinct: true,
+                not_distinct: false,
+            },
+            NullableComparisonProjection {
+                case_name: "right_null".into(),
+                equal: None,
+                not_equal: None,
+                less: None,
+                less_or_equal: None,
+                greater: None,
+                greater_or_equal: None,
+                distinct: true,
+                not_distinct: false,
+            },
+            NullableComparisonProjection {
+                case_name: "both_null".into(),
+                equal: None,
+                not_equal: None,
+                less: None,
+                less_or_equal: None,
+                greater: None,
+                greater_or_equal: None,
+                distinct: false,
+                not_distinct: true,
+            },
+        ]
+    );
+
+    let equal_rows = JobColCompare::query()
+        .filter(JobColCompare::embedding_hash.eq_col(JobColCompare::embedding))
+        .all(&tx)
+        .await?;
+    assert_eq!(equal_rows.len(), 1);
+    assert_eq!(equal_rows[0].last_content_hash, "equal");
 
     tx.rollback().await?;
     Ok(())
