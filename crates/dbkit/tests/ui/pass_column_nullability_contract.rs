@@ -218,4 +218,12 @@ fn main() {
     active.nullable_text = dbkit::ActiveValue::Set(None);
     active.nullable_text = dbkit::ActiveValue::Unchanged(None);
     active.nullable_text.set_null();
+    active.required_text.set("required".to_string());
+    active.nullable_text.set("direct".to_string());
+    active.nullable_text.set(Some("optional".to_string()));
+    active.nullable_text.set(None);
+    active.required_count.set(1_i32);
+    active.nullable_count.set(2_i32);
+    active.nullable_count.set(Some(3_i32));
+    active.nullable_count.set(None);
 }
