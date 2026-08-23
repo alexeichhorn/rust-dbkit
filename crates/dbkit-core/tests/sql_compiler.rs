@@ -148,7 +148,7 @@ fn compiles_is_null_expression() {
 
 #[test]
 fn compiles_eq_none_as_is_null() {
-    let expr = user_email().eq(None);
+    let expr: Expr<Option<bool>> = user_email().eq(None);
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NULL)");
     assert!(sql.binds.is_empty());
@@ -156,7 +156,7 @@ fn compiles_eq_none_as_is_null() {
 
 #[test]
 fn compiles_eq_some_on_nullable_column_as_bound_value() {
-    let expr = user_email().eq(Some("a@b.com".to_string()));
+    let expr: Expr<Option<bool>> = user_email().eq(Some("a@b.com".to_string()));
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email = $1)");
     assert_eq!(sql.binds, vec![Value::String("a@b.com".to_string())]);
@@ -164,7 +164,7 @@ fn compiles_eq_some_on_nullable_column_as_bound_value() {
 
 #[test]
 fn compiles_ne_none_as_is_not_null() {
-    let expr = user_email().ne(None);
+    let expr: Expr<Option<bool>> = user_email().ne(None);
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NOT NULL)");
     assert!(sql.binds.is_empty());
@@ -201,18 +201,59 @@ fn compiles_greatest_and_least_with_nullable_operands() {
 
 #[test]
 fn compiles_nullable_ordered_comparisons_with_optional_values() {
-    let some_sql = expr_sql(user_score().lt(Some(5_i64)));
+    let some: Expr<Option<bool>> = user_score().lt(Some(5_i64));
+    let some_sql = expr_sql(some);
     assert_eq!(some_sql.sql, "SELECT users.* FROM users WHERE (users.score < $1)");
     assert_eq!(some_sql.binds, vec![Value::I64(5)]);
 
-    let none_sql = expr_sql(user_score().ge(None));
+    let none: Expr<Option<bool>> = user_score().ge(None);
+    let none_sql = expr_sql(none);
     assert_eq!(none_sql.sql, "SELECT users.* FROM users WHERE (users.score >= NULL)");
     assert!(none_sql.binds.is_empty());
 }
 
 #[test]
+fn compiles_nullable_value_comparison_projections() {
+    let equals: Expr<Option<bool>> = user_email().eq("a@b.com");
+    let differs: Expr<Option<bool>> = user_email().ne("blocked@example.com");
+    let in_range: Expr<Option<bool>> = user_score().between(1_i64, 10_i64);
+    let matches: Expr<Option<bool>> = user_email().like("%@example.com");
+    let matches_case_insensitively: Expr<Option<bool>> = user_email().ilike("%@EXAMPLE.COM");
+    let listed: Expr<Option<bool>> = user_email().in_(["a@b.com", "c@d.com"]);
+    let empty_list: Expr<Option<bool>> = user_email().in_(std::iter::empty::<String>());
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(equals, "equals")
+        .column_as(differs, "differs")
+        .column_as(in_range, "in_range")
+        .column_as(matches, "matches")
+        .column_as(matches_case_insensitively, "matches_case_insensitively")
+        .column_as(listed, "listed")
+        .column_as(empty_list, "empty_list");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (users.email = $1) AS equals, (users.email <> $2) AS differs, ((users.score >= $3) AND (users.score <= $4)) AS in_range, (users.email LIKE $5) AS matches, (users.email ILIKE $6) AS matches_case_insensitively, (users.email IN ($7, $8)) AS listed, (FALSE) AS empty_list FROM users"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("a@b.com".to_string()),
+            Value::String("blocked@example.com".to_string()),
+            Value::I64(1),
+            Value::I64(10),
+            Value::String("%@example.com".to_string()),
+            Value::String("%@EXAMPLE.COM".to_string()),
+            Value::String("a@b.com".to_string()),
+            Value::String("c@d.com".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn compiles_upper_function_filter() {
-    let expr = func::upper(user_email()).eq("TEST");
+    let expr: Expr<Option<bool>> = func::upper(user_email()).eq("TEST");
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (UPPER(users.email) = $1)");
     assert_eq!(sql.binds, vec![Value::String("TEST".to_string())]);
@@ -1231,7 +1272,10 @@ fn compiles_condition_all_and() {
     assert_eq!(sql.binds, vec![Value::String("%example%".to_string()), Value::I64(10)]);
 }
 
-fn expr_sql(expr: Expr<bool>) -> dbkit_core::CompiledSql {
+fn expr_sql<T>(expr: Expr<T>) -> dbkit_core::CompiledSql
+where
+    T: dbkit_core::expr::BooleanExprType,
+{
     let query: Select<User> = Select::new(user_table()).filter(expr);
     query.compile()
 }

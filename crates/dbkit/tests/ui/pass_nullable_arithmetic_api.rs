@@ -44,6 +44,8 @@ fn assert_interval(_: Expr<PgInterval>) {}
 
 fn assert_nullable_interval(_: Expr<Option<PgInterval>>) {}
 
+fn assert_nullable_bool(_: Expr<Option<bool>>) {}
+
 fn main() {
     // Required arithmetic remains required.
     assert_i32(NullableArithmeticRow::required_i32 + NullableArithmeticRow::required_i32);
@@ -117,6 +119,16 @@ fn main() {
             * (NullableArithmeticRow::nullable_i32 - NullableArithmeticRow::required_i32),
     );
     assert_nullable_i32(100_i32 - (NullableArithmeticRow::nullable_i32 + NullableArithmeticRow::required_i32));
+
+    let nullable_numeric_expr = NullableArithmeticRow::nullable_i32 + NullableArithmeticRow::required_i32;
+    assert_nullable_bool(nullable_numeric_expr.clone().eq(10_i32));
+    assert_nullable_bool(nullable_numeric_expr.clone().eq(None));
+    assert_nullable_bool(nullable_numeric_expr.clone().ne(10_i32));
+    assert_nullable_bool(nullable_numeric_expr.clone().lt(10_i32));
+    assert_nullable_bool(nullable_numeric_expr.clone().le(10_i32));
+    assert_nullable_bool(nullable_numeric_expr.clone().gt(10_i32));
+    assert_nullable_bool(nullable_numeric_expr.clone().ge(10_i32));
+    assert_nullable_bool(nullable_numeric_expr.between(1_i32, 10_i32));
 
     // Timestamp arithmetic propagates NULL from the timestamp, interval, or both.
     assert_nullable_naive(NullableArithmeticRow::nullable_naive + NullableArithmeticRow::required_interval);

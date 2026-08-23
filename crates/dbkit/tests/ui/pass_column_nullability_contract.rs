@@ -41,18 +41,37 @@ fn main() {
 
     assert_bool(NullabilityRow::required_text.eq("required"));
     assert_bool(NullabilityRow::required_text.eq("owned required".to_string()));
-    assert_bool(NullabilityRow::nullable_text.eq("present"));
-    assert_bool(NullabilityRow::nullable_text.eq("owned".to_string()));
-    assert_bool(NullabilityRow::nullable_text.eq(Some("owned".to_string())));
-    assert_bool(NullabilityRow::nullable_text.eq(None));
-    assert_bool(NullabilityRow::nullable_count.lt(Some(5_i32)));
-    assert_bool(NullabilityRow::nullable_count.lt(None));
-    assert_bool(NullabilityRow::nullable_count.le(Some(5_i32)));
-    assert_bool(NullabilityRow::nullable_count.le(None));
-    assert_bool(NullabilityRow::nullable_count.gt(Some(5_i32)));
-    assert_bool(NullabilityRow::nullable_count.gt(None));
-    assert_bool(NullabilityRow::nullable_count.ge(Some(5_i32)));
-    assert_bool(NullabilityRow::nullable_count.ge(None));
+    assert_nullable_bool(NullabilityRow::nullable_text.eq("present"));
+    assert_nullable_bool(NullabilityRow::nullable_text.eq("owned".to_string()));
+    assert_nullable_bool(NullabilityRow::nullable_text.eq(Some("owned".to_string())));
+    assert_nullable_bool(NullabilityRow::nullable_text.eq(None));
+    assert_nullable_bool(NullabilityRow::nullable_text.ne("present"));
+    assert_nullable_bool(NullabilityRow::nullable_text.ne(Some("owned".to_string())));
+    assert_nullable_bool(NullabilityRow::nullable_text.ne(None));
+    assert_nullable_bool(NullabilityRow::nullable_count.lt(5_i32));
+    assert_nullable_bool(NullabilityRow::nullable_count.lt(Some(5_i32)));
+    assert_nullable_bool(NullabilityRow::nullable_count.lt(None));
+    assert_nullable_bool(NullabilityRow::nullable_count.le(5_i32));
+    assert_nullable_bool(NullabilityRow::nullable_count.le(Some(5_i32)));
+    assert_nullable_bool(NullabilityRow::nullable_count.le(None));
+    assert_nullable_bool(NullabilityRow::nullable_count.gt(5_i32));
+    assert_nullable_bool(NullabilityRow::nullable_count.gt(Some(5_i32)));
+    assert_nullable_bool(NullabilityRow::nullable_count.gt(None));
+    assert_nullable_bool(NullabilityRow::nullable_count.ge(5_i32));
+    assert_nullable_bool(NullabilityRow::nullable_count.ge(Some(5_i32)));
+    assert_nullable_bool(NullabilityRow::nullable_count.ge(None));
+    assert_nullable_bool(NullabilityRow::nullable_count.between(1_i32, 10_i32));
+    assert_nullable_bool(NullabilityRow::nullable_count.between(Some(1_i32), Some(10_i32)));
+    assert_nullable_bool(NullabilityRow::nullable_count.between(None, Some(10_i32)));
+    assert_nullable_bool(NullabilityRow::nullable_text.like("pre%"));
+    assert_nullable_bool(NullabilityRow::nullable_text.like(Some("pre%".to_string())));
+    assert_nullable_bool(NullabilityRow::nullable_text.like(None));
+    assert_nullable_bool(NullabilityRow::nullable_text.ilike("PRE%"));
+    assert_nullable_bool(NullabilityRow::nullable_text.in_(["present", "other"]));
+    assert_nullable_bool(NullabilityRow::nullable_text.in_([Some("present".to_string()), None]));
+    assert_nullable_bool(NullabilityRow::nullable_text.in_(std::iter::empty::<String>()));
+    assert_bool(NullabilityRow::nullable_text.is_null());
+    assert_bool(NullabilityRow::nullable_text.is_not_null());
 
     let _filters = NullabilityRow::query()
         .filter(NullabilityRow::required_text.ne("other"))
@@ -94,8 +113,12 @@ fn main() {
 
     assert_string(dbkit::func::lower(NullabilityRow::required_text));
     assert_nullable_string(dbkit::func::lower(NullabilityRow::nullable_text));
-    assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq("present"));
-    assert_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq(None));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq("present"));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq(None));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).ne("present"));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).like("pre%"));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).ilike("PRE%"));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).in_(["present", "other"]));
     assert_string(dbkit::func::coalesce(NullabilityRow::nullable_text, "fallback"));
     assert_string(dbkit::func::coalesce(NullabilityRow::required_text, NullabilityRow::nullable_text));
     assert_nullable_string(dbkit::func::coalesce(NullabilityRow::nullable_text, NullabilityRow::nullable_text));

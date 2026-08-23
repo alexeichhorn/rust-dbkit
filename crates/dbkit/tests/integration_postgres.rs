@@ -43,6 +43,27 @@ pub struct NullableRow {
     pub note: Option<String>,
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableValueComparisonProjection {
+    note: Option<String>,
+    equals_direct: Option<bool>,
+    equals_optional: Option<bool>,
+    equals_null: Option<bool>,
+    differs_direct: Option<bool>,
+    differs_null: Option<bool>,
+    less: Option<bool>,
+    less_or_equal: Option<bool>,
+    greater: Option<bool>,
+    greater_or_equal: Option<bool>,
+    between: Option<bool>,
+    matches: Option<bool>,
+    matches_case_insensitively: Option<bool>,
+    listed: Option<bool>,
+    optional_list: Option<bool>,
+    empty_list: Option<bool>,
+    is_null: bool,
+}
+
 #[model(table = "events")]
 pub struct Event {
     #[key]
@@ -1080,6 +1101,104 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     let null_rows = NullableRow::query().filter(NullableRow::note.eq(None)).all(&tx).await?;
     assert_eq!(null_rows.len(), 2);
     assert!(null_rows.iter().all(|row| row.note.is_none()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn nullable_value_comparison_projections_follow_postgres_three_valued_logic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_nullable_row(&tx, None).await?;
+    seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+    seed_nullable_row(&tx, Some("middle".to_string())).await?;
+    seed_nullable_row(&tx, Some("zulu".to_string())).await?;
+
+    let rows: Vec<NullableValueComparisonProjection> = NullableRow::query()
+        .select_only()
+        .column(NullableRow::note)
+        .column_as(NullableRow::note.eq("middle"), "equals_direct")
+        .column_as(NullableRow::note.eq(Some("middle".to_string())), "equals_optional")
+        .column_as(NullableRow::note.eq(None), "equals_null")
+        .column_as(NullableRow::note.ne("middle"), "differs_direct")
+        .column_as(NullableRow::note.ne(None), "differs_null")
+        .column_as(NullableRow::note.lt("middle"), "less")
+        .column_as(NullableRow::note.le("middle"), "less_or_equal")
+        .column_as(NullableRow::note.gt("middle"), "greater")
+        .column_as(NullableRow::note.ge("middle"), "greater_or_equal")
+        .column_as(NullableRow::note.between("b", "y"), "between")
+        .column_as(NullableRow::note.like("m%"), "matches")
+        .column_as(NullableRow::note.ilike("M%"), "matches_case_insensitively")
+        .column_as(NullableRow::note.in_(["alpha", "middle"]), "listed")
+        .column_as(NullableRow::note.in_([Some("alpha".to_string()), None]), "optional_list")
+        .column_as(NullableRow::note.in_(std::iter::empty::<String>()), "empty_list")
+        .column_as(NullableRow::note.is_null(), "is_null")
+        .order_by(dbkit::Order::asc(NullableRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.equals_direct,
+                row.equals_optional,
+                row.equals_null,
+                row.differs_direct,
+                row.differs_null,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, Some(true), None, Some(false)),
+            (Some("alpha"), Some(false), Some(false), Some(false), Some(true), Some(true)),
+            (Some("middle"), Some(true), Some(true), Some(false), Some(false), Some(true)),
+            (Some("zulu"), Some(false), Some(false), Some(false), Some(true), Some(true)),
+        ]
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.less,
+                row.less_or_equal,
+                row.greater,
+                row.greater_or_equal,
+                row.between,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, None, None, None),
+            (Some("alpha"), Some(true), Some(true), Some(false), Some(false), Some(false)),
+            (Some("middle"), Some(false), Some(true), Some(false), Some(true), Some(true)),
+            (Some("zulu"), Some(false), Some(false), Some(true), Some(true), Some(false)),
+        ]
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.matches,
+                row.matches_case_insensitively,
+                row.listed,
+                row.optional_list,
+                row.empty_list,
+                row.is_null,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, None, None, Some(false), true),
+            (Some("alpha"), Some(false), Some(false), Some(true), Some(true), Some(false), false),
+            (Some("middle"), Some(true), Some(true), Some(true), None, Some(false), false),
+            (Some("zulu"), Some(false), Some(false), Some(false), None, Some(false), false),
+        ]
+    );
+
+    let matching = NullableRow::query().filter(NullableRow::note.eq("middle")).all(&tx).await?;
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].note.as_deref(), Some("middle"));
 
     Ok(())
 }
