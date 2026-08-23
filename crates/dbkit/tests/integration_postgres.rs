@@ -3033,6 +3033,11 @@ struct EmptySaleExtremaAgg {
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct EmptySumAgg {
+    total: Option<dbkit::sqlx::types::BigDecimal>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct NullableNoteExtremaAgg {
     min_note: Option<String>,
     max_note: Option<String>,
@@ -3140,6 +3145,15 @@ async fn filtered_aggregates_handle_empty_and_nullable_inputs() -> Result<(), db
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
+
+    let empty_sum: EmptySumAgg = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::sum(Sale::amount), "total")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(empty_sum.total, None);
 
     let empty: EmptyFilteredSaleAgg = Sale::query()
         .select_only()

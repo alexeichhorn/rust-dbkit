@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use dbkit_core::{expr::Value, func, Column, Condition, Expr, IntoExpr, Order, Select, Table};
+use dbkit_core::{expr::Value, func, AggregateExpr, Column, Condition, Expr, IntoExpr, Order, Select, Table};
 
 #[derive(Debug)]
 struct User;
@@ -922,6 +922,25 @@ fn compiles_scalar_function_wrapping_filtered_aggregate() {
     assert_eq!(
         sql.sql,
         "SELECT COALESCE(SUM(sales.amount) FILTER (WHERE (sales.region = $1)), $2) AS us_total FROM sales"
+    );
+    assert_eq!(sql.binds, vec![Value::String("us".to_string()), Value::I64(0)]);
+}
+
+#[test]
+fn compiles_nullable_sum_and_non_null_coalesce() {
+    let total: AggregateExpr<Option<i64>> = func::sum(sales_amount());
+    let filtered_total: Expr<Option<i64>> = func::sum(sales_amount()).filter(sales_region().eq("us"));
+    let guaranteed_total: Expr<i64> = func::coalesce(func::sum(sales_amount()), 0_i64);
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(total, "total")
+        .column_as(filtered_total, "filtered_total")
+        .column_as(guaranteed_total, "guaranteed_total");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT SUM(sales.amount) AS total, SUM(sales.amount) FILTER (WHERE (sales.region = $1)) AS filtered_total, COALESCE(SUM(sales.amount), $2) AS guaranteed_total FROM sales"
     );
     assert_eq!(sql.binds, vec![Value::String("us".to_string()), Value::I64(0)]);
 }

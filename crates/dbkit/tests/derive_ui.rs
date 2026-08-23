@@ -89,6 +89,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_unicode_character_argument_types.rs".into(),
         "fail_unicode_character_function_aliases.rs".into(),
         "fail_filter_non_aggregate.rs".into(),
+        "fail_sum_non_numeric.rs".into(),
         "pass_db_enum_crud.rs".into(),
         "pass_db_enum_shared_type_across_models.rs".into(),
         "fail_db_enum_value_mismatch.rs".into(),
