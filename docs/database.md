@@ -22,7 +22,7 @@ Migrations are optional and use `sqlx`:
 
 ```toml
 # Cargo.toml
-dbkit = { version = "0.2", features = ["migrations"] }
+dbkit = { version = "0.3", features = ["migrations"] }
 ```
 
 ```rust,ignore
