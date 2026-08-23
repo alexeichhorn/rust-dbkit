@@ -189,7 +189,46 @@ fn main() {
     let _nullable_having = NullabilityRow::query()
         .group_by(NullabilityRow::required_text)
         .having(nullable_comparison.clone());
-    let _nullable_condition = dbkit::Condition::all().add(nullable_comparison.clone()).into_expr();
+    assert_bool(
+        dbkit::Condition::all()
+            .add(NullabilityRow::id.gt(0_i64))
+            .add(NullabilityRow::nullable_text.is_not_null())
+            .into_expr()
+            .expect("required condition"),
+    );
+    assert_nullable_bool(
+        dbkit::Condition::all()
+            .add(nullable_comparison.clone())
+            .into_expr()
+            .expect("single nullable condition"),
+    );
+    assert_nullable_bool(
+        dbkit::Condition::all()
+            .add(nullable_comparison.clone())
+            .add(NullabilityRow::id.gt(0_i64))
+            .into_expr()
+            .expect("nullable then required condition"),
+    );
+    assert_nullable_bool(
+        dbkit::Condition::any()
+            .add(NullabilityRow::id.lt(0_i64))
+            .add(nullable_comparison.clone())
+            .into_expr()
+            .expect("required then nullable condition"),
+    );
+    assert_nullable_bool(
+        dbkit::Condition::all()
+            .add(nullable_comparison.clone())
+            .into_expr()
+            .expect("nullable condition")
+            .and(NullabilityRow::id.gt(0_i64)),
+    );
+    assert_nullable_bool(
+        dbkit::Condition::all()
+            .add(NullabilityRow::nullable_text.eq(None))
+            .into_expr()
+            .expect("optional null comparison condition"),
+    );
     let _filtered_aggregate = dbkit::func::count(NullabilityRow::id).filter(nullable_comparison.clone());
     let _filtered_update = NullabilityRow::update()
         .set(NullabilityRow::required_text, "updated")

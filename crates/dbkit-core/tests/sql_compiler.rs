@@ -1236,20 +1236,23 @@ fn compiles_smallint_arithmetic_projection_with_integer_expression_type() {
 #[test]
 fn condition_any_empty_returns_none() {
     let cond = Condition::any();
-    assert!(cond.into_expr().is_none());
+    let expr: Option<Expr<bool>> = cond.into_expr();
+    assert!(expr.is_none());
 }
 
 #[test]
 fn condition_all_empty_returns_none() {
     let cond = Condition::all();
-    assert!(cond.into_expr().is_none());
+    let expr: Option<Expr<bool>> = cond.into_expr();
+    assert!(expr.is_none());
 }
 
 #[test]
 fn compiles_condition_any_or() {
     let cond = Condition::any().add(user_email().like("%example%")).add(user_id().gt(10_i64));
+    let expr: Expr<Option<bool>> = cond.into_expr().expect("expr");
 
-    let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
+    let query: Select<User> = Select::new(user_table()).filter(expr);
     let sql = query.compile();
     assert_eq!(
         sql.sql,
@@ -1260,15 +1263,38 @@ fn compiles_condition_any_or() {
 
 #[test]
 fn compiles_condition_all_and() {
-    let cond = Condition::all().add(user_email().like("%example%")).add(user_id().gt(10_i64));
+    let cond = Condition::all().add(user_id().gt(10_i64)).add(user_email().like("%example%"));
+    let expr: Expr<Option<bool>> = cond.into_expr().expect("expr");
 
-    let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
+    let query: Select<User> = Select::new(user_table()).filter(expr);
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT users.* FROM users WHERE ((users.email LIKE $1) AND (users.id > $2))"
+        "SELECT users.* FROM users WHERE ((users.id > $1) AND (users.email LIKE $2))"
     );
-    assert_eq!(sql.binds, vec![Value::String("%example%".to_string()), Value::I64(10)]);
+    assert_eq!(sql.binds, vec![Value::I64(10), Value::String("%example%".to_string())]);
+}
+
+#[test]
+fn condition_preserves_single_nullable_predicate_type() {
+    let expr: Expr<Option<bool>> = Condition::all().add(user_email().eq("a@b.com")).into_expr().expect("expr");
+
+    let sql = expr_sql(expr);
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email = $1)");
+    assert_eq!(sql.binds, vec![Value::String("a@b.com".to_string())]);
+}
+
+#[test]
+fn condition_preserves_required_predicate_type() {
+    let expr: Expr<bool> = Condition::all()
+        .add(user_id().gt(0_i64))
+        .add(user_id().lt(100_i64))
+        .into_expr()
+        .expect("expr");
+
+    let sql = expr_sql(expr);
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE ((users.id > $1) AND (users.id < $2))");
+    assert_eq!(sql.binds, vec![Value::I64(0), Value::I64(100)]);
 }
 
 fn expr_sql<T>(expr: Expr<T>) -> dbkit_core::CompiledSql

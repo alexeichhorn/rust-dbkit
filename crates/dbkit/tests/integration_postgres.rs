@@ -64,6 +64,17 @@ struct NullableValueComparisonProjection {
     is_null: bool,
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableConditionProjection {
+    note: Option<String>,
+    single_nullable: Option<bool>,
+    all_with_true: Option<bool>,
+    all_with_false: Option<bool>,
+    any_with_false: Option<bool>,
+    any_with_true: Option<bool>,
+    required_only: bool,
+}
+
 #[model(table = "events")]
 pub struct Event {
     #[key]
@@ -1197,6 +1208,108 @@ async fn nullable_value_comparison_projections_follow_postgres_three_valued_logi
     );
 
     let matching = NullableRow::query().filter(NullableRow::note.eq("middle")).all(&tx).await?;
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].note.as_deref(), Some("middle"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn conditions_preserve_postgres_three_valued_logic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_nullable_row(&tx, None).await?;
+    seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+    seed_nullable_row(&tx, Some("middle".to_string())).await?;
+    seed_nullable_row(&tx, Some("zulu".to_string())).await?;
+
+    let rows: Vec<NullableConditionProjection> = NullableRow::query()
+        .select_only()
+        .column(NullableRow::note)
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .into_expr()
+                .expect("single nullable condition"),
+            "single_nullable",
+        )
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .add(NullableRow::id.gt(0_i64))
+                .into_expr()
+                .expect("all with true"),
+            "all_with_true",
+        )
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .add(NullableRow::id.lt(0_i64))
+                .into_expr()
+                .expect("all with false"),
+            "all_with_false",
+        )
+        .column_as(
+            dbkit::Condition::any()
+                .add(NullableRow::id.lt(0_i64))
+                .add(NullableRow::note.eq("middle"))
+                .into_expr()
+                .expect("any with false"),
+            "any_with_false",
+        )
+        .column_as(
+            dbkit::Condition::any()
+                .add(NullableRow::id.gt(0_i64))
+                .add(NullableRow::note.eq("middle"))
+                .into_expr()
+                .expect("any with true"),
+            "any_with_true",
+        )
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::id.gt(0_i64))
+                .add(NullableRow::note.is_not_null())
+                .into_expr()
+                .expect("required condition"),
+            "required_only",
+        )
+        .order_by(dbkit::Order::asc(NullableRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.single_nullable,
+                row.all_with_true,
+                row.all_with_false,
+                row.any_with_false,
+                row.any_with_true,
+                row.required_only,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, Some(false), None, Some(true), false),
+            (Some("alpha"), Some(false), Some(false), Some(false), Some(false), Some(true), true),
+            (Some("middle"), Some(true), Some(true), Some(false), Some(true), Some(true), true),
+            (Some("zulu"), Some(false), Some(false), Some(false), Some(false), Some(true), true),
+        ]
+    );
+
+    let matching = NullableRow::query()
+        .filter(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .add(NullableRow::id.gt(0_i64))
+                .into_expr()
+                .expect("nullable filter condition"),
+        )
+        .all(&tx)
+        .await?;
     assert_eq!(matching.len(), 1);
     assert_eq!(matching[0].note.as_deref(), Some("middle"));
 
