@@ -40,3 +40,13 @@ async fn example(db: &Database) -> Result<Vec<User>, dbkit::Error> {
 The `#[model]` macro generates typed columns, queries, inserts, updates, deletes, and relation
 loading. Import `dbkit::prelude::*` to bring the common query and mutation extension traits into
 scope.
+
+## Guides
+
+- [Querying][crate::guide::querying]
+- [Mutations][crate::guide::mutations]
+- [Relations][crate::guide::relations]
+- [Expressions and aggregation][crate::guide::expressions]
+- [PostgreSQL string functions][crate::guide::string_functions]
+- [Postgres types][crate::guide::postgres_types]
+- [Database][crate::guide::database]

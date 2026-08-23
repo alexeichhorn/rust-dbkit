@@ -5,7 +5,7 @@
 Use the generated insert type. This is usually the clearest path because required fields stay
 explicit:
 
-```rust
+```rust,ignore
 let created = User::insert(UserInsert {
     name: "Alex".to_string(),
     email: "a@b.com".to_string(),
@@ -21,7 +21,7 @@ let created = User::insert(UserInsert {
 For one loaded row, prefer `into_active()`. It marks existing fields as unchanged, so the update
 only writes fields you explicitly set or null out:
 
-```rust
+```rust,ignore
 let mut active = created.into_active();
 active.name = "Renamed".into();
 let updated = active.update(&db).await?;
@@ -30,7 +30,7 @@ let updated = active.update(&db).await?;
 Use the query-builder update for bulk updates or conditional updates where loading the row first
 would be the wrong shape:
 
-```rust
+```rust,ignore
 let updated = User::update()
     .set(User::name, "Updated")
     .filter(User::id.eq(created.id))
@@ -43,13 +43,13 @@ let updated = User::update()
 
 For one loaded row, use the active model delete:
 
-```rust
+```rust,ignore
 let deleted = created.into_active().delete(&db).await?;
 ```
 
 Use the query builder for bulk deletes or conditional deletes:
 
-```rust
+```rust,ignore
 let deleted = User::delete()
     .filter(User::id.eq(created.id))
     .execute(&db)
@@ -61,7 +61,7 @@ let deleted = User::delete()
 Active model save is available when code genuinely needs one path that inserts new rows and updates
 loaded rows:
 
-```rust
+```rust,ignore
 let mut active = User::new_active();
 active.name = "Saved".into();
 active.email = "saved@db.com".into();
@@ -74,7 +74,7 @@ let updated = active.save(&db).await?;
 
 ## Bulk Insert
 
-```rust
+```rust,ignore
 let inserted = User::insert_many(vec![
     UserInsert {
         name: "Alpha".to_string(),
@@ -92,7 +92,7 @@ assert_eq!(inserted, 2);
 
 ## Insert Conflict Handling
 
-```rust
+```rust,ignore
 let ignored = User::insert(UserInsert {
     name: "Alex".to_string(),
     email: "a@b.com".to_string(),

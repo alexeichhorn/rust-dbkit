@@ -2,13 +2,13 @@
 
 ## Connecting
 
-```rust
+```rust,ignore
 let db = Database::connect("postgres://...").await?;
 ```
 
 Customize `sqlx` pool options when needed:
 
-```rust
+```rust,ignore
 let db = Database::connect_with_options(
     "postgres://...",
     dbkit::PgPoolOptions::new().max_connections(20),
@@ -25,7 +25,7 @@ Migrations are optional and use `sqlx`:
 dbkit = { version = "0.2", features = ["migrations"] }
 ```
 
-```rust
+```rust,ignore
 use dbkit::{Database, migrate::Migrator};
 
 static MIGRATOR: Migrator = dbkit::sqlx::migrate!("./migrations");
@@ -38,7 +38,7 @@ db.migrate(&MIGRATOR).await?;
 
 ## Transactions
 
-```rust
+```rust,ignore
 let tx = db.begin().await?;
 let users = User::query().all(&tx).await?;
 tx.commit().await?;
@@ -46,7 +46,7 @@ tx.commit().await?;
 
 ## Transaction-Local Postgres Settings
 
-```rust
+```rust,ignore
 let tx = db.begin().await?;
 tx.set_local("statement_timeout", "5s").await?;
 

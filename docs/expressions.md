@@ -2,7 +2,7 @@
 
 ## Arithmetic Expressions
 
-```rust
+```rust,ignore
 let rows = Record::query()
     .filter((Record::left_value + 1_i64).lt_col(Record::baseline_value))
     .filter((Record::right_value - Record::left_value).gt(0_i64))
@@ -16,7 +16,7 @@ Arithmetic expressions also support `*` and compose with typed SQL helpers like
 
 ## Interval Expressions
 
-```rust
+```rust,ignore
 let rows = Schedule::query()
     .filter(dbkit::interval::hours(Schedule::base_interval_hours).eq_col(Schedule::lease_window))
     .order_by(dbkit::Order::asc(dbkit::interval::minutes(dbkit::func::coalesce(
@@ -32,7 +32,7 @@ timestamp comparisons like `Schedule::updated_at.le(now - dbkit::interval::secon
 
 ## Aggregation And Projections
 
-```rust
+```rust,ignore
 use dbkit::prelude::*;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -54,7 +54,7 @@ let totals: Vec<RegionTotal> = Sale::query()
 
 ## Filtered Aggregates
 
-```rust
+```rust,ignore
 #[derive(sqlx::FromRow, Debug)]
 struct SaleSummary {
     sale_count: i64,
@@ -81,7 +81,7 @@ selected expression is an aggregate, PostgreSQL returns one summary row without 
 
 ## SQL Functions And Expression-Based Grouping
 
-```rust
+```rust,ignore
 #[derive(sqlx::FromRow, Debug)]
 struct BucketTotal {
     bucket: chrono::NaiveDateTime,
@@ -100,7 +100,7 @@ let buckets: Vec<BucketTotal> = Sale::query()
 
 ## Join + Aggregation
 
-```rust
+```rust,ignore
 #[derive(sqlx::FromRow, Debug)]
 struct UserTodoAgg {
     name: String,

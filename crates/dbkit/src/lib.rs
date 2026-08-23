@@ -12,6 +12,8 @@ pub mod database;
 pub mod error;
 pub mod executor;
 pub mod func;
+#[cfg(doc)]
+pub mod guide;
 mod joined;
 pub mod model;
 pub mod query_ext;
