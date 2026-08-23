@@ -1680,16 +1680,18 @@ pub enum ConditionKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct Condition {
+pub struct Condition<T = bool> {
     kind: ConditionKind,
-    exprs: Vec<Expr<bool>>,
+    exprs: Vec<ExprNode>,
+    _marker: PhantomData<T>,
 }
 
-impl Condition {
+impl Condition<bool> {
     pub fn any() -> Self {
         Self {
             kind: ConditionKind::Any,
             exprs: Vec::new(),
+            _marker: PhantomData,
         }
     }
 
@@ -1697,23 +1699,38 @@ impl Condition {
         Self {
             kind: ConditionKind::All,
             exprs: Vec::new(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> Condition<T>
+where
+    T: BooleanExprType,
+{
+    pub fn add<U>(mut self, expr: Expr<U>) -> Condition<<T as BooleanOutput<U>>::Output>
+    where
+        T: BooleanOutput<U>,
+        U: BooleanExprType,
+    {
+        self.exprs.push(expr.node);
+        Condition {
+            kind: self.kind,
+            exprs: self.exprs,
+            _marker: PhantomData,
         }
     }
 
-    pub fn add<T>(mut self, expr: Expr<T>) -> Self
-    where
-        T: BooleanExprType,
-    {
-        self.exprs.push(into_predicate(expr));
-        self
-    }
-
-    pub fn into_expr(self) -> Option<Expr<bool>> {
+    pub fn into_expr(self) -> Option<Expr<T>> {
         let mut iter = self.exprs.into_iter();
         let first = iter.next()?;
-        Some(iter.fold(first, |acc, expr| match self.kind {
-            ConditionKind::Any => acc.or(expr),
-            ConditionKind::All => acc.and(expr),
-        }))
+        Some(Expr::new(iter.fold(first, |acc, expr| ExprNode::Bool {
+            left: Box::new(acc),
+            op: match self.kind {
+                ConditionKind::Any => BoolOp::Or,
+                ConditionKind::All => BoolOp::And,
+            },
+            right: Box::new(expr),
+        })))
     }
 }
