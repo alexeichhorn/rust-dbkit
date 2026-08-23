@@ -11,6 +11,9 @@ readme = "../../README.md"
 default = []
 migrations = ["sqlx/migrate"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 dbkit-core.workspace = true
 dbkit-derive.workspace = true

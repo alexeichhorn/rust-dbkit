@@ -1,3 +1,5 @@
+#![doc = include_str!("lib.md")]
+
 pub use dbkit_core::interval;
 pub use dbkit_core::*;
 pub use dbkit_derive::{model, DbEnum, Model};
