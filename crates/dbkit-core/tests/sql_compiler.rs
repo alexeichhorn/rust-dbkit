@@ -217,6 +217,36 @@ fn compiles_nullable_ordered_comparisons_with_optional_values() {
 }
 
 #[test]
+fn compiles_ordered_comparisons_with_nullable_rhs_expressions() {
+    let nullable_rhs = user_score() + 1_i64;
+    let required_rhs = user_id() + 1_i64;
+    let less: Expr<Option<bool>> = user_id().lt(nullable_rhs.clone());
+    let less_or_equal: Expr<Option<bool>> = user_id().le(nullable_rhs.clone());
+    let greater: Expr<Option<bool>> = user_id().gt(nullable_rhs.clone());
+    let greater_or_equal: Expr<Option<bool>> = user_id().ge(nullable_rhs);
+    let nullable_left: Expr<Option<bool>> = user_score().lt(required_rhs.clone());
+    let required: Expr<bool> = user_id().lt(required_rhs);
+    let coalesced: Expr<bool> = user_id().lt(func::coalesce(user_score(), 0_i64));
+
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(less, "less")
+        .column_as(less_or_equal, "less_or_equal")
+        .column_as(greater, "greater")
+        .column_as(greater_or_equal, "greater_or_equal")
+        .column_as(nullable_left, "nullable_left")
+        .column_as(required, "required")
+        .column_as(coalesced, "coalesced");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (users.id < (users.score + $1)) AS less, (users.id <= (users.score + $1)) AS less_or_equal, (users.id > (users.score + $1)) AS greater, (users.id >= (users.score + $1)) AS greater_or_equal, (users.score < (users.id + $1)) AS nullable_left, (users.id < (users.id + $1)) AS required, (users.id < COALESCE(users.score, $2)) AS coalesced FROM users"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(1), Value::I64(0)]);
+}
+
+#[test]
 fn compiles_nullable_value_comparison_projections() {
     let equals: Expr<Option<bool>> = user_email().eq("a@b.com");
     let differs: Expr<Option<bool>> = user_email().ne("blocked@example.com");

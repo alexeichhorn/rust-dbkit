@@ -52,6 +52,17 @@ struct NullableArithmeticResult {
     literal_time_minus_nullable_interval: Option<NaiveDateTime>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct NullableRhsComparisonResult {
+    less: Option<bool>,
+    less_or_equal: Option<bool>,
+    greater: Option<bool>,
+    greater_or_equal: Option<bool>,
+    nullable_left: Option<bool>,
+    required: bool,
+    coalesced: bool,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -438,6 +449,79 @@ async fn nullable_ordered_column_comparisons_exclude_null_operands() -> Result<(
         .all(&tx)
         .await?;
     assert_eq!(greater_or_equal.iter().map(|row| row.id).collect::<Vec<_>>(), vec![1, 3]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn required_columns_compare_to_nullable_rhs_expressions() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_nullable_arithmetic_schema(&tx).await?;
+
+    tx.execute(
+        "INSERT INTO nullable_arithmetic_records \
+            (required_value, nullable_left, nullable_right, required_at, nullable_at, required_interval, nullable_interval) \
+         VALUES \
+            (5, 2, NULL, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (3, 2, NULL, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (2, 2, NULL, NOW(), NULL, INTERVAL '1 hour', NULL), \
+            (5, NULL, NULL, NOW(), NULL, INTERVAL '1 hour', NULL)",
+        PgArguments::default(),
+    )
+    .await?;
+
+    let nullable_rhs = NullableArithmeticRecord::nullable_left + 1_i32;
+    let required_rhs = NullableArithmeticRecord::required_value + 1_i32;
+    let rows: Vec<NullableRhsComparisonResult> = NullableArithmeticRecord::query()
+        .select_only()
+        .column_as(NullableArithmeticRecord::required_value.lt(nullable_rhs.clone()), "less")
+        .column_as(NullableArithmeticRecord::required_value.le(nullable_rhs.clone()), "less_or_equal")
+        .column_as(NullableArithmeticRecord::required_value.gt(nullable_rhs.clone()), "greater")
+        .column_as(NullableArithmeticRecord::required_value.ge(nullable_rhs), "greater_or_equal")
+        .column_as(NullableArithmeticRecord::nullable_left.lt(required_rhs.clone()), "nullable_left")
+        .column_as(NullableArithmeticRecord::required_value.lt(required_rhs), "required")
+        .column_as(
+            NullableArithmeticRecord::required_value.lt(dbkit::func::coalesce(NullableArithmeticRecord::nullable_left, 0_i32)),
+            "coalesced",
+        )
+        .order_by(Order::asc(NullableArithmeticRecord::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.into_iter()
+            .map(|row| (
+                row.less,
+                row.less_or_equal,
+                row.greater,
+                row.greater_or_equal,
+                row.nullable_left,
+                row.required,
+                row.coalesced,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some(false), Some(false), Some(true), Some(true), Some(true), true, false),
+            (Some(false), Some(true), Some(false), Some(true), Some(true), true, false),
+            (Some(true), Some(true), Some(false), Some(false), Some(true), true, false),
+            (None, None, None, None, None, true, false),
+        ]
+    );
+
+    let greater = NullableArithmeticRecord::query()
+        .filter(NullableArithmeticRecord::required_value.gt(NullableArithmeticRecord::nullable_left + 1_i32))
+        .all(&tx)
+        .await?;
+    assert_eq!(greater.iter().map(|row| row.id).collect::<Vec<_>>(), vec![1]);
+
+    let less_or_equal = NullableArithmeticRecord::query()
+        .filter(NullableArithmeticRecord::required_value.le(NullableArithmeticRecord::nullable_left + 1_i32))
+        .order_by(Order::asc(NullableArithmeticRecord::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(less_or_equal.iter().map(|row| row.id).collect::<Vec<_>>(), vec![2, 3]);
 
     Ok(())
 }

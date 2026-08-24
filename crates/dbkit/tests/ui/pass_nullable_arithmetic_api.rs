@@ -44,6 +44,8 @@ fn assert_interval(_: Expr<PgInterval>) {}
 
 fn assert_nullable_interval(_: Expr<Option<PgInterval>>) {}
 
+fn assert_bool(_: Expr<bool>) {}
+
 fn assert_nullable_bool(_: Expr<Option<bool>>) {}
 
 fn main() {
@@ -130,6 +132,21 @@ fn main() {
     assert_nullable_bool(nullable_numeric_expr.clone().ge(10_i32));
     assert_nullable_bool(nullable_numeric_expr.between(1_i32, 10_i32));
 
+    let required_rhs_expr = NullableArithmeticRow::required_i32 + 1_i32;
+    assert_bool(NullableArithmeticRow::required_i32.lt(required_rhs_expr.clone()));
+    assert_bool(NullableArithmeticRow::required_i32.le(required_rhs_expr.clone()));
+    assert_bool(NullableArithmeticRow::required_i32.gt(required_rhs_expr.clone()));
+    assert_bool(NullableArithmeticRow::required_i32.ge(required_rhs_expr.clone()));
+
+    let nullable_rhs_expr = NullableArithmeticRow::nullable_i32 + 1_i32;
+    assert_nullable_bool(NullableArithmeticRow::required_i32.lt(nullable_rhs_expr.clone()));
+    assert_nullable_bool(NullableArithmeticRow::required_i32.le(nullable_rhs_expr.clone()));
+    assert_nullable_bool(NullableArithmeticRow::required_i32.gt(nullable_rhs_expr.clone()));
+    assert_nullable_bool(NullableArithmeticRow::required_i32.ge(nullable_rhs_expr.clone()));
+    assert_nullable_bool(NullableArithmeticRow::nullable_i32.lt(required_rhs_expr.clone()));
+    assert_nullable_bool(NullableArithmeticRow::nullable_i32.ge(nullable_rhs_expr));
+    assert_bool(NullableArithmeticRow::required_i32.lt(dbkit::func::coalesce(NullableArithmeticRow::nullable_i32, 0_i32)));
+
     // Timestamp arithmetic propagates NULL from the timestamp, interval, or both.
     assert_nullable_naive(NullableArithmeticRow::nullable_naive + NullableArithmeticRow::required_interval);
     assert_nullable_naive(NullableArithmeticRow::required_naive + NullableArithmeticRow::nullable_interval);
@@ -157,6 +174,8 @@ fn main() {
     let _query = NullableArithmeticRow::query()
         .filter((100_i32 - NullableArithmeticRow::nullable_i32).gt(50_i32))
         .filter((NullableArithmeticRow::nullable_i32 + NullableArithmeticRow::required_i32).eq(10_i32))
+        .filter(NullableArithmeticRow::required_i32.lt(NullableArithmeticRow::nullable_i32 + 1_i32))
+        .filter(NullableArithmeticRow::required_i32.ge(NullableArithmeticRow::nullable_i32 + 1_i32))
         .filter((NullableArithmeticRow::nullable_i32 * NullableArithmeticRow::nullable_i32).eq(None))
         .filter((NullableArithmeticRow::nullable_naive + NullableArithmeticRow::required_interval).is_not_null());
 }
