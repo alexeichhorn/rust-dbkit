@@ -2,6 +2,104 @@
 
 All notable changes to `dbkit` will be documented in this file.
 
+## 0.3.0
+
+This release simplifies generated model names, adds typed PostgreSQL string functions, filtered aggregates, `BYTEA` values, and relation unloading, and moves the growing README reference into focused guides.
+
+### Breaking Changes
+
+#### Generated model types keep the declared struct name
+
+The `#[dbkit::model]` macro no longer appends `Model` to the generated model type. The declared name now represents both unloaded and loaded relation states through default generic parameters.
+
+Before:
+
+```rust
+let users: Vec<UserModel<Vec<Todo>>> = User::query()
+    .with(User::todos.selectin())
+    .all(&db)
+    .await?;
+```
+
+After:
+
+```rust
+let users: Vec<User<Vec<Todo>>> = User::query()
+    .with(User::todos.selectin())
+    .all(&db)
+    .await?;
+```
+
+Replace explicit `FooModel` references with `Foo`. Query methods and generated `FooInsert` and `FooActive` types keep their existing names. A declaration already ending in `Model`, such as `struct UserModel`, remains `UserModel` rather than becoming `UserModelModel`.
+
+#### Aggregate functions use a distinct expression type
+
+`count`, `sum`, `min`, and `max` now return `AggregateExpr<T>`, an alias for `Expr<T, AggregateExpression>`. This restricts PostgreSQL `FILTER (WHERE ...)` to aggregate functions while keeping normal query composition unchanged.
+
+Code that explicitly names `Expr<T>` for an aggregate result or matches low-level expression types may need to accept `AggregateExpr<T>` or convert through `IntoExpr`.
+
+Low-level exhaustive matches also need arms for `Value::Bytes` and the new `ExprNode::Normalize`, `ExprNode::Trim`, and `ExprNode::AggregateFilter` variants.
+
+### New Features
+
+#### Filtered aggregates
+
+Aggregate expressions support PostgreSQL `FILTER (WHERE ...)` clauses:
+
+```rust
+let summary = Sale::query()
+    .select_only()
+    .column_as(
+        dbkit::func::count(Sale::id).filter(Sale::region.eq("us")),
+        "us_sale_count",
+    )
+    .column_as(
+        dbkit::func::sum(Sale::amount).filter(Sale::refunded.eq(false)),
+        "non_refunded_total",
+    )
+    .into_model::<SaleSummary>()
+    .one(&db)
+    .await?;
+```
+
+Aggregate interval expressions can be composed with the existing timestamp arithmetic helpers.
+
+#### Typed PostgreSQL string functions
+
+The typed function API now covers the following groups:
+
+- normalization: `lower`, `trim_chars`, `trim_start`, `trim_start_chars`, `trim_end`, and `trim_end_chars`
+- length and search: `byte_length`, `bit_length`, `position`, and `starts_with`
+- extraction and sizing: `left`, `right`, `substring`, `repeat`, `pad_start`, and `pad_end`
+- transformation: `title_case`, `replace`, `replace_range`, `translate_chars`, and `reverse`
+- composition and splitting: `concat`, `concat_with_separator`, `split`, and `split_part`
+- regex inspection: `regex_is_match`, `regex_count`, `regex_position`, `regex_captures`, and `regex_extract`
+- regex transformation: `regex_replace` and `regex_split`, with typed `RegexReplaceFlags` and `RegexSplitFlags`
+- Unicode and code points: `normalize`, `first_codepoint`, `from_codepoint`, `to_ascii`, `case_fold`, and `is_unicode_assigned`
+
+These helpers preserve nullable input types in their output types. Mixed required and nullable concat values can be collected with `.into_concat_expr()`. `NormalizationForm` provides typed `NFC`, `NFD`, `NFKC`, and `NFKD` tokens, while regex flags can combine case-insensitive and global replacement behavior without raw flag strings.
+
+Some helpers require newer PostgreSQL versions. `starts_with` requires PostgreSQL 11. `regex_is_match`, `regex_count`, `regex_position`, and `regex_extract` require PostgreSQL 15, while `regex_captures` requires PostgreSQL 10. `normalize` requires PostgreSQL 13. `case_fold` and `is_unicode_assigned` require PostgreSQL 18. The new string function guide records the full compatibility and NULL behavior for each function.
+
+#### `BYTEA` support
+
+`Vec<u8>` now works as a typed `BYTEA` value in model fields, query filters, inserts, updates, and row decoding.
+
+#### Relation unloading through `Into`
+
+Loaded model relations can be discarded when an API needs a less-loaded type. Scalar fields and relation states present in the target type are preserved:
+
+```rust
+let todo: Todo<Option<User>, Vec<Tag>> = load_todo(&db).await?;
+let todo: Todo<Option<User>> = todo.into();
+```
+
+Generated conversions now use collision-resistant generic names and fully qualified conversion traits, so model fields or surrounding imports named `From` or `Into` do not break macro expansion.
+
+### Documentation And Tooling
+
+- Split the README reference into guides for querying, mutations, relations, expressions and aggregation, PostgreSQL string functions, PostgreSQL types, and database usage.
+
 ## 0.2.1
 
 This release adds more typed SQL expression support, row-value filters, correlated `EXISTS` queries, column rename attributes, transaction-local settings, and a set of SQL compiler fixes around subqueries, nullable expressions, and enum casts.

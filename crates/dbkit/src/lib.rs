@@ -1,3 +1,5 @@
+#![doc = include_str!("lib.md")]
+
 pub use dbkit_core::interval;
 pub use dbkit_core::*;
 pub use dbkit_derive::{model, DbEnum, Model};
@@ -10,6 +12,8 @@ pub mod database;
 pub mod error;
 pub mod executor;
 pub mod func;
+#[cfg(doc)]
+pub mod guide;
 mod joined;
 pub mod model;
 pub mod query_ext;

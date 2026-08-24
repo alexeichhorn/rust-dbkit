@@ -9,7 +9,7 @@ filters, and ordering.
 This example uses generated model columns directly.
 The projection uses `sqlx::FromRow`, which requires `sqlx` as a direct dependency.
 
-```rust
+```rust,ignore
 use dbkit::func::{self, NormalizationForm, RegexReplaceFlags, RegexSplitFlags};
 use dbkit::{model, Order};
 

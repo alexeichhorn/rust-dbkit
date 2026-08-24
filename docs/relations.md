@@ -2,7 +2,7 @@
 
 ## Model Relations
 
-```rust
+```rust,ignore
 #[model(table = "todos")]
 #[derive(Debug)]
 struct Todo {
@@ -39,7 +39,7 @@ struct TodoTag {
 
 ## Eager Loading And Join Filtering
 
-```rust
+```rust,ignore
 let users: Vec<User<Vec<Todo>>> = User::query()
     .with(User::todos.selectin())
     .all(&db)
@@ -62,7 +62,7 @@ let filtered = User::query()
 
 Parent -> children -> grandchildren loading is reflected in the result type:
 
-```rust
+```rust,ignore
 let users: Vec<User<Vec<Todo<dbkit::NotLoaded, Vec<Tag>>>>> = User::query()
     .filter(User::email.ilike("%@example.com"))
     .with(User::todos.selectin().with(Todo::tags.selectin()))
@@ -80,7 +80,7 @@ for user in &users {
 
 Child-to-parent loading works the same way, and the parent can load its graph too:
 
-```rust
+```rust,ignore
 let todos: Vec<Todo<Option<User<Vec<Todo>>>, dbkit::NotLoaded>> = Todo::query()
     .with(Todo::user.selectin().with(User::todos.selectin()))
     .all(&db)
@@ -100,7 +100,7 @@ for todo in &todos {
 
 ## Select-In vs Joined
 
-```rust
+```rust,ignore
 // selectin = 1 query for parents, then 1 query per relation (per level)
 let users: Vec<User<Vec<Todo>>> = User::query()
     .limit(10)
@@ -123,7 +123,7 @@ Notes:
 
 ## Type-Level Loaded Relations
 
-```rust
+```rust,ignore
 // `User` with default generic params is the bare row: all relations are `NotLoaded`.
 fn accepts_unloaded(user: &User) {
     println!("{}", user.name);
@@ -150,7 +150,7 @@ fn needs_loaded(user: &User<Vec<Todo>>) {
 `dbkit` does not auto-fetch relations on field access. Load an unloaded relation explicitly with
 `.load(...)`:
 
-```rust
+```rust,ignore
 let user = User::by_id(1).one(&db).await?.unwrap();
 let user = user.load(User::todos, &db).await?;
 println!("todos: {}", user.todos.len());
@@ -161,7 +161,7 @@ println!("todos: {}", user.todos.len());
 Use `.into()` when an API needs a model with fewer loaded relations. Scalar fields and relations
 present in the target type are preserved; the other loaded relations are discarded:
 
-```rust
+```rust,ignore
 let todo: Todo<Option<User>, Vec<Tag>> = load_todo(&db).await?;
 let todo: Todo<Option<User>> = todo.into();
 ```

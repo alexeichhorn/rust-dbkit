@@ -2,7 +2,7 @@
 
 ## Basic Query + Ordering
 
-```rust
+```rust,ignore
 use dbkit::prelude::*;
 
 let users = User::query()
@@ -15,7 +15,7 @@ let users = User::query()
 
 ## Row-Value Filters
 
-```rust
+```rust,ignore
 let rows = LookupRow::query()
     .filter(dbkit::row((LookupRow::scope, LookupRow::external_key, LookupRow::locale)).in_([
         (LookupScope::Public, "alpha", "en"),
@@ -27,7 +27,7 @@ let rows = LookupRow::query()
 
 ## Row Locking
 
-```rust
+```rust,ignore
 let rows = User::query().for_update().all(&tx).await?;
 let rows = User::query().for_update().skip_locked().all(&tx).await?;
 let rows = User::query().for_update().nowait().all(&tx).await?;
@@ -35,7 +35,7 @@ let rows = User::query().for_update().nowait().all(&tx).await?;
 
 ## Count / Exists / Pagination
 
-```rust
+```rust,ignore
 let total = User::query().count(&db).await?;
 let exists = User::query()
     .filter(User::email.eq("a@b.com"))
@@ -51,7 +51,7 @@ println!("page {} of {}", page.page, page.total_pages());
 
 ## Correlated EXISTS / NOT EXISTS
 
-```rust
+```rust,ignore
 let active_projects = Project::query()
     .where_exists(
         Task::query()
@@ -89,7 +89,7 @@ let archived_tasks = Task::delete()
 
 ## Dynamic Conditions
 
-```rust
+```rust,ignore
 let mut cond = dbkit::Condition::any()
     .add(User::region.eq("us"))
     .add(User::region.is_null().and(Creator::region.eq("us")));
@@ -101,7 +101,7 @@ if let Some(expr) = cond.into_expr() {
 
 ## Column-To-Column Comparisons
 
-```rust
+```rust,ignore
 let changed = Job::query()
     .filter(Job::content_hash.ne_col(Job::last_content_hash))
     .all(&db)
@@ -126,7 +126,7 @@ Supported column comparison helpers:
 
 Stale-embedding predicate with nullable hashes:
 
-```rust
+```rust,ignore
 let stale = Job::query()
     .filter(
         Job::embedding
@@ -140,7 +140,7 @@ let stale = Job::query()
 
 Null-safe hash mismatch with Postgres `IS DISTINCT FROM` semantics:
 
-```rust
+```rust,ignore
 let stale = Job::query()
     .filter(
         Job::embedding
