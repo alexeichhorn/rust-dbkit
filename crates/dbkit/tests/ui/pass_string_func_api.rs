@@ -8,6 +8,8 @@ pub struct TextSample {
     pub id: i64,
     pub title: String,
     pub body: Option<String>,
+    pub width: i32,
+    pub optional_width: Option<i32>,
 }
 
 fn assert_string(_: dbkit::Expr<String>) {}
@@ -41,20 +43,45 @@ fn main() {
     assert_nullable_string(dbkit::func::trim_end_chars(TextSample::body, "xy"));
     assert_string(dbkit::func::left(TextSample::title, 2_i32));
     assert_nullable_string(dbkit::func::left(TextSample::body, 2_i32));
+    assert_nullable_string(dbkit::func::left(TextSample::title, TextSample::optional_width));
+    assert_nullable_string(dbkit::func::left(TextSample::body, TextSample::optional_width));
     assert_string(dbkit::func::right(TextSample::title, 2_i32));
     assert_nullable_string(dbkit::func::right(TextSample::body, 2_i32));
+    assert_nullable_string(dbkit::func::right(TextSample::title, TextSample::optional_width));
     assert_string(dbkit::func::substring(TextSample::title, 2_i32, 3_i32));
     assert_nullable_string(dbkit::func::substring(TextSample::body, 2_i32, 3_i32));
+    assert_nullable_string(dbkit::func::substring(
+        TextSample::title,
+        TextSample::optional_width,
+        TextSample::width,
+    ));
+    assert_nullable_string(dbkit::func::substring(
+        TextSample::title,
+        TextSample::width,
+        TextSample::optional_width,
+    ));
+    assert_nullable_string(dbkit::func::substring(
+        TextSample::body,
+        TextSample::optional_width,
+        TextSample::optional_width,
+    ));
     assert_string(dbkit::func::repeat(TextSample::title, dbkit::func::char_length(TextSample::title)));
     assert_nullable_string(dbkit::func::repeat(TextSample::body, 2_i32));
+    assert_nullable_string(dbkit::func::repeat(TextSample::title, TextSample::optional_width));
     assert_string(dbkit::func::pad_start(
         TextSample::title,
         dbkit::func::char_length(TextSample::title),
         "xy",
     ));
     assert_nullable_string(dbkit::func::pad_start(TextSample::body, 8_i32, "xy"));
+    assert_nullable_string(dbkit::func::pad_start(TextSample::title, TextSample::optional_width, "xy"));
     assert_string(dbkit::func::pad_end(TextSample::title, 8_i32, "xy"));
     assert_nullable_string(dbkit::func::pad_end(TextSample::body, 8_i32, "xy"));
+    assert_nullable_string(dbkit::func::pad_end(TextSample::body, TextSample::optional_width, "xy"));
+    assert_string(dbkit::func::left(
+        TextSample::title,
+        dbkit::func::coalesce(TextSample::optional_width, 0_i32),
+    ));
     assert_i32(dbkit::func::byte_length(TextSample::title));
     assert_nullable_i32(dbkit::func::byte_length(TextSample::body));
     assert_i32(dbkit::func::bit_length("UTF-8"));
@@ -78,6 +105,18 @@ fn main() {
     assert_string(dbkit::func::replace_range(TextSample::title, "replacement", 1_i32, 2_i32));
     assert_nullable_string(dbkit::func::replace_range(TextSample::body, "replacement", 1_i32, 2_i32));
     assert_nullable_string(dbkit::func::replace_range(TextSample::title, TextSample::body, 1_i32, 2_i32));
+    assert_nullable_string(dbkit::func::replace_range(
+        TextSample::title,
+        "replacement",
+        TextSample::optional_width,
+        TextSample::width,
+    ));
+    assert_nullable_string(dbkit::func::replace_range(
+        TextSample::title,
+        "replacement",
+        TextSample::width,
+        TextSample::optional_width,
+    ));
     assert_string(dbkit::func::translate_chars(TextSample::title, "from", "to"));
     assert_nullable_string(dbkit::func::translate_chars(TextSample::body, "from", "to"));
     assert_nullable_string(dbkit::func::translate_chars(TextSample::title, TextSample::body, "to"));
@@ -108,6 +147,11 @@ fn main() {
     assert_string(dbkit::func::split_part(TextSample::title, "::", 1_i32));
     assert_nullable_string(dbkit::func::split_part(TextSample::body, "::", 1_i32));
     assert_nullable_string(dbkit::func::split_part(TextSample::title, TextSample::body, 1_i32));
+    assert_nullable_string(dbkit::func::split_part(TextSample::title, "::", TextSample::optional_width));
+
+    let nullable_width_expression = TextSample::optional_width + TextSample::width;
+    assert_nullable_string(dbkit::func::left(TextSample::title, nullable_width_expression.clone()));
+    assert_nullable_string(dbkit::func::split_part(TextSample::title, "::", nullable_width_expression));
 
     let normalized_title = dbkit::func::lower(dbkit::func::trim(dbkit::func::trim_start_chars(
         dbkit::func::trim(TextSample::title),
@@ -180,7 +224,12 @@ fn main() {
         .filter(dbkit::func::position(TextSample::title, "needle").gt(0_i32))
         .filter(dbkit::func::trim_end_chars(TextSample::body, "!?").ne(""))
         .filter(dbkit::func::replace(TextSample::title, "old", "new").eq("expected"))
+        .filter(dbkit::func::left(TextSample::title, TextSample::optional_width).eq("prefix"))
         .filter(dbkit::func::split_part(TextSample::title, "::", 1_i32).eq("prefix"))
+        .order_by(dbkit::Order::asc(dbkit::func::repeat(
+            TextSample::title,
+            TextSample::optional_width,
+        )))
         .order_by(dbkit::Order::asc(normalized_body))
         .order_by(dbkit::Order::asc(normalized_body_len))
         .order_by(dbkit::Order::asc(nested_position))

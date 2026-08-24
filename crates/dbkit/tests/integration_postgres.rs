@@ -1923,6 +1923,106 @@ struct ExtractionSizingResult {
     end_padded: Option<String>,
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableNumericStringArgumentResult {
+    label: String,
+    left_value: Option<String>,
+    right_value: Option<String>,
+    substring_value: Option<String>,
+    repeated_value: Option<String>,
+    start_padded: Option<String>,
+    end_padded: Option<String>,
+    replaced_value: Option<String>,
+    split_value: Option<String>,
+    nullable_source: Option<String>,
+}
+
+#[tokio::test]
+async fn nullable_numeric_string_arguments_follow_postgres_null_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+    seed_text_sample(&tx, "normal", Some("xy")).await?;
+
+    let count = dbkit::func::char_length(TextSample::body);
+    let position = count.clone() + 1_i32;
+    let rows: Vec<NullableNumericStringArgumentResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(dbkit::func::left("abcdef", count.clone()), "left_value")
+        .column_as(dbkit::func::right("abcdef", count.clone()), "right_value")
+        .column_as(dbkit::func::substring("abcdef", position.clone(), count.clone()), "substring_value")
+        .column_as(dbkit::func::repeat("ab", count.clone()), "repeated_value")
+        .column_as(dbkit::func::pad_start("ab", position.clone(), "x"), "start_padded")
+        .column_as(dbkit::func::pad_end("ab", position.clone(), "x"), "end_padded")
+        .column_as(
+            dbkit::func::replace_range("abcdef", "X", position.clone(), count.clone()),
+            "replaced_value",
+        )
+        .column_as(dbkit::func::split_part("a,b,c", ",", position), "split_value")
+        .column_as(dbkit::func::left(TextSample::body, count), "nullable_source")
+        .order_by(dbkit::Order::asc(TextSample::label))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.into_iter()
+            .map(|row| (
+                row.label,
+                row.left_value,
+                row.right_value,
+                row.substring_value,
+                row.repeated_value,
+                row.start_padded,
+                row.end_padded,
+                row.replaced_value,
+                row.split_value,
+                row.nullable_source,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "empty".to_string(),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("a".to_string()),
+                Some("a".to_string()),
+                Some("Xabcdef".to_string()),
+                Some("a".to_string()),
+                Some("".to_string()),
+            ),
+            ("missing".to_string(), None, None, None, None, None, None, None, None, None),
+            (
+                "normal".to_string(),
+                Some("ab".to_string()),
+                Some("ef".to_string()),
+                Some("cd".to_string()),
+                Some("abab".to_string()),
+                Some("xab".to_string()),
+                Some("abx".to_string()),
+                Some("abXef".to_string()),
+                Some("c".to_string()),
+                Some("xy".to_string()),
+            ),
+        ]
+    );
+
+    let matching = TextSample::query()
+        .filter(dbkit::func::left("abcdef", dbkit::func::char_length(TextSample::body)).eq("ab"))
+        .all(&tx)
+        .await?;
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].label, "normal");
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn string_extraction_and_sizing_preserve_characters_and_nulls() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;

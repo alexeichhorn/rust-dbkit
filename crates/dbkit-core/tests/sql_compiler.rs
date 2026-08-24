@@ -111,6 +111,10 @@ fn text_sample_width() -> Column<TextSample, i32> {
     Column::new(text_samples_table(), "width")
 }
 
+fn text_sample_optional_width() -> Column<TextSample, Option<i32>> {
+    Column::new(text_samples_table(), "optional_width")
+}
+
 #[test]
 fn compiles_basic_filter() {
     let expr = user_email().eq("a@b.com");
@@ -521,6 +525,51 @@ fn compiles_string_extraction_and_sizing_functions_with_expected_types() {
             Value::I32(8),
             Value::String("xy".to_string()),
             Value::String("Z".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_string_functions_with_nullable_numeric_arguments() {
+    let left: Expr<Option<String>> = func::left(text_sample_title(), text_sample_optional_width());
+    let right: Expr<Option<String>> = func::right(text_sample_title(), text_sample_optional_width());
+    let substring_start: Expr<Option<String>> = func::substring(text_sample_title(), text_sample_optional_width(), text_sample_width());
+    let substring_count: Expr<Option<String>> = func::substring(text_sample_title(), text_sample_width(), text_sample_optional_width());
+    let repeated: Expr<Option<String>> = func::repeat(text_sample_title(), text_sample_optional_width());
+    let padded_start: Expr<Option<String>> = func::pad_start(text_sample_title(), text_sample_optional_width(), "x");
+    let padded_end: Expr<Option<String>> = func::pad_end(text_sample_body(), text_sample_optional_width(), "x");
+    let replaced_start: Expr<Option<String>> =
+        func::replace_range(text_sample_title(), "X", text_sample_optional_width(), text_sample_width());
+    let replaced_count: Expr<Option<String>> =
+        func::replace_range(text_sample_title(), "X", text_sample_width(), text_sample_optional_width());
+    let part: Expr<Option<String>> = func::split_part(text_sample_title(), ",", text_sample_optional_width());
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(left, "left_value")
+        .column_as(right, "right_value")
+        .column_as(substring_start, "substring_start")
+        .column_as(substring_count, "substring_count")
+        .column_as(repeated, "repeated")
+        .column_as(padded_start, "padded_start")
+        .column_as(padded_end, "padded_end")
+        .column_as(replaced_start, "replaced_start")
+        .column_as(replaced_count, "replaced_count")
+        .column_as(part, "part")
+        .filter(func::left(text_sample_title(), text_sample_optional_width()).eq("ab"));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT LEFT(text_samples.title, text_samples.optional_width) AS left_value, RIGHT(text_samples.title, text_samples.optional_width) AS right_value, SUBSTRING(text_samples.title, text_samples.optional_width, text_samples.width) AS substring_start, SUBSTRING(text_samples.title, text_samples.width, text_samples.optional_width) AS substring_count, REPEAT(text_samples.title, text_samples.optional_width) AS repeated, LPAD(text_samples.title, text_samples.optional_width, $1) AS padded_start, RPAD(text_samples.body, text_samples.optional_width, $1) AS padded_end, OVERLAY(text_samples.title, $2, text_samples.optional_width, text_samples.width) AS replaced_start, OVERLAY(text_samples.title, $2, text_samples.width, text_samples.optional_width) AS replaced_count, SPLIT_PART(text_samples.title, $3, text_samples.optional_width) AS part FROM text_samples WHERE (LEFT(text_samples.title, text_samples.optional_width) = $4)"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("x".to_string()),
+            Value::String("X".to_string()),
+            Value::String(",".to_string()),
+            Value::String("ab".to_string()),
         ]
     );
 }
