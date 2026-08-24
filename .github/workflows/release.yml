@@ -37,18 +37,29 @@ jobs:
       
       - name: Run tests
         run: cargo test --workspace
-      
+
+      - name: Prepare dbkit package
+        run: |
+          mkdir -p crates/dbkit/docs
+          cp docs/*.md crates/dbkit/docs/
+          sed -i 's#"../../../docs/#"../docs/#g' crates/dbkit/src/guide.rs
+          sed -i "s#](docs/#](https://github.com/alexeichhorn/rust-dbkit/blob/${RELEASE_TAG}/docs/#g" README.md
+          cargo doc -p dbkit --all-features --no-deps
+          grep -Fq "blob/${RELEASE_TAG}/docs/querying.md" README.md
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+
       - name: Publish dbkit-core
         run: cargo publish -p dbkit-core --token ${CRATES_TOKEN}
         env:
           CRATES_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      
+
       - name: Publish dbkit-derive
         run: cargo publish -p dbkit-derive --token ${CRATES_TOKEN}
         env:
           CRATES_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       
       - name: Publish dbkit
-        run: cargo publish -p dbkit --token ${CRATES_TOKEN}
+        run: cargo publish -p dbkit --allow-dirty --token ${CRATES_TOKEN}
         env:
           CRATES_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

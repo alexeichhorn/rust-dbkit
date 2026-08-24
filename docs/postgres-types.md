@@ -30,7 +30,7 @@ Notes:
 
 ## NULL Handling With `Option<T>`
 
-```rust
+```rust,ignore
 // assuming `NullableRow { note: Option<String> }`
 let row = NullableRow::insert(NullableRowInsert { note: None })
     .returning_all()
@@ -49,7 +49,7 @@ let rows = NullableRow::query()
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-```rust
+```rust,ignore
 #[model(table = "embedding_rows")]
 #[derive(Debug)]
 struct EmbeddingRow {
@@ -119,7 +119,7 @@ Notes:
 
 Define the enum once:
 
-```rust
+```rust,ignore
 #[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
 #[dbkit(type_name = "task_state", rename_all = "snake_case")]
 pub enum TaskState {
@@ -132,7 +132,7 @@ pub enum TaskState {
 
 Use it directly in your model:
 
-```rust
+```rust,ignore
 use dbkit::model;
 
 #[model(table = "tasks")]
@@ -147,7 +147,7 @@ pub struct Task {
 
 Use it in typed query/mutation APIs:
 
-```rust
+```rust,ignore
 let rows = Task::query()
     .filter(Task::state.eq(TaskState::InProgress))
     .filter(Task::state.in_([TaskState::PendingReview, TaskState::InProgress]))
@@ -171,7 +171,7 @@ Task::update()
 
 Upsert with enum columns is also supported:
 
-```rust
+```rust,ignore
 let row = Task::insert(TaskInsert {
     id: 42,
     title: "Ship enum support".to_string(),
@@ -194,7 +194,7 @@ let row = Task::insert(TaskInsert {
   - `SCREAMING_SNAKE_CASE`
 - Override a single variant with `#[dbkit(rename = "...")]`:
 
-```rust
+```rust,ignore
 #[derive(Debug, Clone, Copy, PartialEq, Eq, dbkit::DbEnum)]
 #[dbkit(type_name = "delivery_channel", rename_all = "snake_case")]
 pub enum DeliveryChannel {
