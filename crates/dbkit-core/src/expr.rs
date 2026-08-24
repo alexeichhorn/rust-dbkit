@@ -387,7 +387,12 @@ pub struct ExprComparisonMarker;
 #[doc(hidden)]
 pub struct OptionalValueComparisonMarker;
 
+#[doc(hidden)]
+pub struct NullableExprComparisonMarker;
+
 pub trait ComparisonValue<T, Marker = ValueComparisonMarker> {
+    type Output;
+
     fn into_comparison_expr(self) -> Expr<T>;
 }
 
@@ -522,14 +527,29 @@ impl<T, Kind> ExprOperand for Expr<T, Kind> {
     }
 }
 
-impl<T, Kind> ComparisonValue<T, ExprComparisonMarker> for Expr<T, Kind> {
+impl<T, Kind> ComparisonValue<T, ExprComparisonMarker> for Expr<T, Kind>
+where
+    T: ValueComparisonOutput,
+{
+    type Output = <T as ValueComparisonOutput>::Output;
+
     fn into_comparison_expr(self) -> Expr<T> {
         self.into_expr()
     }
 }
 
 impl<T, Kind> ComparisonValue<Option<T>, ExprComparisonMarker> for Expr<T, Kind> {
+    type Output = Option<bool>;
+
     fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(self.node)
+    }
+}
+
+impl<T, Kind> ComparisonValue<T, NullableExprComparisonMarker> for Expr<Option<T>, Kind> {
+    type Output = Option<bool>;
+
+    fn into_comparison_expr(self) -> Expr<T> {
         Expr::new(self.node)
     }
 }
@@ -548,13 +568,20 @@ impl<M, T> ExprOperand for Column<M, T> {
     }
 }
 
-impl<M, T> ComparisonValue<T, ExprComparisonMarker> for Column<M, T> {
+impl<M, T> ComparisonValue<T, ExprComparisonMarker> for Column<M, T>
+where
+    T: ValueComparisonOutput,
+{
+    type Output = <T as ValueComparisonOutput>::Output;
+
     fn into_comparison_expr(self) -> Expr<T> {
         self.into_expr()
     }
 }
 
 impl<M, T> ComparisonValue<Option<T>, ExprComparisonMarker> for Column<M, T> {
+    type Output = Option<bool>;
+
     fn into_comparison_expr(self) -> Expr<Option<T>> {
         Expr::new(ExprNode::Column(self.as_ref()))
     }
@@ -617,8 +644,11 @@ impl_row_tuple_support!(
 
 impl<T, V> ComparisonValue<T, ValueComparisonMarker> for V
 where
+    T: ValueComparisonOutput,
     V: Into<Value>,
 {
+    type Output = <T as ValueComparisonOutput>::Output;
+
     fn into_comparison_expr(self) -> Expr<T> {
         Expr::new(ExprNode::Value(self.into()))
     }
@@ -628,6 +658,8 @@ impl<T> ComparisonValue<Option<T>, OptionalValueComparisonMarker> for Option<T>
 where
     T: Into<Value>,
 {
+    type Output = Option<bool>;
+
     fn into_comparison_expr(self) -> Expr<Option<T>> {
         Expr::new(ExprNode::Value(self.map_or(Value::Null, Into::into)))
     }
@@ -1507,9 +1539,8 @@ where
         }
     }
 
-    pub fn lt<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
+    pub fn lt<V, Marker>(self, value: V) -> Expr<V::Output>
     where
-        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
@@ -1530,9 +1561,8 @@ where
         })
     }
 
-    pub fn le<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
+    pub fn le<V, Marker>(self, value: V) -> Expr<V::Output>
     where
-        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
@@ -1553,9 +1583,8 @@ where
         })
     }
 
-    pub fn gt<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
+    pub fn gt<V, Marker>(self, value: V) -> Expr<V::Output>
     where
-        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
@@ -1576,9 +1605,8 @@ where
         })
     }
 
-    pub fn ge<V, Marker>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
+    pub fn ge<V, Marker>(self, value: V) -> Expr<V::Output>
     where
-        T: ValueComparisonOutput,
         V: ComparisonValue<T, Marker>,
     {
         Expr::new(ExprNode::Binary {
