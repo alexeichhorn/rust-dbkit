@@ -48,7 +48,7 @@ let rows = NullableRow::query()
 
 Nullable columns also accept direct non-null values, so string literals do not need allocation:
 
-```rust
+```rust,ignore
 NullableRow::query().filter(NullableRow::note.eq("present"));
 NullableRow::update().set(NullableRow::note, "updated");
 ```
