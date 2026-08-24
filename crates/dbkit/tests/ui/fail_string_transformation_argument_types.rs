@@ -12,8 +12,6 @@ pub struct Metric {
 fn main() {
     let _non_text_unary = dbkit::func::title_case(Metric::attempts); //~ E0277
     let _non_text_replace_argument = dbkit::func::replace(Metric::label, Metric::attempts, "x"); //~ E0277
-    let _nullable_range_count = dbkit::func::replace_range(Metric::label, "x", 1_i32, Metric::nullable_attempts);
-    //~^ E0277
     let _non_text_translation_input = dbkit::func::translate_chars(Metric::attempts, "a", "b");
     //~^ E0277
 }

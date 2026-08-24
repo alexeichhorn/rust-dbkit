@@ -62,6 +62,27 @@ impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
 }
 
 #[doc(hidden)]
+pub trait StringIntegerExpr<Rhs, Result> {
+    type Output;
+}
+
+impl<Result> StringIntegerExpr<i32, Result> for String {
+    type Output = Result;
+}
+
+impl<Result> StringIntegerExpr<Option<i32>, Result> for String {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringIntegerExpr<i32, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringIntegerExpr<Option<i32>, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
+#[doc(hidden)]
 pub struct ConcatExpr {
     node: ExprNode,
 }
@@ -241,10 +262,7 @@ where
     })
 }
 
-fn string_fn<T>(name: &'static str, arg: impl IntoExpr<T>, extra_args: Vec<ExprNode>) -> Expr<<T as StringUnaryExpr>::Output>
-where
-    T: StringUnaryExpr,
-{
+fn string_fn<T, O>(name: &'static str, arg: impl IntoExpr<T>, extra_args: Vec<ExprNode>) -> Expr<O> {
     let mut args = vec![arg.into_expr().node];
     args.extend(extra_args);
     Expr::new(ExprNode::Func { name, args })
@@ -339,14 +357,16 @@ where
 /// Replaces `count` characters from the 1-based `start` with `replacement`.
 /// Returns NULL if either string argument is NULL.
 /// Maps to PostgreSQL's callable `OVERLAY` form.
-pub fn replace_range<S, R>(
+pub fn replace_range<S, R, Start, Count, SR, SRS, O>(
     expression: impl IntoExpr<S>,
     replacement: impl IntoExpr<R>,
-    start: impl IntoExpr<i32>,
-    count: impl IntoExpr<i32>,
-) -> Expr<<S as StringBinaryExpr<R, String>>::Output>
+    start: impl IntoExpr<Start>,
+    count: impl IntoExpr<Count>,
+) -> Expr<O>
 where
-    S: StringBinaryExpr<R, String>,
+    S: StringBinaryExpr<R, String, Output = SR>,
+    SR: StringIntegerExpr<Start, String, Output = SRS>,
+    SRS: StringIntegerExpr<Count, String, Output = O>,
 {
     Expr::new(ExprNode::Func {
         name: "OVERLAY",
@@ -529,13 +549,10 @@ where
 /// Negative indexes count from the end on PostgreSQL 14 or newer.
 /// PostgreSQL rejects an index of zero and returns an empty string for an out-of-range index.
 /// Maps to PostgreSQL `SPLIT_PART`.
-pub fn split_part<S, D>(
-    expression: impl IntoExpr<S>,
-    delimiter: impl IntoExpr<D>,
-    index: impl IntoExpr<i32>,
-) -> Expr<<S as StringBinaryExpr<D, String>>::Output>
+pub fn split_part<S, D, I, SD, O>(expression: impl IntoExpr<S>, delimiter: impl IntoExpr<D>, index: impl IntoExpr<I>) -> Expr<O>
 where
-    S: StringBinaryExpr<D, String>,
+    S: StringBinaryExpr<D, String, Output = SD>,
+    SD: StringIntegerExpr<I, String, Output = O>,
 {
     let expression = expression.into_expr();
     let delimiter = delimiter.into_expr();
@@ -600,18 +617,18 @@ where
 
 /// Returns the first `count` characters, or all but the last `|count|` when negative.
 /// Maps to PostgreSQL `LEFT`.
-pub fn left<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn left<T, C, O>(arg: impl IntoExpr<T>, count: impl IntoExpr<C>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<C, String, Output = O>,
 {
     string_fn("LEFT", arg, vec![count.into_expr().node])
 }
 
 /// Returns the last `count` characters, or all but the first `|count|` when negative.
 /// Maps to PostgreSQL `RIGHT`.
-pub fn right<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn right<T, C, O>(arg: impl IntoExpr<T>, count: impl IntoExpr<C>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<C, String, Output = O>,
 {
     string_fn("RIGHT", arg, vec![count.into_expr().node])
 }
@@ -619,9 +636,10 @@ where
 /// Returns up to `count` characters from the 1-based `start`.
 /// From `"abcdef"`, `(2, 3)` yields `"bcd"` and `(0, 3)` yields `"ab"`; negative counts are rejected.
 /// Maps to PostgreSQL `SUBSTRING`.
-pub fn substring<T>(arg: impl IntoExpr<T>, start: impl IntoExpr<i32>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn substring<T, Start, Count, TS, O>(arg: impl IntoExpr<T>, start: impl IntoExpr<Start>, count: impl IntoExpr<Count>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<Start, String, Output = TS>,
+    TS: StringIntegerExpr<Count, String, Output = O>,
 {
     string_fn("SUBSTRING", arg, vec![start.into_expr().node, count.into_expr().node])
 }
@@ -629,9 +647,9 @@ where
 /// Repeats the text `count` times.
 /// Repeating `"ab"` three times yields `"ababab"`; non-positive counts yield an empty string.
 /// Maps to PostgreSQL `REPEAT`.
-pub fn repeat<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn repeat<T, C, O>(arg: impl IntoExpr<T>, count: impl IntoExpr<C>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<C, String, Output = O>,
 {
     string_fn("REPEAT", arg, vec![count.into_expr().node])
 }
@@ -639,9 +657,9 @@ where
 /// Pads on the left to `length` by cycling `fill`, truncating the source on the right if needed.
 /// Padding `"ab"` to 5 with `"xy"` yields `"xyxab"`; empty fill adds nothing and non-positive length yields `""`.
 /// Maps to PostgreSQL `LPAD`.
-pub fn pad_start<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn pad_start<T, L, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<String>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<L, String, Output = O>,
 {
     string_fn("LPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
@@ -649,9 +667,9 @@ where
 /// Pads on the right to `length` by cycling `fill`, truncating the source on the right if needed.
 /// Padding `"ab"` to 5 with `"xy"` yields `"abxyx"`; empty fill adds nothing and non-positive length yields `""`.
 /// Maps to PostgreSQL `RPAD`.
-pub fn pad_end<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn pad_end<T, L, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<String>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<L, String, Output = O>,
 {
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
