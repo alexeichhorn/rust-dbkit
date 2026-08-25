@@ -75,6 +75,12 @@ struct NullableConditionProjection {
     required_only: bool,
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableRowValueInProjection {
+    id: i64,
+    listed: Option<bool>,
+}
+
 #[model(table = "events")]
 pub struct Event {
     #[key]
@@ -1210,6 +1216,44 @@ async fn nullable_value_comparison_projections_follow_postgres_three_valued_logi
     let matching = NullableRow::query().filter(NullableRow::note.eq("middle")).all(&tx).await?;
     assert_eq!(matching.len(), 1);
     assert_eq!(matching[0].note.as_deref(), Some("middle"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn nullable_row_value_in_follows_postgres_three_valued_logic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let null = seed_nullable_row(&tx, None).await?;
+    let alpha = seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+    let beta = seed_nullable_row(&tx, Some("beta".to_string())).await?;
+
+    let rows: Vec<NullableRowValueInProjection> = NullableRow::query()
+        .select_only()
+        .column(NullableRow::id)
+        .column_as(
+            dbkit::row((NullableRow::id, NullableRow::note)).in_([(alpha.id, Some("alpha".to_string())), (null.id, None)]),
+            "listed",
+        )
+        .order_by(dbkit::Order::asc(NullableRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.iter().map(|row| (row.id, row.listed)).collect::<Vec<_>>(),
+        vec![(null.id, None), (alpha.id, Some(true)), (beta.id, Some(false))]
+    );
+
+    let filtered = NullableRow::query()
+        .filter(dbkit::row((NullableRow::id, NullableRow::note)).in_([(alpha.id, Some("alpha".to_string())), (null.id, None)]))
+        .all(&tx)
+        .await?;
+
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].id, alpha.id);
 
     Ok(())
 }
