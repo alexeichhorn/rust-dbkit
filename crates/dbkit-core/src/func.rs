@@ -297,18 +297,11 @@ where
     args.into_iter().map(|arg| arg.into_concat_expr().node).collect()
 }
 
-fn directed_trim_fn<T>(
-    arg: impl IntoExpr<T>,
-    direction: TrimDirection,
-    characters: Option<Expr<String>>,
-) -> Expr<<T as StringUnaryExpr>::Output>
-where
-    T: StringUnaryExpr,
-{
+fn directed_trim_fn<T, O>(arg: impl IntoExpr<T>, direction: TrimDirection, characters: Option<ExprNode>) -> Expr<O> {
     Expr::new(ExprNode::Trim {
         direction,
         expr: Box::new(arg.into_expr().node),
-        characters: characters.map(|characters| Box::new(characters.node)),
+        characters: characters.map(Box::new),
     })
 }
 
@@ -415,11 +408,11 @@ where
 /// Removes the longest span made only of characters in the `characters` set from both ends.
 /// For example, trimming `"xyxtrimyyx"` with `"xyz"` yields `"trim"`.
 /// Maps to PostgreSQL `TRIM(BOTH characters FROM expression)`.
-pub fn trim_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn trim_chars<T, C>(arg: impl IntoExpr<T>, characters: impl IntoExpr<C>) -> Expr<<T as StringBinaryExpr<C, String>>::Output>
 where
-    T: StringUnaryExpr,
+    T: StringBinaryExpr<C, String>,
 {
-    directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr()))
+    directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr().node))
 }
 
 /// Removes leading spaces from a text expression.
@@ -433,11 +426,11 @@ where
 
 /// Removes the longest leading span made only of characters in the `characters` set.
 /// Maps to PostgreSQL `TRIM(LEADING characters FROM expression)`.
-pub fn trim_start_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn trim_start_chars<T, C>(arg: impl IntoExpr<T>, characters: impl IntoExpr<C>) -> Expr<<T as StringBinaryExpr<C, String>>::Output>
 where
-    T: StringUnaryExpr,
+    T: StringBinaryExpr<C, String>,
 {
-    directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr()))
+    directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr().node))
 }
 
 /// Removes trailing spaces from a text expression.
@@ -451,11 +444,11 @@ where
 
 /// Removes the longest trailing span made only of characters in the `characters` set.
 /// Maps to PostgreSQL `TRIM(TRAILING characters FROM expression)`.
-pub fn trim_end_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn trim_end_chars<T, C>(arg: impl IntoExpr<T>, characters: impl IntoExpr<C>) -> Expr<<T as StringBinaryExpr<C, String>>::Output>
 where
-    T: StringUnaryExpr,
+    T: StringBinaryExpr<C, String>,
 {
-    directed_trim_fn(arg, TrimDirection::Trailing, Some(characters.into_expr()))
+    directed_trim_fn(arg, TrimDirection::Trailing, Some(characters.into_expr().node))
 }
 
 /// Returns the number of characters in a text expression, preserving input nullability.
@@ -657,9 +650,10 @@ where
 /// Pads on the left to `length` by cycling `fill`, truncating the source on the right if needed.
 /// Padding `"ab"` to 5 with `"xy"` yields `"xyxab"`; empty fill adds nothing and non-positive length yields `""`.
 /// Maps to PostgreSQL `LPAD`.
-pub fn pad_start<T, L, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<String>) -> Expr<O>
+pub fn pad_start<T, L, F, TL, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<F>) -> Expr<O>
 where
-    T: StringIntegerExpr<L, String, Output = O>,
+    T: StringIntegerExpr<L, String, Output = TL>,
+    TL: StringBinaryExpr<F, String, Output = O>,
 {
     string_fn("LPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
@@ -667,9 +661,10 @@ where
 /// Pads on the right to `length` by cycling `fill`, truncating the source on the right if needed.
 /// Padding `"ab"` to 5 with `"xy"` yields `"abxyx"`; empty fill adds nothing and non-positive length yields `""`.
 /// Maps to PostgreSQL `RPAD`.
-pub fn pad_end<T, L, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<String>) -> Expr<O>
+pub fn pad_end<T, L, F, TL, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<F>) -> Expr<O>
 where
-    T: StringIntegerExpr<L, String, Output = O>,
+    T: StringIntegerExpr<L, String, Output = TL>,
+    TL: StringBinaryExpr<F, String, Output = O>,
 {
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
