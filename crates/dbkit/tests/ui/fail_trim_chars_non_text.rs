@@ -8,5 +8,7 @@ pub struct TextSample {
 }
 
 fn main() {
-    let _expr = dbkit::func::trim_chars(TextSample::title, 1_i32); //~ E0277
+    let _both = dbkit::func::trim_chars(TextSample::title, 1_i32); //~ E0277
+    let _start = dbkit::func::trim_start_chars(TextSample::title, 1_i32); //~ E0277
+    let _end = dbkit::func::trim_end_chars(TextSample::title, 1_i32); //~ E0277
 }

@@ -1883,6 +1883,90 @@ async fn custom_trim_uses_a_character_set_and_handles_edge_cases() -> Result<(),
     Ok(())
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableStringControlArgumentResult {
+    label: String,
+    start_padded: Option<String>,
+    end_padded: Option<String>,
+    both_trimmed: Option<String>,
+    start_trimmed: Option<String>,
+    end_trimmed: Option<String>,
+    nullable_source_and_fill: Option<String>,
+    nullable_source_and_characters: Option<String>,
+}
+
+#[tokio::test]
+async fn nullable_padding_fill_and_trim_character_sets_follow_postgres_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+    seed_text_sample(&tx, "present", Some("xy")).await?;
+
+    let rows: Vec<NullableStringControlArgumentResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(dbkit::func::pad_start("ab", 5_i32, TextSample::body), "start_padded")
+        .column_as(dbkit::func::pad_end("ab", 5_i32, TextSample::body), "end_padded")
+        .column_as(dbkit::func::trim_chars("xyhelloyx", TextSample::body), "both_trimmed")
+        .column_as(dbkit::func::trim_start_chars("xyhelloyx", TextSample::body), "start_trimmed")
+        .column_as(dbkit::func::trim_end_chars("xyhelloyx", TextSample::body), "end_trimmed")
+        .column_as(
+            dbkit::func::pad_start(TextSample::body, 5_i32, TextSample::body),
+            "nullable_source_and_fill",
+        )
+        .column_as(
+            dbkit::func::trim_chars(TextSample::body, TextSample::body),
+            "nullable_source_and_characters",
+        )
+        .order_by(dbkit::Order::asc(TextSample::label))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.into_iter()
+            .map(|row| (
+                row.label,
+                row.start_padded,
+                row.end_padded,
+                row.both_trimmed,
+                row.start_trimmed,
+                row.end_trimmed,
+                row.nullable_source_and_fill,
+                row.nullable_source_and_characters,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "empty".to_string(),
+                Some("ab".to_string()),
+                Some("ab".to_string()),
+                Some("xyhelloyx".to_string()),
+                Some("xyhelloyx".to_string()),
+                Some("xyhelloyx".to_string()),
+                Some(String::new()),
+                Some(String::new()),
+            ),
+            ("missing".to_string(), None, None, None, None, None, None, None),
+            (
+                "present".to_string(),
+                Some("xyxab".to_string()),
+                Some("abxyx".to_string()),
+                Some("hello".to_string()),
+                Some("helloyx".to_string()),
+                Some("xyhello".to_string()),
+                Some("xyxxy".to_string()),
+                Some(String::new()),
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn nested_normalized_handle_lookup_matches_equivalent_inputs() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;

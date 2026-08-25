@@ -7,6 +7,7 @@ pub struct TextSample {
     #[key]
     pub id: i64,
     pub title: String,
+    pub pattern: String,
     pub body: Option<String>,
     pub width: i32,
     pub optional_width: Option<i32>,
@@ -32,15 +33,24 @@ fn main() {
     assert_string(dbkit::func::lower(TextSample::title));
     assert_nullable_string(dbkit::func::lower(TextSample::body));
     assert_string(dbkit::func::trim_chars(TextSample::title, "xy"));
+    assert_string(dbkit::func::trim_chars(TextSample::title, TextSample::pattern));
     assert_nullable_string(dbkit::func::trim_chars(TextSample::body, "xy"));
+    assert_nullable_string(dbkit::func::trim_chars(TextSample::title, TextSample::body));
+    assert_nullable_string(dbkit::func::trim_chars(TextSample::body, TextSample::body));
     assert_string(dbkit::func::trim_start(TextSample::title));
     assert_nullable_string(dbkit::func::trim_start(TextSample::body));
     assert_string(dbkit::func::trim_start_chars(TextSample::title, "xy"));
+    assert_string(dbkit::func::trim_start_chars(TextSample::title, TextSample::pattern));
     assert_nullable_string(dbkit::func::trim_start_chars(TextSample::body, "xy"));
+    assert_nullable_string(dbkit::func::trim_start_chars(TextSample::title, TextSample::body));
+    assert_nullable_string(dbkit::func::trim_start_chars(TextSample::body, TextSample::body));
     assert_string(dbkit::func::trim_end(TextSample::title));
     assert_nullable_string(dbkit::func::trim_end(TextSample::body));
     assert_string(dbkit::func::trim_end_chars(TextSample::title, "xy"));
+    assert_string(dbkit::func::trim_end_chars(TextSample::title, TextSample::pattern));
     assert_nullable_string(dbkit::func::trim_end_chars(TextSample::body, "xy"));
+    assert_nullable_string(dbkit::func::trim_end_chars(TextSample::title, TextSample::body));
+    assert_nullable_string(dbkit::func::trim_end_chars(TextSample::body, TextSample::body));
     assert_string(dbkit::func::left(TextSample::title, 2_i32));
     assert_nullable_string(dbkit::func::left(TextSample::body, 2_i32));
     assert_nullable_string(dbkit::func::left(TextSample::title, TextSample::optional_width));
@@ -73,11 +83,33 @@ fn main() {
         dbkit::func::char_length(TextSample::title),
         "xy",
     ));
+    assert_string(dbkit::func::pad_start(TextSample::title, TextSample::width, TextSample::pattern));
     assert_nullable_string(dbkit::func::pad_start(TextSample::body, 8_i32, "xy"));
     assert_nullable_string(dbkit::func::pad_start(TextSample::title, TextSample::optional_width, "xy"));
+    assert_nullable_string(dbkit::func::pad_start(TextSample::title, 8_i32, TextSample::body));
+    assert_nullable_string(dbkit::func::pad_start(TextSample::body, 8_i32, TextSample::body));
+    assert_nullable_string(dbkit::func::pad_start(
+        TextSample::title,
+        TextSample::optional_width,
+        TextSample::body,
+    ));
+    assert_nullable_string(dbkit::func::pad_start(
+        TextSample::body,
+        TextSample::optional_width,
+        TextSample::body,
+    ));
     assert_string(dbkit::func::pad_end(TextSample::title, 8_i32, "xy"));
+    assert_string(dbkit::func::pad_end(TextSample::title, TextSample::width, TextSample::pattern));
     assert_nullable_string(dbkit::func::pad_end(TextSample::body, 8_i32, "xy"));
     assert_nullable_string(dbkit::func::pad_end(TextSample::body, TextSample::optional_width, "xy"));
+    assert_nullable_string(dbkit::func::pad_end(TextSample::title, 8_i32, TextSample::body));
+    assert_nullable_string(dbkit::func::pad_end(TextSample::body, 8_i32, TextSample::body));
+    assert_nullable_string(dbkit::func::pad_end(
+        TextSample::title,
+        TextSample::optional_width,
+        TextSample::body,
+    ));
+    assert_nullable_string(dbkit::func::pad_end(TextSample::body, TextSample::optional_width, TextSample::body));
     assert_string(dbkit::func::left(
         TextSample::title,
         dbkit::func::coalesce(TextSample::optional_width, 0_i32),
