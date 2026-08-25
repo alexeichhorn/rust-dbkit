@@ -406,6 +406,11 @@ pub trait ValueComparisonOutput {
     type Output;
 }
 
+#[doc(hidden)]
+pub trait RowValueComparisonOutput {
+    type Output: BooleanExprType;
+}
+
 impl<T> ValueComparisonOutput for T
 where
     T: Into<Value>,
@@ -474,6 +479,35 @@ impl BooleanOutput<bool> for Option<bool> {
 impl BooleanOutput<Option<bool>> for Option<bool> {
     type Output = Option<bool>;
 }
+
+macro_rules! impl_row_value_comparison_output {
+    ($first:ident, $($rest:ident),+) => {
+        impl<$first, $($rest),+> RowValueComparisonOutput for ($first, $($rest,)+)
+        where
+            $first: ValueComparisonOutput,
+            ($($rest,)+): RowValueComparisonOutput,
+            <$first as ValueComparisonOutput>::Output:
+                BooleanOutput<<($($rest,)+) as RowValueComparisonOutput>::Output>,
+        {
+            type Output = <<$first as ValueComparisonOutput>::Output as BooleanOutput<
+                <($($rest,)+) as RowValueComparisonOutput>::Output,
+            >>::Output;
+        }
+
+        impl_row_value_comparison_output!($($rest),+);
+    };
+    ($last:ident) => {
+        impl<$last> RowValueComparisonOutput for ($last,)
+        where
+            $last: ValueComparisonOutput,
+            <$last as ValueComparisonOutput>::Output: BooleanExprType,
+        {
+            type Output = <$last as ValueComparisonOutput>::Output;
+        }
+    };
+}
+
+impl_row_value_comparison_output!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16);
 
 pub(crate) fn into_predicate<T>(expr: Expr<T>) -> Expr<bool>
 where
@@ -603,8 +637,11 @@ macro_rules! impl_row_tuple_support {
 
             impl<$($model, $col_ty),+> row_columns_private::Sealed for ($(Column<$model, $col_ty>,)+) {}
 
-            impl<$($col_ty),+> RowExpr<($($col_ty,)+)> {
-                pub fn in_<I, $($value_ty),+>(self, values: I) -> Expr<bool>
+            impl<$($col_ty),+> RowExpr<($($col_ty,)+)>
+            where
+                ($($col_ty,)+): RowValueComparisonOutput,
+            {
+                pub fn in_<I, $($value_ty),+>(self, values: I) -> Expr<<($($col_ty,)+) as RowValueComparisonOutput>::Output>
                 where
                     I: IntoIterator<Item = ($($value_ty,)+)>,
                     $($value_ty: ColumnValue<$col_ty>,)+
