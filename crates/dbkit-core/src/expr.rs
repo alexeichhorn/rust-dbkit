@@ -50,6 +50,15 @@ where
     }
 }
 
+impl<T> ColumnValue<Option<T>> for &Option<T>
+where
+    T: Clone + Into<Value>,
+{
+    fn into_value(self) -> Option<Value> {
+        Some(self.as_ref().map_or(Value::Null, |value| value.clone().into()))
+    }
+}
+
 impl ColumnValue<String> for &str {
     fn into_value(self) -> Option<Value> {
         Some(Value::String(self.to_string()))
@@ -621,6 +630,14 @@ impl<M, T> ComparisonValue<Option<T>, ExprComparisonMarker> for Column<M, T> {
     }
 }
 
+impl<M, T> ComparisonValue<T, NullableExprComparisonMarker> for Column<M, Option<T>> {
+    type Output = Option<bool>;
+
+    fn into_comparison_expr(self) -> Expr<T> {
+        Expr::new(ExprNode::Column(self.as_ref()))
+    }
+}
+
 macro_rules! impl_row_tuple_support {
     ($(($($model:ident:$col_ty:ident:$col_ident:ident:$value_ty:ident:$value_ident:ident),+)),+ $(,)?) => {
         $(
@@ -699,6 +716,17 @@ where
 
     fn into_comparison_expr(self) -> Expr<Option<T>> {
         Expr::new(ExprNode::Value(self.map_or(Value::Null, Into::into)))
+    }
+}
+
+impl<T> ComparisonValue<Option<T>, OptionalValueComparisonMarker> for &Option<T>
+where
+    T: Clone + Into<Value>,
+{
+    type Output = Option<bool>;
+
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(ExprNode::Value(self.as_ref().map_or(Value::Null, |value| value.clone().into())))
     }
 }
 
