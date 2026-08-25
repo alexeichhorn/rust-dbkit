@@ -258,7 +258,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
             let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
-            let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
+            let ty = &field.ty;
             quote!(pub const #ident: ::dbkit::Column<#default_model_ty, #ty> = ::dbkit::Column::new(Self::TABLE, #name);)
         })
         .collect::<Vec<_>>();
@@ -303,17 +303,13 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let active_fields = scalar_fields.iter().map(|field| {
         let ident = &field.ident;
         let vis = &field.field.vis;
-        let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
+        let ty = &field.ty;
         quote!(#vis #ident: ::dbkit::ActiveValue<#ty>)
     });
 
     let active_from_model = scalar_fields.iter().map(|field| {
         let ident = &field.ident;
-        if option_inner_type(&field.ty).is_some() {
-            quote!(#ident: ::dbkit::ActiveValue::unchanged_option(#ident))
-        } else {
-            quote!(#ident: ::dbkit::ActiveValue::unchanged(#ident))
-        }
+        quote!(#ident: ::dbkit::ActiveValue::unchanged(#ident))
     });
 
     let active_destructure = scalar_fields.iter().map(|field| field.ident.clone()).collect::<Vec<_>>();
@@ -321,7 +317,6 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let active_insert_steps = scalar_fields.iter().map(|field| {
         let ident = &field.ident;
         let name = ident.to_string();
-        let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
         let is_option = option_inner_type(&field.ty).is_some();
         let required = !field.is_autoincrement && !is_option;
         let required_check = if required {
@@ -334,17 +329,8 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
                 ::dbkit::ActiveValue::Unset => {
                     #required_check
                 }
-                ::dbkit::ActiveValue::Set(value) => {
+                ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => {
                     insert = insert.value(#default_model_path::#ident, value);
-                }
-                ::dbkit::ActiveValue::Unchanged(value) => {
-                    insert = insert.value(#default_model_path::#ident, value);
-                }
-                ::dbkit::ActiveValue::UnchangedNull => {
-                    insert = insert.value(#default_model_path::#ident, None::<#ty>);
-                }
-                ::dbkit::ActiveValue::Null => {
-                    insert = insert.value(#default_model_path::#ident, None::<#ty>);
                 }
             }
         )
@@ -377,7 +363,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             quote!(
                 let #var = match #ident {
                     ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => value,
-                    ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset | ::dbkit::ActiveValue::UnchangedNull => {
+                    ::dbkit::ActiveValue::Unset => {
                         return Err(::dbkit::Error::Decode(format!(
                             "missing required field: {}",
                             #pk_name
@@ -392,17 +378,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             .map(|((ident, _, _), var)| quote!(update = update.filter(#default_model_path::#ident.eq(#var));));
         let update_steps = scalar_fields.iter().filter(|field| !field.is_key).map(|field| {
             let ident = &field.ident;
-            let ty = option_inner_type(&field.ty).unwrap_or_else(|| field.ty.clone());
             quote!(
                 match #ident {
-                    ::dbkit::ActiveValue::Unset => {}
+                    ::dbkit::ActiveValue::Unset | ::dbkit::ActiveValue::Unchanged(_) => {}
                     ::dbkit::ActiveValue::Set(value) => {
                         update = update.set(#default_model_path::#ident, value);
-                        any_set = true;
-                    }
-                    ::dbkit::ActiveValue::Unchanged(_) | ::dbkit::ActiveValue::UnchangedNull => {}
-                    ::dbkit::ActiveValue::Null => {
-                        update = update.set(#default_model_path::#ident, None::<#ty>);
                         any_set = true;
                     }
                 }
@@ -442,7 +422,7 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             quote!(
                 let #var = match #ident {
                     ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => value,
-                    ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::Unset | ::dbkit::ActiveValue::UnchangedNull => {
+                    ::dbkit::ActiveValue::Unset => {
                         return Err(::dbkit::Error::Decode(format!(
                             "missing required field: {}",
                             #pk_name
@@ -475,10 +455,10 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         let ident = &field.ident;
         quote!(
             match &#ident {
-                ::dbkit::ActiveValue::Unchanged(_) | ::dbkit::ActiveValue::UnchangedNull => {
+                ::dbkit::ActiveValue::Unchanged(_) => {
                     any_loaded = true;
                 }
-                ::dbkit::ActiveValue::Set(_) | ::dbkit::ActiveValue::Null => {
+                ::dbkit::ActiveValue::Set(_) => {
                     any_changed = true;
                 }
                 ::dbkit::ActiveValue::Unset => {}
@@ -489,34 +469,17 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
     let active_save_model_fields = scalar_fields.iter().map(|field| {
         let ident = &field.ident;
         let name = ident.to_string();
-        if option_inner_type(&field.ty).is_some() {
-            quote!(
-                #ident: match #ident {
-                    ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => Some(value),
-                    ::dbkit::ActiveValue::Null | ::dbkit::ActiveValue::UnchangedNull => None,
-                    ::dbkit::ActiveValue::Unset => {
-                        return Err(::dbkit::Error::Decode(format!(
-                            "missing required field: {}",
-                            #name
-                        )));
-                    }
-                },
-            )
-        } else {
-            quote!(
-                #ident: match #ident {
-                    ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => value,
-                    ::dbkit::ActiveValue::Null
-                    | ::dbkit::ActiveValue::Unset
-                    | ::dbkit::ActiveValue::UnchangedNull => {
-                        return Err(::dbkit::Error::Decode(format!(
-                            "missing required field: {}",
-                            #name
-                        )));
-                    }
-                },
-            )
-        }
+        quote!(
+            #ident: match #ident {
+                ::dbkit::ActiveValue::Set(value) | ::dbkit::ActiveValue::Unchanged(value) => value,
+                ::dbkit::ActiveValue::Unset => {
+                    return Err(::dbkit::Error::Decode(format!(
+                        "missing required field: {}",
+                        #name
+                    )));
+                }
+            },
+        )
     });
 
     let active_save_relation_defaults = relation_fields.iter().map(|rel| {
@@ -759,7 +722,11 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
         .map(|field| {
             let ident = field.ident.as_ref().expect("field ident");
             let name = scalar_column_name(&scalar_fields, ident).expect("scalar field column name");
-            quote!(#name => Some(self.#ident.clone().into()),)
+            if option_inner_type(&field.ty).is_some() {
+                quote!(#name => Some(self.#ident.clone().map_or(::dbkit::Value::Null, ::core::convert::Into::into)),)
+            } else {
+                quote!(#name => Some(self.#ident.clone().into()),)
+            }
         });
 
     let model_value_impl = quote!(

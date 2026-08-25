@@ -1,4 +1,5 @@
-use dbkit_core::{func, Column, Order, Select, Table, Value};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use dbkit_core::{func, Column, Expr, Order, PgInterval, Select, Table, Value};
 
 #[derive(Debug)]
 struct Schedule;
@@ -13,6 +14,14 @@ fn schedule_base_interval_hours() -> Column<Schedule, i32> {
 
 fn schedule_backoff_minutes() -> Column<Schedule, i32> {
     Column::new(schedule_table(), "backoff_minutes")
+}
+
+fn schedule_optional_interval_units() -> Column<Schedule, Option<i32>> {
+    Column::new(schedule_table(), "optional_interval_units")
+}
+
+fn schedule_optional_seconds() -> Column<Schedule, Option<f64>> {
+    Column::new(schedule_table(), "optional_seconds")
 }
 
 fn schedule_retry_interval() -> Column<Schedule, dbkit_core::PgInterval> {
@@ -90,6 +99,59 @@ fn compiles_interval_seconds_with_fractional_literal() {
     let sql = query.compile();
     assert_eq!(sql.sql, "SELECT MAKE_INTERVAL(secs => $1) AS jitter FROM schedules");
     assert_eq!(sql.binds, vec![Value::F64(1.5)]);
+}
+
+#[test]
+fn compiles_interval_constructors_with_nullable_columns() {
+    let days: Expr<Option<PgInterval>> = dbkit_core::interval::days(schedule_optional_interval_units());
+    let hours: Expr<Option<PgInterval>> = dbkit_core::interval::hours(schedule_optional_interval_units());
+    let minutes: Expr<Option<PgInterval>> = dbkit_core::interval::minutes(schedule_optional_interval_units());
+    let seconds: Expr<Option<PgInterval>> = dbkit_core::interval::seconds(schedule_optional_seconds());
+
+    let query: Select<Schedule> = Select::new(schedule_table())
+        .select_only()
+        .column_as(days, "days")
+        .column_as(hours, "hours")
+        .column_as(minutes, "minutes")
+        .column_as(seconds, "seconds");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT MAKE_INTERVAL(days => schedules.optional_interval_units) AS days, \
+         MAKE_INTERVAL(hours => schedules.optional_interval_units) AS hours, \
+         MAKE_INTERVAL(mins => schedules.optional_interval_units) AS minutes, \
+         MAKE_INTERVAL(secs => schedules.optional_seconds) AS seconds FROM schedules"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_timestamp_literals_with_nullable_interval_expressions() {
+    let utc: DateTime<Utc> = DateTime::from_timestamp(1_700_000_000, 0).expect("timestamp");
+    let naive = utc.naive_utc();
+
+    let naive_added: Expr<Option<NaiveDateTime>> = naive + dbkit_core::interval::hours(schedule_optional_interval_units());
+    let naive_subtracted: Expr<Option<NaiveDateTime>> = naive - dbkit_core::interval::hours(schedule_optional_interval_units());
+    let utc_added: Expr<Option<DateTime<Utc>>> = utc + dbkit_core::interval::hours(schedule_optional_interval_units());
+    let utc_subtracted: Expr<Option<DateTime<Utc>>> = utc - dbkit_core::interval::hours(schedule_optional_interval_units());
+
+    let query: Select<Schedule> = Select::new(schedule_table())
+        .select_only()
+        .column_as(naive_added, "naive_added")
+        .column_as(naive_subtracted, "naive_subtracted")
+        .column_as(utc_added, "utc_added")
+        .column_as(utc_subtracted, "utc_subtracted");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT ($1 + MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS naive_added, \
+         ($1 - MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS naive_subtracted, \
+         ($2 + MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS utc_added, \
+         ($2 - MAKE_INTERVAL(hours => schedules.optional_interval_units)) AS utc_subtracted FROM schedules"
+    );
+    assert_eq!(sql.binds, vec![Value::DateTime(naive), Value::DateTimeUtc(utc)]);
 }
 
 #[test]

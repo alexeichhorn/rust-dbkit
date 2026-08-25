@@ -41,12 +41,21 @@ where
     }
 }
 
-impl<T> ColumnValue<T> for Option<T>
+impl<T> ColumnValue<Option<T>> for Option<T>
 where
     T: Into<Value>,
 {
     fn into_value(self) -> Option<Value> {
-        self.map(Into::into)
+        Some(self.map_or(Value::Null, Into::into))
+    }
+}
+
+impl<T> ColumnValue<Option<T>> for &Option<T>
+where
+    T: Clone + Into<Value>,
+{
+    fn into_value(self) -> Option<Value> {
+        Some(self.as_ref().map_or(Value::Null, |value| value.clone().into()))
     }
 }
 
@@ -194,18 +203,6 @@ impl From<PgInterval> for Value {
 impl<const N: usize> From<PgVector<N>> for Value {
     fn from(value: PgVector<N>) -> Self {
         Self::Vector(value.to_vec())
-    }
-}
-
-impl<T> From<Option<T>> for Value
-where
-    T: Into<Value>,
-{
-    fn from(value: Option<T>) -> Self {
-        match value {
-            Some(v) => v.into(),
-            None => Self::Null,
-        }
     }
 }
 
@@ -360,7 +357,10 @@ impl<T, Kind> Expr<T, Kind> {
 
 impl<T> AggregateExpr<T> {
     /// Applies a PostgreSQL aggregate `FILTER (WHERE ...)` clause.
-    pub fn filter(self, predicate: Expr<bool>) -> Expr<T> {
+    pub fn filter<B>(self, predicate: Expr<B>) -> Expr<T>
+    where
+        B: BooleanExprType,
+    {
         Expr::new(ExprNode::AggregateFilter {
             aggregate: Box::new(self.node),
             predicate: Box::new(predicate.node),
@@ -393,8 +393,136 @@ pub struct ValueComparisonMarker;
 #[doc(hidden)]
 pub struct ExprComparisonMarker;
 
+#[doc(hidden)]
+pub struct OptionalValueComparisonMarker;
+
+#[doc(hidden)]
+pub struct NullableExprComparisonMarker;
+
 pub trait ComparisonValue<T, Marker = ValueComparisonMarker> {
+    type Output;
+
     fn into_comparison_expr(self) -> Expr<T>;
+}
+
+#[doc(hidden)]
+pub trait CompatibleColumn<Rhs> {
+    type Output;
+}
+
+#[doc(hidden)]
+pub trait ValueComparisonOutput {
+    type Output;
+}
+
+#[doc(hidden)]
+pub trait RowValueComparisonOutput {
+    type Output: BooleanExprType;
+}
+
+impl<T> ValueComparisonOutput for T
+where
+    T: Into<Value>,
+{
+    type Output = bool;
+}
+
+impl<T> ValueComparisonOutput for Option<T>
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
+
+impl<T> CompatibleColumn<T> for T
+where
+    T: Into<Value>,
+{
+    type Output = bool;
+}
+
+impl<T> CompatibleColumn<Option<T>> for T
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
+
+impl<T> CompatibleColumn<T> for Option<T>
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
+
+impl<T> CompatibleColumn<Option<T>> for Option<T>
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+}
+
+#[doc(hidden)]
+pub trait BooleanExprType {}
+
+impl BooleanExprType for bool {}
+impl BooleanExprType for Option<bool> {}
+
+#[doc(hidden)]
+pub trait BooleanOutput<Rhs>: BooleanExprType {
+    type Output: BooleanExprType;
+}
+
+impl BooleanOutput<bool> for bool {
+    type Output = bool;
+}
+
+impl BooleanOutput<Option<bool>> for bool {
+    type Output = Option<bool>;
+}
+
+impl BooleanOutput<bool> for Option<bool> {
+    type Output = Option<bool>;
+}
+
+impl BooleanOutput<Option<bool>> for Option<bool> {
+    type Output = Option<bool>;
+}
+
+macro_rules! impl_row_value_comparison_output {
+    ($first:ident, $($rest:ident),+) => {
+        impl<$first, $($rest),+> RowValueComparisonOutput for ($first, $($rest,)+)
+        where
+            $first: ValueComparisonOutput,
+            ($($rest,)+): RowValueComparisonOutput,
+            <$first as ValueComparisonOutput>::Output:
+                BooleanOutput<<($($rest,)+) as RowValueComparisonOutput>::Output>,
+        {
+            type Output = <<$first as ValueComparisonOutput>::Output as BooleanOutput<
+                <($($rest,)+) as RowValueComparisonOutput>::Output,
+            >>::Output;
+        }
+
+        impl_row_value_comparison_output!($($rest),+);
+    };
+    ($last:ident) => {
+        impl<$last> RowValueComparisonOutput for ($last,)
+        where
+            $last: ValueComparisonOutput,
+            <$last as ValueComparisonOutput>::Output: BooleanExprType,
+        {
+            type Output = <$last as ValueComparisonOutput>::Output;
+        }
+    };
+}
+
+impl_row_value_comparison_output!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16);
+
+pub(crate) fn into_predicate<T>(expr: Expr<T>) -> Expr<bool>
+where
+    T: BooleanExprType,
+{
+    Expr::new(expr.node)
 }
 
 pub trait SqlAdd<Rhs> {
@@ -442,14 +570,29 @@ impl<T, Kind> ExprOperand for Expr<T, Kind> {
     }
 }
 
-impl<T, Kind> ComparisonValue<T, ExprComparisonMarker> for Expr<T, Kind> {
+impl<T, Kind> ComparisonValue<T, ExprComparisonMarker> for Expr<T, Kind>
+where
+    T: ValueComparisonOutput,
+{
+    type Output = <T as ValueComparisonOutput>::Output;
+
     fn into_comparison_expr(self) -> Expr<T> {
         self.into_expr()
     }
 }
 
 impl<T, Kind> ComparisonValue<Option<T>, ExprComparisonMarker> for Expr<T, Kind> {
+    type Output = Option<bool>;
+
     fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(self.node)
+    }
+}
+
+impl<T, Kind> ComparisonValue<T, NullableExprComparisonMarker> for Expr<Option<T>, Kind> {
+    type Output = Option<bool>;
+
+    fn into_comparison_expr(self) -> Expr<T> {
         Expr::new(self.node)
     }
 }
@@ -468,14 +611,29 @@ impl<M, T> ExprOperand for Column<M, T> {
     }
 }
 
-impl<M, T> ComparisonValue<T, ExprComparisonMarker> for Column<M, T> {
+impl<M, T> ComparisonValue<T, ExprComparisonMarker> for Column<M, T>
+where
+    T: ValueComparisonOutput,
+{
+    type Output = <T as ValueComparisonOutput>::Output;
+
     fn into_comparison_expr(self) -> Expr<T> {
         self.into_expr()
     }
 }
 
 impl<M, T> ComparisonValue<Option<T>, ExprComparisonMarker> for Column<M, T> {
+    type Output = Option<bool>;
+
     fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(ExprNode::Column(self.as_ref()))
+    }
+}
+
+impl<M, T> ComparisonValue<T, NullableExprComparisonMarker> for Column<M, Option<T>> {
+    type Output = Option<bool>;
+
+    fn into_comparison_expr(self) -> Expr<T> {
         Expr::new(ExprNode::Column(self.as_ref()))
     }
 }
@@ -496,8 +654,11 @@ macro_rules! impl_row_tuple_support {
 
             impl<$($model, $col_ty),+> row_columns_private::Sealed for ($(Column<$model, $col_ty>,)+) {}
 
-            impl<$($col_ty),+> RowExpr<($($col_ty,)+)> {
-                pub fn in_<I, $($value_ty),+>(self, values: I) -> Expr<bool>
+            impl<$($col_ty),+> RowExpr<($($col_ty,)+)>
+            where
+                ($($col_ty,)+): RowValueComparisonOutput,
+            {
+                pub fn in_<I, $($value_ty),+>(self, values: I) -> Expr<<($($col_ty,)+) as RowValueComparisonOutput>::Output>
                 where
                     I: IntoIterator<Item = ($($value_ty,)+)>,
                     $($value_ty: ColumnValue<$col_ty>,)+
@@ -537,10 +698,35 @@ impl_row_tuple_support!(
 
 impl<T, V> ComparisonValue<T, ValueComparisonMarker> for V
 where
+    T: ValueComparisonOutput,
     V: Into<Value>,
 {
+    type Output = <T as ValueComparisonOutput>::Output;
+
     fn into_comparison_expr(self) -> Expr<T> {
         Expr::new(ExprNode::Value(self.into()))
+    }
+}
+
+impl<T> ComparisonValue<Option<T>, OptionalValueComparisonMarker> for Option<T>
+where
+    T: Into<Value>,
+{
+    type Output = Option<bool>;
+
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(ExprNode::Value(self.map_or(Value::Null, Into::into)))
+    }
+}
+
+impl<T> ComparisonValue<Option<T>, OptionalValueComparisonMarker> for &Option<T>
+where
+    T: Clone + Into<Value>,
+{
+    type Output = Option<bool>;
+
+    fn into_comparison_expr(self) -> Expr<Option<T>> {
+        Expr::new(ExprNode::Value(self.as_ref().map_or(Value::Null, |value| value.clone().into())))
     }
 }
 
@@ -806,37 +992,45 @@ impl<const N: usize> ExprOperand for PgVector<N> {
     }
 }
 
+macro_rules! impl_nullable_arithmetic_op {
+    ($trait:ident, $lhs:ty, $rhs:ty, $output:ty) => {
+        impl $trait<$rhs> for Option<$lhs> {
+            type Output = Option<$output>;
+        }
+
+        impl $trait<Option<$rhs>> for $lhs {
+            type Output = Option<$output>;
+        }
+
+        impl $trait<Option<$rhs>> for Option<$lhs> {
+            type Output = Option<$output>;
+        }
+    };
+}
+
 macro_rules! impl_numeric_arithmetic {
-    ($($ty:ty),* $(,)?) => {
+    ($(($ty:ty, $output:ty)),* $(,)?) => {
         $(
             impl SqlAdd<$ty> for $ty {
-                type Output = $ty;
+                type Output = $output;
             }
 
             impl SqlSub<$ty> for $ty {
-                type Output = $ty;
+                type Output = $output;
             }
 
             impl SqlMul<$ty> for $ty {
-                type Output = $ty;
+                type Output = $output;
             }
+
+            impl_nullable_arithmetic_op!(SqlAdd, $ty, $ty, $output);
+            impl_nullable_arithmetic_op!(SqlSub, $ty, $ty, $output);
+            impl_nullable_arithmetic_op!(SqlMul, $ty, $ty, $output);
         )*
     };
 }
 
-impl SqlAdd<i16> for i16 {
-    type Output = i32;
-}
-
-impl SqlSub<i16> for i16 {
-    type Output = i32;
-}
-
-impl SqlMul<i16> for i16 {
-    type Output = i32;
-}
-
-impl_numeric_arithmetic!(i32, i64, f32, f64);
+impl_numeric_arithmetic!((i16, i32), (i32, i32), (i64, i64), (f32, f32), (f64, f64));
 
 impl SqlAdd<PgInterval> for chrono::NaiveDateTime {
     type Output = chrono::NaiveDateTime;
@@ -854,34 +1048,51 @@ impl SqlSub<PgInterval> for chrono::DateTime<chrono::Utc> {
     type Output = chrono::DateTime<chrono::Utc>;
 }
 
-impl<Kind> Add<Expr<PgInterval, Kind>> for chrono::NaiveDateTime {
-    type Output = Expr<chrono::NaiveDateTime>;
+impl_nullable_arithmetic_op!(SqlAdd, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
+impl_nullable_arithmetic_op!(SqlSub, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
+impl_nullable_arithmetic_op!(SqlAdd, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
+impl_nullable_arithmetic_op!(SqlSub, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
 
-    fn add(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+impl<Rhs, Kind> Add<Expr<Rhs, Kind>> for chrono::NaiveDateTime
+where
+    chrono::NaiveDateTime: SqlAdd<Rhs>,
+{
+    type Output = Expr<<chrono::NaiveDateTime as SqlAdd<Rhs>>::Output>;
+
+    fn add(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
-impl<Kind> Sub<Expr<PgInterval, Kind>> for chrono::NaiveDateTime {
-    type Output = Expr<chrono::NaiveDateTime>;
+impl<Rhs, Kind> Sub<Expr<Rhs, Kind>> for chrono::NaiveDateTime
+where
+    chrono::NaiveDateTime: SqlSub<Rhs>,
+{
+    type Output = Expr<<chrono::NaiveDateTime as SqlSub<Rhs>>::Output>;
 
-    fn sub(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+    fn sub(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
 
-impl<Kind> Add<Expr<PgInterval, Kind>> for chrono::DateTime<chrono::Utc> {
-    type Output = Expr<chrono::DateTime<chrono::Utc>>;
+impl<Rhs, Kind> Add<Expr<Rhs, Kind>> for chrono::DateTime<chrono::Utc>
+where
+    chrono::DateTime<chrono::Utc>: SqlAdd<Rhs>,
+{
+    type Output = Expr<<chrono::DateTime<chrono::Utc> as SqlAdd<Rhs>>::Output>;
 
-    fn add(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+    fn add(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
-impl<Kind> Sub<Expr<PgInterval, Kind>> for chrono::DateTime<chrono::Utc> {
-    type Output = Expr<chrono::DateTime<chrono::Utc>>;
+impl<Rhs, Kind> Sub<Expr<Rhs, Kind>> for chrono::DateTime<chrono::Utc>
+where
+    chrono::DateTime<chrono::Utc>: SqlSub<Rhs>,
+{
+    type Output = Expr<<chrono::DateTime<chrono::Utc> as SqlSub<Rhs>>::Output>;
 
-    fn sub(self, rhs: Expr<PgInterval, Kind>) -> Self::Output {
+    fn sub(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
         arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
@@ -966,12 +1177,45 @@ where
     }
 }
 
+macro_rules! impl_literal_numeric_op {
+    ($trait:ident, $method:ident, $sql_trait:ident, $op:expr, $($lhs:ty),+ $(,)?) => {
+        $(
+            impl<M, Rhs> $trait<Column<M, Rhs>> for $lhs
+            where
+                $lhs: $sql_trait<Rhs>,
+            {
+                type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
+
+                fn $method(self, rhs: Column<M, Rhs>) -> Self::Output {
+                    arithmetic_expr(self.into_expr().node, $op, ExprNode::Column(rhs.as_ref()))
+                }
+            }
+
+            impl<Rhs, Kind> $trait<Expr<Rhs, Kind>> for $lhs
+            where
+                $lhs: $sql_trait<Rhs>,
+            {
+                type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
+
+                fn $method(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
+                    arithmetic_expr(self.into_expr().node, $op, rhs.node)
+                }
+            }
+        )+
+    };
+}
+
+impl_literal_numeric_op!(Add, add, SqlAdd, BinaryOp::Add, i16, i32, i64, f32, f64);
+impl_literal_numeric_op!(Sub, sub, SqlSub, BinaryOp::Sub, i16, i32, i64, f32, f64);
+impl_literal_numeric_op!(Mul, mul, SqlMul, BinaryOp::Mul, i16, i32, i64, f32, f64);
+
 impl<T, Kind> Expr<T, Kind>
 where
     T: 'static,
 {
-    pub fn eq<V>(self, value: V) -> Expr<bool>
+    pub fn eq<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -991,7 +1235,10 @@ where
         }
     }
 
-    pub fn eq_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Eq,
@@ -999,8 +1246,9 @@ where
         })
     }
 
-    pub fn ne<V>(self, value: V) -> Expr<bool>
+    pub fn ne<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -1020,7 +1268,10 @@ where
         }
     }
 
-    pub fn ne_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Ne,
@@ -1028,7 +1279,10 @@ where
         })
     }
 
-    pub fn is_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::IsDistinctFrom,
@@ -1036,7 +1290,10 @@ where
         })
     }
 
-    pub fn is_not_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_not_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::IsNotDistinctFrom,
@@ -1044,8 +1301,9 @@ where
         })
     }
 
-    pub fn lt<V>(self, value: V) -> Expr<bool>
+    pub fn lt<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1055,7 +1313,10 @@ where
         })
     }
 
-    pub fn lt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Lt,
@@ -1063,8 +1324,9 @@ where
         })
     }
 
-    pub fn le<V>(self, value: V) -> Expr<bool>
+    pub fn le<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1074,7 +1336,10 @@ where
         })
     }
 
-    pub fn le_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Le,
@@ -1082,8 +1347,9 @@ where
         })
     }
 
-    pub fn gt<V>(self, value: V) -> Expr<bool>
+    pub fn gt<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1093,7 +1359,10 @@ where
         })
     }
 
-    pub fn gt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Gt,
@@ -1101,8 +1370,9 @@ where
         })
     }
 
-    pub fn ge<V>(self, value: V) -> Expr<bool>
+    pub fn ge<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Binary {
@@ -1112,7 +1382,10 @@ where
         })
     }
 
-    pub fn ge_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(self.node),
             op: BinaryOp::Ge,
@@ -1120,8 +1393,9 @@ where
         })
     }
 
-    pub fn between<L, U>(self, low: L, high: U) -> Expr<bool>
+    pub fn between<L, U>(self, low: L, high: U) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         L: ColumnValue<T>,
         U: ColumnValue<T>,
     {
@@ -1145,8 +1419,9 @@ where
         })
     }
 
-    pub fn like<V>(self, pattern: V) -> Expr<bool>
+    pub fn like<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
@@ -1156,8 +1431,9 @@ where
         })
     }
 
-    pub fn ilike<V>(self, pattern: V) -> Expr<bool>
+    pub fn ilike<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
@@ -1181,8 +1457,9 @@ where
         })
     }
 
-    pub fn in_<I, V>(self, values: I) -> Expr<bool>
+    pub fn in_<I, V>(self, values: I) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         I: IntoIterator<Item = V>,
         V: ColumnValue<T>,
     {
@@ -1199,8 +1476,15 @@ where
     }
 }
 
-impl<Kind> Expr<bool, Kind> {
-    pub fn and(self, other: Expr<bool>) -> Expr<bool> {
+impl<T, Kind> Expr<T, Kind>
+where
+    T: BooleanExprType,
+{
+    pub fn and<U>(self, other: Expr<U>) -> Expr<<T as BooleanOutput<U>>::Output>
+    where
+        T: BooleanOutput<U>,
+        U: BooleanExprType,
+    {
         Expr::new(ExprNode::Bool {
             left: Box::new(self.node),
             op: BoolOp::And,
@@ -1208,7 +1492,11 @@ impl<Kind> Expr<bool, Kind> {
         })
     }
 
-    pub fn or(self, other: Expr<bool>) -> Expr<bool> {
+    pub fn or<U>(self, other: Expr<U>) -> Expr<<T as BooleanOutput<U>>::Output>
+    where
+        T: BooleanOutput<U>,
+        U: BooleanExprType,
+    {
         Expr::new(ExprNode::Bool {
             left: Box::new(self.node),
             op: BoolOp::Or,
@@ -1216,7 +1504,7 @@ impl<Kind> Expr<bool, Kind> {
         })
     }
 
-    pub fn not(self) -> Expr<bool> {
+    pub fn not(self) -> Expr<T> {
         Expr::new(ExprNode::Unary {
             op: UnaryOp::Not,
             expr: Box::new(self.node),
@@ -1228,8 +1516,9 @@ impl<M, T> Column<M, T>
 where
     T: 'static,
 {
-    pub fn eq<V>(self, value: V) -> Expr<bool>
+    pub fn eq<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -1249,7 +1538,10 @@ where
         }
     }
 
-    pub fn eq_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn eq_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Eq,
@@ -1257,7 +1549,10 @@ where
         })
     }
 
-    pub fn ne_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ne_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ne,
@@ -1265,7 +1560,10 @@ where
         })
     }
 
-    pub fn is_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::IsDistinctFrom,
@@ -1273,7 +1571,10 @@ where
         })
     }
 
-    pub fn is_not_distinct_from_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn is_not_distinct_from_col<M2, U>(self, other: Column<M2, U>) -> Expr<bool>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::IsNotDistinctFrom,
@@ -1281,8 +1582,9 @@ where
         })
     }
 
-    pub fn ne<V>(self, value: V) -> Expr<bool>
+    pub fn ne<V>(self, value: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         V: ColumnValue<T>,
     {
         match value.into_value() {
@@ -1302,7 +1604,7 @@ where
         }
     }
 
-    pub fn lt<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn lt<V, Marker>(self, value: V) -> Expr<V::Output>
     where
         V: ComparisonValue<T, Marker>,
     {
@@ -1313,7 +1615,10 @@ where
         })
     }
 
-    pub fn lt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn lt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Lt,
@@ -1321,7 +1626,7 @@ where
         })
     }
 
-    pub fn le<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn le<V, Marker>(self, value: V) -> Expr<V::Output>
     where
         V: ComparisonValue<T, Marker>,
     {
@@ -1332,7 +1637,10 @@ where
         })
     }
 
-    pub fn le_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn le_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Le,
@@ -1340,7 +1648,7 @@ where
         })
     }
 
-    pub fn gt<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn gt<V, Marker>(self, value: V) -> Expr<V::Output>
     where
         V: ComparisonValue<T, Marker>,
     {
@@ -1351,7 +1659,10 @@ where
         })
     }
 
-    pub fn gt_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn gt_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Gt,
@@ -1359,7 +1670,7 @@ where
         })
     }
 
-    pub fn ge<V, Marker>(self, value: V) -> Expr<bool>
+    pub fn ge<V, Marker>(self, value: V) -> Expr<V::Output>
     where
         V: ComparisonValue<T, Marker>,
     {
@@ -1370,7 +1681,10 @@ where
         })
     }
 
-    pub fn ge_col<M2>(self, other: Column<M2, T>) -> Expr<bool> {
+    pub fn ge_col<M2, U>(self, other: Column<M2, U>) -> Expr<<T as CompatibleColumn<U>>::Output>
+    where
+        T: CompatibleColumn<U>,
+    {
         Expr::new(ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ge,
@@ -1378,20 +1692,21 @@ where
         })
     }
 
-    pub fn between<L, U>(self, low: L, high: U) -> Expr<bool>
+    pub fn between<L, U>(self, low: L, high: U) -> Expr<<T as ValueComparisonOutput>::Output>
     where
-        L: Into<Value>,
-        U: Into<Value>,
+        T: ValueComparisonOutput,
+        L: ColumnValue<T>,
+        U: ColumnValue<T>,
     {
         let left = ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Ge,
-            right: Box::new(ExprNode::Value(low.into())),
+            right: Box::new(ExprNode::Value(low.into_value().unwrap_or(Value::Null))),
         };
         let right = ExprNode::Binary {
             left: Box::new(ExprNode::Column(self.as_ref())),
             op: BinaryOp::Le,
-            right: Box::new(ExprNode::Value(high.into())),
+            right: Box::new(ExprNode::Value(high.into_value().unwrap_or(Value::Null))),
         };
         Expr::new(ExprNode::Bool {
             left: Box::new(left),
@@ -1400,36 +1715,39 @@ where
         })
     }
 
-    pub fn like<V>(self, pattern: V) -> Expr<bool>
+    pub fn like<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
-        V: Into<Value>,
+        T: ValueComparisonOutput,
+        V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
             expr: Box::new(ExprNode::Column(self.as_ref())),
-            pattern: pattern.into(),
+            pattern: pattern.into_value().unwrap_or(Value::Null),
             case_insensitive: false,
         })
     }
 
-    pub fn ilike<V>(self, pattern: V) -> Expr<bool>
+    pub fn ilike<V>(self, pattern: V) -> Expr<<T as ValueComparisonOutput>::Output>
     where
-        V: Into<Value>,
+        T: ValueComparisonOutput,
+        V: ColumnValue<T>,
     {
         Expr::new(ExprNode::Like {
             expr: Box::new(ExprNode::Column(self.as_ref())),
-            pattern: pattern.into(),
+            pattern: pattern.into_value().unwrap_or(Value::Null),
             case_insensitive: true,
         })
     }
 
-    pub fn in_<I, V>(self, values: I) -> Expr<bool>
+    pub fn in_<I, V>(self, values: I) -> Expr<<T as ValueComparisonOutput>::Output>
     where
+        T: ValueComparisonOutput,
         I: IntoIterator<Item = V>,
-        V: Into<Value>,
+        V: ColumnValue<T>,
     {
         Expr::new(ExprNode::In {
             expr: Box::new(ExprNode::Column(self.as_ref())),
-            values: values.into_iter().map(Into::into).collect(),
+            values: values.into_iter().map(|value| value.into_value().unwrap_or(Value::Null)).collect(),
         })
     }
 
@@ -1455,16 +1773,18 @@ pub enum ConditionKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct Condition {
+pub struct Condition<T = bool> {
     kind: ConditionKind,
-    exprs: Vec<Expr<bool>>,
+    exprs: Vec<ExprNode>,
+    _marker: PhantomData<T>,
 }
 
-impl Condition {
+impl Condition<bool> {
     pub fn any() -> Self {
         Self {
             kind: ConditionKind::Any,
             exprs: Vec::new(),
+            _marker: PhantomData,
         }
     }
 
@@ -1472,20 +1792,38 @@ impl Condition {
         Self {
             kind: ConditionKind::All,
             exprs: Vec::new(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> Condition<T>
+where
+    T: BooleanExprType,
+{
+    pub fn add<U>(mut self, expr: Expr<U>) -> Condition<<T as BooleanOutput<U>>::Output>
+    where
+        T: BooleanOutput<U>,
+        U: BooleanExprType,
+    {
+        self.exprs.push(expr.node);
+        Condition {
+            kind: self.kind,
+            exprs: self.exprs,
+            _marker: PhantomData,
         }
     }
 
-    pub fn add(mut self, expr: Expr<bool>) -> Self {
-        self.exprs.push(expr);
-        self
-    }
-
-    pub fn into_expr(self) -> Option<Expr<bool>> {
+    pub fn into_expr(self) -> Option<Expr<T>> {
         let mut iter = self.exprs.into_iter();
         let first = iter.next()?;
-        Some(iter.fold(first, |acc, expr| match self.kind {
-            ConditionKind::Any => acc.or(expr),
-            ConditionKind::All => acc.and(expr),
-        }))
+        Some(Expr::new(iter.fold(first, |acc, expr| ExprNode::Bool {
+            left: Box::new(acc),
+            op: match self.kind {
+                ConditionKind::Any => BoolOp::Or,
+                ConditionKind::All => BoolOp::And,
+            },
+            right: Box::new(expr),
+        })))
     }
 }

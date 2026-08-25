@@ -114,6 +114,7 @@ let retryable = Job::query()
 ```
 
 Supported column comparison helpers:
+
 - `eq_col`
 - `ne_col`
 - `is_distinct_from_col`

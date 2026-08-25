@@ -11,14 +11,6 @@ pub struct UnicodeSample {
     pub nullable_codepoint: Option<i32>,
 }
 
-fn nullable_text() -> dbkit::Column<UnicodeSample, Option<String>> {
-    dbkit::Column::new(UnicodeSample::TABLE, "nullable_text")
-}
-
-fn nullable_codepoint() -> dbkit::Column<UnicodeSample, Option<i32>> {
-    dbkit::Column::new(UnicodeSample::TABLE, "nullable_codepoint")
-}
-
 fn assert_string(_: dbkit::Expr<String>) {}
 fn assert_nullable_string(_: dbkit::Expr<Option<String>>) {}
 fn assert_i32(_: dbkit::Expr<i32>) {}
@@ -30,21 +22,21 @@ fn main() {
     use dbkit::func::NormalizationForm::{Nfc, Nfd, Nfkc, Nfkd};
 
     assert_string(dbkit::func::normalize(UnicodeSample::text, Nfc));
-    assert_nullable_string(dbkit::func::normalize(nullable_text(), Nfd));
+    assert_nullable_string(dbkit::func::normalize(UnicodeSample::nullable_text, Nfd));
     assert_string(dbkit::func::normalize("①", Nfkc));
     assert_string(dbkit::func::normalize(dbkit::func::lower(UnicodeSample::text), Nfkd));
     assert_i32(dbkit::func::first_codepoint(UnicodeSample::text));
-    assert_nullable_i32(dbkit::func::first_codepoint(nullable_text()));
+    assert_nullable_i32(dbkit::func::first_codepoint(UnicodeSample::nullable_text));
     assert_string(dbkit::func::from_codepoint(UnicodeSample::codepoint));
-    assert_nullable_string(dbkit::func::from_codepoint(nullable_codepoint()));
+    assert_nullable_string(dbkit::func::from_codepoint(UnicodeSample::nullable_codepoint));
     assert_string(dbkit::func::to_ascii(UnicodeSample::text));
-    assert_nullable_string(dbkit::func::to_ascii(nullable_text()));
+    assert_nullable_string(dbkit::func::to_ascii(UnicodeSample::nullable_text));
     assert_string(dbkit::func::case_fold(UnicodeSample::text));
-    assert_nullable_string(dbkit::func::case_fold(nullable_text()));
+    assert_nullable_string(dbkit::func::case_fold(UnicodeSample::nullable_text));
     assert_bool(dbkit::func::is_unicode_assigned(UnicodeSample::text));
-    assert_nullable_bool(dbkit::func::is_unicode_assigned(nullable_text()));
+    assert_nullable_bool(dbkit::func::is_unicode_assigned(UnicodeSample::nullable_text));
 
-    let normalized = dbkit::func::normalize(dbkit::func::case_fold(nullable_text()), Nfc);
+    let normalized = dbkit::func::normalize(dbkit::func::case_fold(UnicodeSample::nullable_text), Nfc);
     let first = dbkit::func::first_codepoint(normalized.clone());
     let _query = UnicodeSample::query()
         .select_only()

@@ -16,10 +16,15 @@ pub struct IntervalRow {
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
 struct AggregateIntervalArithmetic {
-    naive_add: NaiveDateTime,
-    naive_sub: NaiveDateTime,
-    utc_add: DateTime<Utc>,
-    utc_sub: DateTime<Utc>,
+    naive_add: Option<NaiveDateTime>,
+    naive_sub: Option<NaiveDateTime>,
+    utc_add: Option<DateTime<Utc>>,
+    utc_sub: Option<DateTime<Utc>>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct IntervalSum {
+    total: Option<dbkit::PgInterval>,
 }
 
 fn db_url() -> String {
@@ -134,10 +139,20 @@ async fn aggregate_intervals_support_reverse_date_arithmetic() -> Result<(), dbk
         .await?
         .expect("aggregate without GROUP BY returns one row");
 
-    assert_eq!(aggregate.naive_add, naive + Duration::hours(5));
-    assert_eq!(aggregate.naive_sub, naive - Duration::hours(5));
-    assert_eq!(aggregate.utc_add, utc + Duration::hours(5));
-    assert_eq!(aggregate.utc_sub, utc - Duration::hours(5));
+    assert_eq!(aggregate.naive_add, Some(naive + Duration::hours(5)));
+    assert_eq!(aggregate.naive_sub, Some(naive - Duration::hours(5)));
+    assert_eq!(aggregate.utc_add, Some(utc + Duration::hours(5)));
+    assert_eq!(aggregate.utc_sub, Some(utc - Duration::hours(5)));
+
+    let empty: IntervalSum = IntervalRow::query()
+        .select_only()
+        .column_as(dbkit::func::sum(IntervalRow::lease_window), "total")
+        .filter(IntervalRow::id.eq(-1_i64))
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(empty.total, None);
 
     Ok(())
 }

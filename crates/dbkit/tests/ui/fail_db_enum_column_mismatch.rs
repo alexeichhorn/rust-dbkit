@@ -29,5 +29,5 @@ pub struct Deployment {
 }
 
 fn main() {
-    let _expr = Build::stage.eq_col(Deployment::stage); //~ E0308
+    let _expr = Build::stage.eq_col(Deployment::stage); //~ E0277
 }

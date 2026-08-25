@@ -1,5 +1,34 @@
 # Expressions And Aggregation
 
+## Nullability
+
+Expressions follow the nullability of the model fields they use:
+
+```rust
+#[dbkit::model(table = "articles")]
+struct Article {
+    #[key]
+    id: i64,
+    title: String,
+    subtitle: Option<String>,
+}
+
+let normalized_title = dbkit::func::lower(Article::title);
+let normalized_subtitle = dbkit::func::lower(Article::subtitle);
+let subtitle_with_fallback = dbkit::func::coalesce(Article::subtitle, "No subtitle");
+
+let articles = Article::query()
+    .filter(normalized_title.eq("rust"))
+    .filter(normalized_subtitle.eq(None))
+    .order_by(dbkit::Order::asc(subtitle_with_fallback));
+```
+
+Functions that propagate PostgreSQL NULL keep optional inputs optional. Use `coalesce` with a
+non-null fallback when downstream code needs a guaranteed value.
+
+Nullable columns accept direct values and `Option<T>` values. `eq(None)` and `ne(None)` compile to
+`IS NULL` and `IS NOT NULL`. Required columns reject `None` at compile time.
+
 ## Arithmetic Expressions
 
 ```rust,ignore

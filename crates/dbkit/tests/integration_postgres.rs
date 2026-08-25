@@ -43,6 +43,44 @@ pub struct NullableRow {
     pub note: Option<String>,
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableValueComparisonProjection {
+    note: Option<String>,
+    equals_direct: Option<bool>,
+    equals_optional: Option<bool>,
+    equals_null: Option<bool>,
+    differs_direct: Option<bool>,
+    differs_null: Option<bool>,
+    less: Option<bool>,
+    less_or_equal: Option<bool>,
+    greater: Option<bool>,
+    greater_or_equal: Option<bool>,
+    between: Option<bool>,
+    matches: Option<bool>,
+    matches_case_insensitively: Option<bool>,
+    listed: Option<bool>,
+    optional_list: Option<bool>,
+    empty_list: Option<bool>,
+    is_null: bool,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableConditionProjection {
+    note: Option<String>,
+    single_nullable: Option<bool>,
+    all_with_true: Option<bool>,
+    all_with_false: Option<bool>,
+    any_with_false: Option<bool>,
+    any_with_true: Option<bool>,
+    required_only: bool,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableRowValueInProjection {
+    id: i64,
+    listed: Option<bool>,
+}
+
 #[model(table = "events")]
 pub struct Event {
     #[key]
@@ -1039,6 +1077,64 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     assert_eq!(some_row.note.as_deref(), Some("hello"));
 
     let updated = NullableRow::update()
+        .set(NullableRow::note, "direct")
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated[0].note.as_deref(), Some("direct"));
+
+    let updated = NullableRow::update()
+        .set(NullableRow::note, Some("optional".to_string()))
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated[0].note.as_deref(), Some("optional"));
+
+    let direct_match = NullableRow::query()
+        .filter(NullableRow::note.eq("optional"))
+        .one(&tx)
+        .await?
+        .expect("direct nullable value match");
+    assert_eq!(direct_match.id, some_row.id);
+
+    let optional_match = NullableRow::query()
+        .filter(NullableRow::note.eq(Some("optional".to_string())))
+        .one(&tx)
+        .await?
+        .expect("optional nullable value match");
+    assert_eq!(optional_match.id, some_row.id);
+
+    let borrowed_optional = Some("borrowed".to_string());
+    let updated = NullableRow::update()
+        .set(NullableRow::note, &borrowed_optional)
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated[0].note.as_deref(), Some("borrowed"));
+
+    let borrowed_match = NullableRow::query()
+        .filter(NullableRow::note.eq(&borrowed_optional))
+        .one(&tx)
+        .await?
+        .expect("borrowed optional nullable value match");
+    assert_eq!(borrowed_match.id, some_row.id);
+
+    let borrowed_none: Option<String> = None;
+    let updated = NullableRow::update()
+        .set(NullableRow::note, &borrowed_none)
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert!(updated[0].note.is_none());
+
+    let borrowed_null_match = NullableRow::query().filter(NullableRow::note.eq(&borrowed_none)).all(&tx).await?;
+    assert_eq!(borrowed_null_match.len(), 2);
+
+    let updated = NullableRow::update()
         .set(NullableRow::note, None)
         .filter(NullableRow::id.eq(some_row.id))
         .returning_all()
@@ -1050,6 +1146,244 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
     let null_rows = NullableRow::query().filter(NullableRow::note.eq(None)).all(&tx).await?;
     assert_eq!(null_rows.len(), 2);
     assert!(null_rows.iter().all(|row| row.note.is_none()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn nullable_value_comparison_projections_follow_postgres_three_valued_logic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_nullable_row(&tx, None).await?;
+    seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+    seed_nullable_row(&tx, Some("middle".to_string())).await?;
+    seed_nullable_row(&tx, Some("zulu".to_string())).await?;
+
+    let rows: Vec<NullableValueComparisonProjection> = NullableRow::query()
+        .select_only()
+        .column(NullableRow::note)
+        .column_as(NullableRow::note.eq("middle"), "equals_direct")
+        .column_as(NullableRow::note.eq(Some("middle".to_string())), "equals_optional")
+        .column_as(NullableRow::note.eq(None), "equals_null")
+        .column_as(NullableRow::note.ne("middle"), "differs_direct")
+        .column_as(NullableRow::note.ne(None), "differs_null")
+        .column_as(NullableRow::note.lt("middle"), "less")
+        .column_as(NullableRow::note.le("middle"), "less_or_equal")
+        .column_as(NullableRow::note.gt("middle"), "greater")
+        .column_as(NullableRow::note.ge("middle"), "greater_or_equal")
+        .column_as(NullableRow::note.between("b", "y"), "between")
+        .column_as(NullableRow::note.like("m%"), "matches")
+        .column_as(NullableRow::note.ilike("M%"), "matches_case_insensitively")
+        .column_as(NullableRow::note.in_(["alpha", "middle"]), "listed")
+        .column_as(NullableRow::note.in_([Some("alpha".to_string()), None]), "optional_list")
+        .column_as(NullableRow::note.in_(std::iter::empty::<String>()), "empty_list")
+        .column_as(NullableRow::note.is_null(), "is_null")
+        .order_by(dbkit::Order::asc(NullableRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.equals_direct,
+                row.equals_optional,
+                row.equals_null,
+                row.differs_direct,
+                row.differs_null,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, Some(true), None, Some(false)),
+            (Some("alpha"), Some(false), Some(false), Some(false), Some(true), Some(true)),
+            (Some("middle"), Some(true), Some(true), Some(false), Some(false), Some(true)),
+            (Some("zulu"), Some(false), Some(false), Some(false), Some(true), Some(true)),
+        ]
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.less,
+                row.less_or_equal,
+                row.greater,
+                row.greater_or_equal,
+                row.between,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, None, None, None),
+            (Some("alpha"), Some(true), Some(true), Some(false), Some(false), Some(false)),
+            (Some("middle"), Some(false), Some(true), Some(false), Some(true), Some(true)),
+            (Some("zulu"), Some(false), Some(false), Some(true), Some(true), Some(false)),
+        ]
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.matches,
+                row.matches_case_insensitively,
+                row.listed,
+                row.optional_list,
+                row.empty_list,
+                row.is_null,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, None, None, Some(false), true),
+            (Some("alpha"), Some(false), Some(false), Some(true), Some(true), Some(false), false),
+            (Some("middle"), Some(true), Some(true), Some(true), None, Some(false), false),
+            (Some("zulu"), Some(false), Some(false), Some(false), None, Some(false), false),
+        ]
+    );
+
+    let matching = NullableRow::query().filter(NullableRow::note.eq("middle")).all(&tx).await?;
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].note.as_deref(), Some("middle"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn nullable_row_value_in_follows_postgres_three_valued_logic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let null = seed_nullable_row(&tx, None).await?;
+    let alpha = seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+    let beta = seed_nullable_row(&tx, Some("beta".to_string())).await?;
+
+    let rows: Vec<NullableRowValueInProjection> = NullableRow::query()
+        .select_only()
+        .column(NullableRow::id)
+        .column_as(
+            dbkit::row((NullableRow::id, NullableRow::note)).in_([(alpha.id, Some("alpha".to_string())), (null.id, None)]),
+            "listed",
+        )
+        .order_by(dbkit::Order::asc(NullableRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.iter().map(|row| (row.id, row.listed)).collect::<Vec<_>>(),
+        vec![(null.id, None), (alpha.id, Some(true)), (beta.id, Some(false))]
+    );
+
+    let filtered = NullableRow::query()
+        .filter(dbkit::row((NullableRow::id, NullableRow::note)).in_([(alpha.id, Some("alpha".to_string())), (null.id, None)]))
+        .all(&tx)
+        .await?;
+
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].id, alpha.id);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn conditions_preserve_postgres_three_valued_logic() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_nullable_row(&tx, None).await?;
+    seed_nullable_row(&tx, Some("alpha".to_string())).await?;
+    seed_nullable_row(&tx, Some("middle".to_string())).await?;
+    seed_nullable_row(&tx, Some("zulu".to_string())).await?;
+
+    let rows: Vec<NullableConditionProjection> = NullableRow::query()
+        .select_only()
+        .column(NullableRow::note)
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .into_expr()
+                .expect("single nullable condition"),
+            "single_nullable",
+        )
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .add(NullableRow::id.gt(0_i64))
+                .into_expr()
+                .expect("all with true"),
+            "all_with_true",
+        )
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .add(NullableRow::id.lt(0_i64))
+                .into_expr()
+                .expect("all with false"),
+            "all_with_false",
+        )
+        .column_as(
+            dbkit::Condition::any()
+                .add(NullableRow::id.lt(0_i64))
+                .add(NullableRow::note.eq("middle"))
+                .into_expr()
+                .expect("any with false"),
+            "any_with_false",
+        )
+        .column_as(
+            dbkit::Condition::any()
+                .add(NullableRow::id.gt(0_i64))
+                .add(NullableRow::note.eq("middle"))
+                .into_expr()
+                .expect("any with true"),
+            "any_with_true",
+        )
+        .column_as(
+            dbkit::Condition::all()
+                .add(NullableRow::id.gt(0_i64))
+                .add(NullableRow::note.is_not_null())
+                .into_expr()
+                .expect("required condition"),
+            "required_only",
+        )
+        .order_by(dbkit::Order::asc(NullableRow::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.note.as_deref(),
+                row.single_nullable,
+                row.all_with_true,
+                row.all_with_false,
+                row.any_with_false,
+                row.any_with_true,
+                row.required_only,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, None, None, Some(false), None, Some(true), false),
+            (Some("alpha"), Some(false), Some(false), Some(false), Some(false), Some(true), true),
+            (Some("middle"), Some(true), Some(true), Some(false), Some(true), Some(true), true),
+            (Some("zulu"), Some(false), Some(false), Some(false), Some(false), Some(true), true),
+        ]
+    );
+
+    let matching = NullableRow::query()
+        .filter(
+            dbkit::Condition::all()
+                .add(NullableRow::note.eq("middle"))
+                .add(NullableRow::id.gt(0_i64))
+                .into_expr()
+                .expect("nullable filter condition"),
+        )
+        .all(&tx)
+        .await?;
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].note.as_deref(), Some("middle"));
 
     Ok(())
 }
@@ -1213,6 +1547,29 @@ async fn function_expressions_roundtrip() -> Result<(), dbkit::Error> {
         .await?;
     assert_eq!(combined_match.len(), 1);
     assert_eq!(combined_match[0].id, row1.id);
+
+    let greatest_fallback = FuncRow::query()
+        .filter(dbkit::func::greatest(FuncRow::email, "").eq(""))
+        .all(&tx)
+        .await?;
+    let mut greatest_fallback_ids: Vec<i64> = greatest_fallback.iter().map(|row| row.id).collect();
+    greatest_fallback_ids.sort();
+    assert_eq!(greatest_fallback_ids, vec![row2.id, row3.id]);
+
+    let least_fallback = FuncRow::query()
+        .filter(dbkit::func::least("zzzz", FuncRow::email).eq("zzzz"))
+        .all(&tx)
+        .await?;
+    let mut least_fallback_ids: Vec<i64> = least_fallback.iter().map(|row| row.id).collect();
+    least_fallback_ids.sort();
+    assert_eq!(least_fallback_ids, vec![row2.id, row3.id]);
+
+    let both_null = FuncRow::query()
+        .filter(dbkit::func::greatest(FuncRow::email, FuncRow::backup_email).is_null())
+        .all(&tx)
+        .await?;
+    assert_eq!(both_null.len(), 1);
+    assert_eq!(both_null[0].id, row3.id);
 
     let _ = later_start;
 
@@ -1598,6 +1955,90 @@ async fn custom_trim_uses_a_character_set_and_handles_edge_cases() -> Result<(),
     Ok(())
 }
 
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableStringControlArgumentResult {
+    label: String,
+    start_padded: Option<String>,
+    end_padded: Option<String>,
+    both_trimmed: Option<String>,
+    start_trimmed: Option<String>,
+    end_trimmed: Option<String>,
+    nullable_source_and_fill: Option<String>,
+    nullable_source_and_characters: Option<String>,
+}
+
+#[tokio::test]
+async fn nullable_padding_fill_and_trim_character_sets_follow_postgres_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+    seed_text_sample(&tx, "present", Some("xy")).await?;
+
+    let rows: Vec<NullableStringControlArgumentResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(dbkit::func::pad_start("ab", 5_i32, TextSample::body), "start_padded")
+        .column_as(dbkit::func::pad_end("ab", 5_i32, TextSample::body), "end_padded")
+        .column_as(dbkit::func::trim_chars("xyhelloyx", TextSample::body), "both_trimmed")
+        .column_as(dbkit::func::trim_start_chars("xyhelloyx", TextSample::body), "start_trimmed")
+        .column_as(dbkit::func::trim_end_chars("xyhelloyx", TextSample::body), "end_trimmed")
+        .column_as(
+            dbkit::func::pad_start(TextSample::body, 5_i32, TextSample::body),
+            "nullable_source_and_fill",
+        )
+        .column_as(
+            dbkit::func::trim_chars(TextSample::body, TextSample::body),
+            "nullable_source_and_characters",
+        )
+        .order_by(dbkit::Order::asc(TextSample::label))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.into_iter()
+            .map(|row| (
+                row.label,
+                row.start_padded,
+                row.end_padded,
+                row.both_trimmed,
+                row.start_trimmed,
+                row.end_trimmed,
+                row.nullable_source_and_fill,
+                row.nullable_source_and_characters,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "empty".to_string(),
+                Some("ab".to_string()),
+                Some("ab".to_string()),
+                Some("xyhelloyx".to_string()),
+                Some("xyhelloyx".to_string()),
+                Some("xyhelloyx".to_string()),
+                Some(String::new()),
+                Some(String::new()),
+            ),
+            ("missing".to_string(), None, None, None, None, None, None, None),
+            (
+                "present".to_string(),
+                Some("xyxab".to_string()),
+                Some("abxyx".to_string()),
+                Some("hello".to_string()),
+                Some("helloyx".to_string()),
+                Some("xyhello".to_string()),
+                Some("xyxxy".to_string()),
+                Some(String::new()),
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn nested_normalized_handle_lookup_matches_equivalent_inputs() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
@@ -1636,6 +2077,106 @@ struct ExtractionSizingResult {
     repeated_value: Option<String>,
     start_padded: Option<String>,
     end_padded: Option<String>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
+struct NullableNumericStringArgumentResult {
+    label: String,
+    left_value: Option<String>,
+    right_value: Option<String>,
+    substring_value: Option<String>,
+    repeated_value: Option<String>,
+    start_padded: Option<String>,
+    end_padded: Option<String>,
+    replaced_value: Option<String>,
+    split_value: Option<String>,
+    nullable_source: Option<String>,
+}
+
+#[tokio::test]
+async fn nullable_numeric_string_arguments_follow_postgres_null_semantics() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    seed_text_sample(&tx, "empty", Some("")).await?;
+    seed_text_sample(&tx, "missing", None).await?;
+    seed_text_sample(&tx, "normal", Some("xy")).await?;
+
+    let count = dbkit::func::char_length(TextSample::body);
+    let position = count.clone() + 1_i32;
+    let rows: Vec<NullableNumericStringArgumentResult> = TextSample::query()
+        .select_only()
+        .column(TextSample::label)
+        .column_as(dbkit::func::left("abcdef", count.clone()), "left_value")
+        .column_as(dbkit::func::right("abcdef", count.clone()), "right_value")
+        .column_as(dbkit::func::substring("abcdef", position.clone(), count.clone()), "substring_value")
+        .column_as(dbkit::func::repeat("ab", count.clone()), "repeated_value")
+        .column_as(dbkit::func::pad_start("ab", position.clone(), "x"), "start_padded")
+        .column_as(dbkit::func::pad_end("ab", position.clone(), "x"), "end_padded")
+        .column_as(
+            dbkit::func::replace_range("abcdef", "X", position.clone(), count.clone()),
+            "replaced_value",
+        )
+        .column_as(dbkit::func::split_part("a,b,c", ",", position), "split_value")
+        .column_as(dbkit::func::left(TextSample::body, count), "nullable_source")
+        .order_by(dbkit::Order::asc(TextSample::label))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        rows.into_iter()
+            .map(|row| (
+                row.label,
+                row.left_value,
+                row.right_value,
+                row.substring_value,
+                row.repeated_value,
+                row.start_padded,
+                row.end_padded,
+                row.replaced_value,
+                row.split_value,
+                row.nullable_source,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "empty".to_string(),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("a".to_string()),
+                Some("a".to_string()),
+                Some("Xabcdef".to_string()),
+                Some("a".to_string()),
+                Some("".to_string()),
+            ),
+            ("missing".to_string(), None, None, None, None, None, None, None, None, None),
+            (
+                "normal".to_string(),
+                Some("ab".to_string()),
+                Some("ef".to_string()),
+                Some("cd".to_string()),
+                Some("abab".to_string()),
+                Some("xab".to_string()),
+                Some("abx".to_string()),
+                Some("abXef".to_string()),
+                Some("c".to_string()),
+                Some("xy".to_string()),
+            ),
+        ]
+    );
+
+    let matching = TextSample::query()
+        .filter(dbkit::func::left("abcdef", dbkit::func::char_length(TextSample::body)).eq("ab"))
+        .all(&tx)
+        .await?;
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].label, "normal");
+
+    Ok(())
 }
 
 #[tokio::test]
@@ -2368,13 +2909,19 @@ async fn concat_functions_follow_postgres_null_empty_and_unicode_semantics() -> 
     Ok(())
 }
 
-#[derive(dbkit::sqlx::FromRow, Debug)]
+#[derive(dbkit::sqlx::FromRow, Debug, PartialEq, Eq)]
 struct MixedModelColumnConcatResult {
     joined: String,
+    separated: String,
+    nullable_separator: Option<String>,
+    dynamic_joined: String,
+    dynamic_separated: String,
+    empty_joined: String,
+    empty_separated: String,
 }
 
 #[tokio::test]
-async fn concat_required_and_nullable_model_columns() -> Result<(), dbkit::Error> {
+async fn concat_macros_support_required_nullable_dynamic_and_empty_values() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
@@ -2382,17 +2929,53 @@ async fn concat_required_and_nullable_model_columns() -> Result<(), dbkit::Error
     seed_text_sample(&tx, "required", Some("optional")).await?;
     seed_text_sample(&tx, "required", None).await?;
 
+    let dynamic_values = vec![TextSample::label.into_expr(), dbkit::func::lower("TAIL")];
+    let dynamic_separated_values = vec![TextSample::label.into_expr(), dbkit::func::lower("TAIL")];
     let rows: Vec<MixedModelColumnConcatResult> = TextSample::query()
         .select_only()
-        .column_as(dbkit::func::concat([TextSample::label, TextSample::body]), "joined")
+        .column_as(dbkit::func::concat!([TextSample::label, TextSample::body]), "joined")
+        .column_as(
+            dbkit::func::concat_with_separator!("|", [TextSample::label, TextSample::body]),
+            "separated",
+        )
+        .column_as(
+            dbkit::func::concat_with_separator!(TextSample::body, [TextSample::label, "suffix"]),
+            "nullable_separator",
+        )
+        .column_as(dbkit::func::concat!(dynamic_values), "dynamic_joined")
+        .column_as(
+            dbkit::func::concat_with_separator!("|", dynamic_separated_values),
+            "dynamic_separated",
+        )
+        .column_as(dbkit::func::concat!([]), "empty_joined")
+        .column_as(dbkit::func::concat_with_separator!("|", []), "empty_separated")
         .order_by(dbkit::Order::asc(TextSample::id))
         .into_model()
         .all(&tx)
         .await?;
 
     assert_eq!(
-        rows.into_iter().map(|row| row.joined).collect::<Vec<_>>(),
-        ["requiredoptional", "required"]
+        rows,
+        vec![
+            MixedModelColumnConcatResult {
+                joined: "requiredoptional".to_string(),
+                separated: "required|optional".to_string(),
+                nullable_separator: Some("requiredoptionalsuffix".to_string()),
+                dynamic_joined: "requiredtail".to_string(),
+                dynamic_separated: "required|tail".to_string(),
+                empty_joined: String::new(),
+                empty_separated: String::new(),
+            },
+            MixedModelColumnConcatResult {
+                joined: "required".to_string(),
+                separated: "required".to_string(),
+                nullable_separator: None,
+                dynamic_joined: "requiredtail".to_string(),
+                dynamic_separated: "required|tail".to_string(),
+                empty_joined: String::new(),
+                empty_separated: String::new(),
+            },
+        ]
     );
 
     Ok(())
@@ -2938,6 +3521,11 @@ struct EmptySaleExtremaAgg {
 }
 
 #[derive(dbkit::sqlx::FromRow, Debug)]
+struct EmptySumAgg {
+    total: Option<dbkit::sqlx::types::BigDecimal>,
+}
+
+#[derive(dbkit::sqlx::FromRow, Debug)]
 struct NullableNoteExtremaAgg {
     min_note: Option<String>,
     max_note: Option<String>,
@@ -3045,6 +3633,15 @@ async fn filtered_aggregates_handle_empty_and_nullable_inputs() -> Result<(), db
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
     setup_schema(&tx).await?;
+
+    let empty_sum: EmptySumAgg = Sale::query()
+        .select_only()
+        .column_as(dbkit::func::sum(Sale::amount), "total")
+        .into_model()
+        .one(&tx)
+        .await?
+        .expect("aggregate without GROUP BY returns one row");
+    assert_eq!(empty_sum.total, None);
 
     let empty: EmptyFilteredSaleAgg = Sale::query()
         .select_only()

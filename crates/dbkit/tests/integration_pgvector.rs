@@ -93,6 +93,13 @@ async fn pgvector_roundtrip_eq_filter_and_active_model_nulling() -> Result<(), d
     assert_eq!(only_null_optional.len(), 1);
     assert_eq!(only_null_optional[0].id, 1);
 
+    let null_distance_rows = EmbeddingRow::query()
+        .filter(func::l2_distance(EmbeddingRow::embedding_optional, embedding).eq(None))
+        .all(&tx)
+        .await?;
+    assert_eq!(null_distance_rows.len(), 1);
+    assert_eq!(null_distance_rows[0].id, 1);
+
     Ok(())
 }
 

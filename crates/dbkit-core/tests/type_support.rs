@@ -78,7 +78,7 @@ fn select_binds_utc_datetime() {
 #[test]
 fn select_supports_utc_datetime_between_and_null_filters() {
     let table = Table::new("events_tz");
-    let starts_at_col: Column<(), DateTime<Utc>> = Column::new(table, "starts_at");
+    let starts_at_col: Column<(), Option<DateTime<Utc>>> = Column::new(table, "starts_at");
     let low = Utc.with_ymd_and_hms(2024, 1, 2, 3, 0, 0).single().expect("utc low");
     let high = low + Duration::minutes(30);
 

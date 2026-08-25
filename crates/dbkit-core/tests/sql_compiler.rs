@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use dbkit_core::{expr::Value, func, Column, Condition, Expr, IntoExpr, Order, Select, Table};
+use dbkit_core::{expr::Value, func, AggregateExpr, Column, Condition, Expr, IntoExpr, Order, Select, Table};
 
 #[derive(Debug)]
 struct User;
@@ -27,12 +27,16 @@ fn user_id() -> Column<User, i64> {
     Column::new(user_table(), "id")
 }
 
-fn user_email() -> Column<User, String> {
+fn user_email() -> Column<User, Option<String>> {
     Column::new(user_table(), "email")
 }
 
-fn user_backup_email() -> Column<User, String> {
+fn user_backup_email() -> Column<User, Option<String>> {
     Column::new(user_table(), "backup_email")
+}
+
+fn user_score() -> Column<User, Option<i64>> {
+    Column::new(user_table(), "score")
 }
 
 fn event_table() -> Table {
@@ -107,6 +111,10 @@ fn text_sample_width() -> Column<TextSample, i32> {
     Column::new(text_samples_table(), "width")
 }
 
+fn text_sample_optional_width() -> Column<TextSample, Option<i32>> {
+    Column::new(text_samples_table(), "optional_width")
+}
+
 #[test]
 fn compiles_basic_filter() {
     let expr = user_email().eq("a@b.com");
@@ -144,23 +152,141 @@ fn compiles_is_null_expression() {
 
 #[test]
 fn compiles_eq_none_as_is_null() {
-    let expr = user_email().eq(None);
+    let expr: Expr<Option<bool>> = user_email().eq(None);
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NULL)");
     assert!(sql.binds.is_empty());
 }
 
 #[test]
+fn compiles_eq_some_on_nullable_column_as_bound_value() {
+    let expr: Expr<Option<bool>> = user_email().eq(Some("a@b.com".to_string()));
+    let sql = expr_sql(expr);
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email = $1)");
+    assert_eq!(sql.binds, vec![Value::String("a@b.com".to_string())]);
+}
+
+#[test]
 fn compiles_ne_none_as_is_not_null() {
-    let expr = user_email().ne(None);
+    let expr: Expr<Option<bool>> = user_email().ne(None);
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email IS NOT NULL)");
     assert!(sql.binds.is_empty());
 }
 
 #[test]
+fn compiles_power_with_nullable_numeric_column() {
+    let powered: Expr<Option<f64>> = func::power(user_score(), 2_i64);
+    let query: Select<User> = Select::new(user_table()).select_only().column_as(powered, "powered");
+
+    let sql = query.compile();
+    assert_eq!(sql.sql, "SELECT POWER(users.score, $1) AS powered FROM users");
+    assert_eq!(sql.binds, vec![Value::I64(2)]);
+}
+
+#[test]
+fn compiles_greatest_and_least_with_nullable_operands() {
+    let lower_bounded: Expr<i64> = func::greatest(user_score(), 0_i64);
+    let upper_bounded: Expr<i64> = func::least(100_i64, user_score());
+    let nullable: Expr<Option<i64>> = func::greatest(user_score(), user_score());
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(lower_bounded, "lower_bounded")
+        .column_as(upper_bounded, "upper_bounded")
+        .column_as(nullable, "nullable");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT GREATEST(users.score, $1) AS lower_bounded, LEAST($2, users.score) AS upper_bounded, GREATEST(users.score, users.score) AS nullable FROM users"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(0), Value::I64(100)]);
+}
+
+#[test]
+fn compiles_nullable_ordered_comparisons_with_optional_values() {
+    let some: Expr<Option<bool>> = user_score().lt(Some(5_i64));
+    let some_sql = expr_sql(some);
+    assert_eq!(some_sql.sql, "SELECT users.* FROM users WHERE (users.score < $1)");
+    assert_eq!(some_sql.binds, vec![Value::I64(5)]);
+
+    let none: Expr<Option<bool>> = user_score().ge(None);
+    let none_sql = expr_sql(none);
+    assert_eq!(none_sql.sql, "SELECT users.* FROM users WHERE (users.score >= NULL)");
+    assert!(none_sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_ordered_comparisons_with_nullable_rhs_expressions() {
+    let nullable_rhs = user_score() + 1_i64;
+    let required_rhs = user_id() + 1_i64;
+    let less: Expr<Option<bool>> = user_id().lt(nullable_rhs.clone());
+    let less_or_equal: Expr<Option<bool>> = user_id().le(nullable_rhs.clone());
+    let greater: Expr<Option<bool>> = user_id().gt(nullable_rhs.clone());
+    let greater_or_equal: Expr<Option<bool>> = user_id().ge(nullable_rhs);
+    let nullable_left: Expr<Option<bool>> = user_score().lt(required_rhs.clone());
+    let required: Expr<bool> = user_id().lt(required_rhs);
+    let coalesced: Expr<bool> = user_id().lt(func::coalesce(user_score(), 0_i64));
+
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(less, "less")
+        .column_as(less_or_equal, "less_or_equal")
+        .column_as(greater, "greater")
+        .column_as(greater_or_equal, "greater_or_equal")
+        .column_as(nullable_left, "nullable_left")
+        .column_as(required, "required")
+        .column_as(coalesced, "coalesced");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (users.id < (users.score + $1)) AS less, (users.id <= (users.score + $1)) AS less_or_equal, (users.id > (users.score + $1)) AS greater, (users.id >= (users.score + $1)) AS greater_or_equal, (users.score < (users.id + $1)) AS nullable_left, (users.id < (users.id + $1)) AS required, (users.id < COALESCE(users.score, $2)) AS coalesced FROM users"
+    );
+    assert_eq!(sql.binds, vec![Value::I64(1), Value::I64(0)]);
+}
+
+#[test]
+fn compiles_nullable_value_comparison_projections() {
+    let equals: Expr<Option<bool>> = user_email().eq("a@b.com");
+    let differs: Expr<Option<bool>> = user_email().ne("blocked@example.com");
+    let in_range: Expr<Option<bool>> = user_score().between(1_i64, 10_i64);
+    let matches: Expr<Option<bool>> = user_email().like("%@example.com");
+    let matches_case_insensitively: Expr<Option<bool>> = user_email().ilike("%@EXAMPLE.COM");
+    let listed: Expr<Option<bool>> = user_email().in_(["a@b.com", "c@d.com"]);
+    let empty_list: Expr<Option<bool>> = user_email().in_(std::iter::empty::<String>());
+    let query: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(equals, "equals")
+        .column_as(differs, "differs")
+        .column_as(in_range, "in_range")
+        .column_as(matches, "matches")
+        .column_as(matches_case_insensitively, "matches_case_insensitively")
+        .column_as(listed, "listed")
+        .column_as(empty_list, "empty_list");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT (users.email = $1) AS equals, (users.email <> $2) AS differs, ((users.score >= $3) AND (users.score <= $4)) AS in_range, (users.email LIKE $5) AS matches, (users.email ILIKE $6) AS matches_case_insensitively, (users.email IN ($1, $7)) AS listed, (FALSE) AS empty_list FROM users"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("a@b.com".to_string()),
+            Value::String("blocked@example.com".to_string()),
+            Value::I64(1),
+            Value::I64(10),
+            Value::String("%@example.com".to_string()),
+            Value::String("%@EXAMPLE.COM".to_string()),
+            Value::String("c@d.com".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn compiles_upper_function_filter() {
-    let expr = func::upper(user_email()).eq("TEST");
+    let expr: Expr<Option<bool>> = func::upper(user_email()).eq("TEST");
     let sql = expr_sql(expr);
     assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (UPPER(users.email) = $1)");
     assert_eq!(sql.binds, vec![Value::String("TEST".to_string())]);
@@ -429,6 +555,51 @@ fn compiles_string_extraction_and_sizing_functions_with_expected_types() {
             Value::I32(8),
             Value::String("xy".to_string()),
             Value::String("Z".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_string_functions_with_nullable_numeric_arguments() {
+    let left: Expr<Option<String>> = func::left(text_sample_title(), text_sample_optional_width());
+    let right: Expr<Option<String>> = func::right(text_sample_title(), text_sample_optional_width());
+    let substring_start: Expr<Option<String>> = func::substring(text_sample_title(), text_sample_optional_width(), text_sample_width());
+    let substring_count: Expr<Option<String>> = func::substring(text_sample_title(), text_sample_width(), text_sample_optional_width());
+    let repeated: Expr<Option<String>> = func::repeat(text_sample_title(), text_sample_optional_width());
+    let padded_start: Expr<Option<String>> = func::pad_start(text_sample_title(), text_sample_optional_width(), "x");
+    let padded_end: Expr<Option<String>> = func::pad_end(text_sample_body(), text_sample_optional_width(), "x");
+    let replaced_start: Expr<Option<String>> =
+        func::replace_range(text_sample_title(), "X", text_sample_optional_width(), text_sample_width());
+    let replaced_count: Expr<Option<String>> =
+        func::replace_range(text_sample_title(), "X", text_sample_width(), text_sample_optional_width());
+    let part: Expr<Option<String>> = func::split_part(text_sample_title(), ",", text_sample_optional_width());
+
+    let query: Select<TextSample> = Select::new(text_samples_table())
+        .select_only()
+        .column_as(left, "left_value")
+        .column_as(right, "right_value")
+        .column_as(substring_start, "substring_start")
+        .column_as(substring_count, "substring_count")
+        .column_as(repeated, "repeated")
+        .column_as(padded_start, "padded_start")
+        .column_as(padded_end, "padded_end")
+        .column_as(replaced_start, "replaced_start")
+        .column_as(replaced_count, "replaced_count")
+        .column_as(part, "part")
+        .filter(func::left(text_sample_title(), text_sample_optional_width()).eq("ab"));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT LEFT(text_samples.title, text_samples.optional_width) AS left_value, RIGHT(text_samples.title, text_samples.optional_width) AS right_value, SUBSTRING(text_samples.title, text_samples.optional_width, text_samples.width) AS substring_start, SUBSTRING(text_samples.title, text_samples.width, text_samples.optional_width) AS substring_count, REPEAT(text_samples.title, text_samples.optional_width) AS repeated, LPAD(text_samples.title, text_samples.optional_width, $1) AS padded_start, RPAD(text_samples.body, text_samples.optional_width, $1) AS padded_end, OVERLAY(text_samples.title, $2, text_samples.optional_width, text_samples.width) AS replaced_start, OVERLAY(text_samples.title, $2, text_samples.width, text_samples.optional_width) AS replaced_count, SPLIT_PART(text_samples.title, $3, text_samples.optional_width) AS part FROM text_samples WHERE (LEFT(text_samples.title, text_samples.optional_width) = $4)"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![
+            Value::String("x".to_string()),
+            Value::String("X".to_string()),
+            Value::String(",".to_string()),
+            Value::String("ab".to_string()),
         ]
     );
 }
@@ -875,6 +1046,25 @@ fn compiles_scalar_function_wrapping_filtered_aggregate() {
 }
 
 #[test]
+fn compiles_nullable_sum_and_non_null_coalesce() {
+    let total: AggregateExpr<Option<i64>> = func::sum(sales_amount());
+    let filtered_total: Expr<Option<i64>> = func::sum(sales_amount()).filter(sales_region().eq("us"));
+    let guaranteed_total: Expr<i64> = func::coalesce(func::sum(sales_amount()), 0_i64);
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(total, "total")
+        .column_as(filtered_total, "filtered_total")
+        .column_as(guaranteed_total, "guaranteed_total");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT SUM(sales.amount) AS total, SUM(sales.amount) FILTER (WHERE (sales.region = $1)) AS filtered_total, COALESCE(SUM(sales.amount), $2) AS guaranteed_total FROM sales"
+    );
+    assert_eq!(sql.binds, vec![Value::String("us".to_string()), Value::I64(0)]);
+}
+
+#[test]
 fn compiles_select_only_with_join_and_group_by() {
     let todos_table = Table::new("todos");
     let todo_user_id: Column<User, i64> = Column::new(todos_table, "user_id");
@@ -1125,20 +1315,23 @@ fn compiles_smallint_arithmetic_projection_with_integer_expression_type() {
 #[test]
 fn condition_any_empty_returns_none() {
     let cond = Condition::any();
-    assert!(cond.into_expr().is_none());
+    let expr: Option<Expr<bool>> = cond.into_expr();
+    assert!(expr.is_none());
 }
 
 #[test]
 fn condition_all_empty_returns_none() {
     let cond = Condition::all();
-    assert!(cond.into_expr().is_none());
+    let expr: Option<Expr<bool>> = cond.into_expr();
+    assert!(expr.is_none());
 }
 
 #[test]
 fn compiles_condition_any_or() {
     let cond = Condition::any().add(user_email().like("%example%")).add(user_id().gt(10_i64));
+    let expr: Expr<Option<bool>> = cond.into_expr().expect("expr");
 
-    let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
+    let query: Select<User> = Select::new(user_table()).filter(expr);
     let sql = query.compile();
     assert_eq!(
         sql.sql,
@@ -1149,18 +1342,44 @@ fn compiles_condition_any_or() {
 
 #[test]
 fn compiles_condition_all_and() {
-    let cond = Condition::all().add(user_email().like("%example%")).add(user_id().gt(10_i64));
+    let cond = Condition::all().add(user_id().gt(10_i64)).add(user_email().like("%example%"));
+    let expr: Expr<Option<bool>> = cond.into_expr().expect("expr");
 
-    let query: Select<User> = Select::new(user_table()).filter(cond.into_expr().expect("expr"));
+    let query: Select<User> = Select::new(user_table()).filter(expr);
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT users.* FROM users WHERE ((users.email LIKE $1) AND (users.id > $2))"
+        "SELECT users.* FROM users WHERE ((users.id > $1) AND (users.email LIKE $2))"
     );
-    assert_eq!(sql.binds, vec![Value::String("%example%".to_string()), Value::I64(10)]);
+    assert_eq!(sql.binds, vec![Value::I64(10), Value::String("%example%".to_string())]);
 }
 
-fn expr_sql(expr: Expr<bool>) -> dbkit_core::CompiledSql {
+#[test]
+fn condition_preserves_single_nullable_predicate_type() {
+    let expr: Expr<Option<bool>> = Condition::all().add(user_email().eq("a@b.com")).into_expr().expect("expr");
+
+    let sql = expr_sql(expr);
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE (users.email = $1)");
+    assert_eq!(sql.binds, vec![Value::String("a@b.com".to_string())]);
+}
+
+#[test]
+fn condition_preserves_required_predicate_type() {
+    let expr: Expr<bool> = Condition::all()
+        .add(user_id().gt(0_i64))
+        .add(user_id().lt(100_i64))
+        .into_expr()
+        .expect("expr");
+
+    let sql = expr_sql(expr);
+    assert_eq!(sql.sql, "SELECT users.* FROM users WHERE ((users.id > $1) AND (users.id < $2))");
+    assert_eq!(sql.binds, vec![Value::I64(0), Value::I64(100)]);
+}
+
+fn expr_sql<T>(expr: Expr<T>) -> dbkit_core::CompiledSql
+where
+    T: dbkit_core::expr::BooleanExprType,
+{
     let query: Select<User> = Select::new(user_table()).filter(expr);
     query.compile()
 }

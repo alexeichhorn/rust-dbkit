@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::compile::{CompiledSql, SqlBuilder, ToSql};
-use crate::expr::{ColumnValue, Expr, Value};
+use crate::expr::{into_predicate, BooleanExprType, ColumnValue, Expr, Value};
 use crate::func;
 use crate::query::Select;
 use crate::schema::{Column, ColumnRef, Table};
@@ -359,8 +359,11 @@ impl<Out> Update<Out> {
         self
     }
 
-    pub fn filter(mut self, expr: Expr<bool>) -> Self {
-        self.filters.push(expr);
+    pub fn filter<T>(mut self, expr: Expr<T>) -> Self
+    where
+        T: BooleanExprType,
+    {
+        self.filters.push(into_predicate(expr));
         self
     }
 
@@ -447,8 +450,11 @@ impl Delete {
         }
     }
 
-    pub fn filter(mut self, expr: Expr<bool>) -> Self {
-        self.filters.push(expr);
+    pub fn filter<T>(mut self, expr: Expr<T>) -> Self
+    where
+        T: BooleanExprType,
+    {
+        self.filters.push(into_predicate(expr));
         self
     }
 

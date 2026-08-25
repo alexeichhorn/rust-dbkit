@@ -62,6 +62,27 @@ impl<Result> StringBinaryExpr<Option<String>, Result> for Option<String> {
 }
 
 #[doc(hidden)]
+pub trait StringIntegerExpr<Rhs, Result> {
+    type Output;
+}
+
+impl<Result> StringIntegerExpr<i32, Result> for String {
+    type Output = Result;
+}
+
+impl<Result> StringIntegerExpr<Option<i32>, Result> for String {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringIntegerExpr<i32, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
+impl<Result> StringIntegerExpr<Option<i32>, Result> for Option<String> {
+    type Output = Option<Result>;
+}
+
+#[doc(hidden)]
 pub struct ConcatExpr {
     node: ExprNode,
 }
@@ -87,6 +108,57 @@ impl IntoConcatExpr for ConcatExpr {
         self
     }
 }
+
+/// Concatenates string expressions in order, ignoring NULL values.
+/// Accepts an inline list with different expression types or an existing iterable.
+///
+/// # Example
+///
+/// ```
+/// # use dbkit_core::func::concat;
+/// let expression = concat!(["Hello", " ", "world"]);
+/// ```
+///
+/// Maps to PostgreSQL `CONCAT`.
+#[macro_export]
+macro_rules! concat {
+    ([$($value:expr),* $(,)?] $(,)?) => {{
+        let values: ::std::vec::Vec<$crate::func::ConcatExpr> = ::std::vec![
+            $($crate::func::IntoConcatExpr::into_concat_expr($value)),*
+        ];
+        $crate::func::concat(values)
+    }};
+    ($values:expr $(,)?) => {
+        $crate::func::concat($values)
+    };
+}
+
+/// Concatenates string expressions with `separator`, ignoring NULL values.
+/// Accepts an inline list with different expression types or an existing iterable.
+/// Returns NULL when `separator` is NULL.
+///
+/// # Example
+///
+/// ```
+/// # use dbkit_core::func::concat_with_separator;
+/// let expression = concat_with_separator!(" / ", ["docs", "rust"]);
+/// ```
+///
+/// Maps to PostgreSQL `CONCAT_WS`.
+#[macro_export]
+macro_rules! concat_with_separator {
+    ($separator:expr, [$($value:expr),* $(,)?] $(,)?) => {{
+        let values: ::std::vec::Vec<$crate::func::ConcatExpr> = ::std::vec![
+            $($crate::func::IntoConcatExpr::into_concat_expr($value)),*
+        ];
+        $crate::func::concat_with_separator($separator, values)
+    }};
+    ($separator:expr, $values:expr $(,)?) => {
+        $crate::func::concat_with_separator($separator, $values)
+    };
+}
+
+pub use crate::{concat, concat_with_separator};
 
 bitflags! {
     /// Composable options for [`regex_replace`]; use [`empty`](Self::empty) for default behavior.
@@ -190,10 +262,7 @@ where
     })
 }
 
-fn string_fn<T>(name: &'static str, arg: impl IntoExpr<T>, extra_args: Vec<ExprNode>) -> Expr<<T as StringUnaryExpr>::Output>
-where
-    T: StringUnaryExpr,
-{
+fn string_fn<T, O>(name: &'static str, arg: impl IntoExpr<T>, extra_args: Vec<ExprNode>) -> Expr<O> {
     let mut args = vec![arg.into_expr().node];
     args.extend(extra_args);
     Expr::new(ExprNode::Func { name, args })
@@ -228,18 +297,11 @@ where
     args.into_iter().map(|arg| arg.into_concat_expr().node).collect()
 }
 
-fn directed_trim_fn<T>(
-    arg: impl IntoExpr<T>,
-    direction: TrimDirection,
-    characters: Option<Expr<String>>,
-) -> Expr<<T as StringUnaryExpr>::Output>
-where
-    T: StringUnaryExpr,
-{
+fn directed_trim_fn<T, O>(arg: impl IntoExpr<T>, direction: TrimDirection, characters: Option<ExprNode>) -> Expr<O> {
     Expr::new(ExprNode::Trim {
         direction,
         expr: Box::new(arg.into_expr().node),
-        characters: characters.map(|characters| Box::new(characters.node)),
+        characters: characters.map(Box::new),
     })
 }
 
@@ -288,14 +350,16 @@ where
 /// Replaces `count` characters from the 1-based `start` with `replacement`.
 /// Returns NULL if either string argument is NULL.
 /// Maps to PostgreSQL's callable `OVERLAY` form.
-pub fn replace_range<S, R>(
+pub fn replace_range<S, R, Start, Count, SR, SRS, O>(
     expression: impl IntoExpr<S>,
     replacement: impl IntoExpr<R>,
-    start: impl IntoExpr<i32>,
-    count: impl IntoExpr<i32>,
-) -> Expr<<S as StringBinaryExpr<R, String>>::Output>
+    start: impl IntoExpr<Start>,
+    count: impl IntoExpr<Count>,
+) -> Expr<O>
 where
-    S: StringBinaryExpr<R, String>,
+    S: StringBinaryExpr<R, String, Output = SR>,
+    SR: StringIntegerExpr<Start, String, Output = SRS>,
+    SRS: StringIntegerExpr<Count, String, Output = O>,
 {
     Expr::new(ExprNode::Func {
         name: "OVERLAY",
@@ -344,11 +408,11 @@ where
 /// Removes the longest span made only of characters in the `characters` set from both ends.
 /// For example, trimming `"xyxtrimyyx"` with `"xyz"` yields `"trim"`.
 /// Maps to PostgreSQL `TRIM(BOTH characters FROM expression)`.
-pub fn trim_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn trim_chars<T, C>(arg: impl IntoExpr<T>, characters: impl IntoExpr<C>) -> Expr<<T as StringBinaryExpr<C, String>>::Output>
 where
-    T: StringUnaryExpr,
+    T: StringBinaryExpr<C, String>,
 {
-    directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr()))
+    directed_trim_fn(arg, TrimDirection::Both, Some(characters.into_expr().node))
 }
 
 /// Removes leading spaces from a text expression.
@@ -362,11 +426,11 @@ where
 
 /// Removes the longest leading span made only of characters in the `characters` set.
 /// Maps to PostgreSQL `TRIM(LEADING characters FROM expression)`.
-pub fn trim_start_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn trim_start_chars<T, C>(arg: impl IntoExpr<T>, characters: impl IntoExpr<C>) -> Expr<<T as StringBinaryExpr<C, String>>::Output>
 where
-    T: StringUnaryExpr,
+    T: StringBinaryExpr<C, String>,
 {
-    directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr()))
+    directed_trim_fn(arg, TrimDirection::Leading, Some(characters.into_expr().node))
 }
 
 /// Removes trailing spaces from a text expression.
@@ -380,11 +444,11 @@ where
 
 /// Removes the longest trailing span made only of characters in the `characters` set.
 /// Maps to PostgreSQL `TRIM(TRAILING characters FROM expression)`.
-pub fn trim_end_chars<T>(arg: impl IntoExpr<T>, characters: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn trim_end_chars<T, C>(arg: impl IntoExpr<T>, characters: impl IntoExpr<C>) -> Expr<<T as StringBinaryExpr<C, String>>::Output>
 where
-    T: StringUnaryExpr,
+    T: StringBinaryExpr<C, String>,
 {
-    directed_trim_fn(arg, TrimDirection::Trailing, Some(characters.into_expr()))
+    directed_trim_fn(arg, TrimDirection::Trailing, Some(characters.into_expr().node))
 }
 
 /// Returns the number of characters in a text expression, preserving input nullability.
@@ -436,6 +500,7 @@ where
 }
 
 /// Concatenates string expressions in order, ignoring NULL values.
+/// Use `concat!([first, second])` for an inline list containing different expression types.
 /// Maps to PostgreSQL `CONCAT`.
 pub fn concat<I, A>(values: I) -> Expr<String>
 where
@@ -448,6 +513,8 @@ where
 
 /// Concatenates string expressions with `separator`, ignoring NULL values.
 /// Returns NULL when `separator` is NULL.
+/// Use `concat_with_separator!(separator, [first, second])` for an inline list containing different
+/// expression types.
 /// Maps to PostgreSQL `CONCAT_WS`.
 pub fn concat_with_separator<S, I, A>(separator: impl IntoExpr<S>, values: I) -> Expr<<S as StringUnaryExpr>::Output>
 where
@@ -475,13 +542,10 @@ where
 /// Negative indexes count from the end on PostgreSQL 14 or newer.
 /// PostgreSQL rejects an index of zero and returns an empty string for an out-of-range index.
 /// Maps to PostgreSQL `SPLIT_PART`.
-pub fn split_part<S, D>(
-    expression: impl IntoExpr<S>,
-    delimiter: impl IntoExpr<D>,
-    index: impl IntoExpr<i32>,
-) -> Expr<<S as StringBinaryExpr<D, String>>::Output>
+pub fn split_part<S, D, I, SD, O>(expression: impl IntoExpr<S>, delimiter: impl IntoExpr<D>, index: impl IntoExpr<I>) -> Expr<O>
 where
-    S: StringBinaryExpr<D, String>,
+    S: StringBinaryExpr<D, String, Output = SD>,
+    SD: StringIntegerExpr<I, String, Output = O>,
 {
     let expression = expression.into_expr();
     let delimiter = delimiter.into_expr();
@@ -546,18 +610,18 @@ where
 
 /// Returns the first `count` characters, or all but the last `|count|` when negative.
 /// Maps to PostgreSQL `LEFT`.
-pub fn left<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn left<T, C, O>(arg: impl IntoExpr<T>, count: impl IntoExpr<C>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<C, String, Output = O>,
 {
     string_fn("LEFT", arg, vec![count.into_expr().node])
 }
 
 /// Returns the last `count` characters, or all but the first `|count|` when negative.
 /// Maps to PostgreSQL `RIGHT`.
-pub fn right<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn right<T, C, O>(arg: impl IntoExpr<T>, count: impl IntoExpr<C>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<C, String, Output = O>,
 {
     string_fn("RIGHT", arg, vec![count.into_expr().node])
 }
@@ -565,9 +629,10 @@ where
 /// Returns up to `count` characters from the 1-based `start`.
 /// From `"abcdef"`, `(2, 3)` yields `"bcd"` and `(0, 3)` yields `"ab"`; negative counts are rejected.
 /// Maps to PostgreSQL `SUBSTRING`.
-pub fn substring<T>(arg: impl IntoExpr<T>, start: impl IntoExpr<i32>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn substring<T, Start, Count, TS, O>(arg: impl IntoExpr<T>, start: impl IntoExpr<Start>, count: impl IntoExpr<Count>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<Start, String, Output = TS>,
+    TS: StringIntegerExpr<Count, String, Output = O>,
 {
     string_fn("SUBSTRING", arg, vec![start.into_expr().node, count.into_expr().node])
 }
@@ -575,9 +640,9 @@ where
 /// Repeats the text `count` times.
 /// Repeating `"ab"` three times yields `"ababab"`; non-positive counts yield an empty string.
 /// Maps to PostgreSQL `REPEAT`.
-pub fn repeat<T>(arg: impl IntoExpr<T>, count: impl IntoExpr<i32>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn repeat<T, C, O>(arg: impl IntoExpr<T>, count: impl IntoExpr<C>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<C, String, Output = O>,
 {
     string_fn("REPEAT", arg, vec![count.into_expr().node])
 }
@@ -585,9 +650,10 @@ where
 /// Pads on the left to `length` by cycling `fill`, truncating the source on the right if needed.
 /// Padding `"ab"` to 5 with `"xy"` yields `"xyxab"`; empty fill adds nothing and non-positive length yields `""`.
 /// Maps to PostgreSQL `LPAD`.
-pub fn pad_start<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn pad_start<T, L, F, TL, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<F>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<L, String, Output = TL>,
+    TL: StringBinaryExpr<F, String, Output = O>,
 {
     string_fn("LPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
@@ -595,9 +661,10 @@ where
 /// Pads on the right to `length` by cycling `fill`, truncating the source on the right if needed.
 /// Padding `"ab"` to 5 with `"xy"` yields `"abxyx"`; empty fill adds nothing and non-positive length yields `""`.
 /// Maps to PostgreSQL `RPAD`.
-pub fn pad_end<T>(arg: impl IntoExpr<T>, length: impl IntoExpr<i32>, fill: impl IntoExpr<String>) -> Expr<<T as StringUnaryExpr>::Output>
+pub fn pad_end<T, L, F, TL, O>(arg: impl IntoExpr<T>, length: impl IntoExpr<L>, fill: impl IntoExpr<F>) -> Expr<O>
 where
-    T: StringUnaryExpr,
+    T: StringIntegerExpr<L, String, Output = TL>,
+    TL: StringBinaryExpr<F, String, Output = O>,
 {
     string_fn("RPAD", arg, vec![length.into_expr().node, fill.into_expr().node])
 }
@@ -724,14 +791,6 @@ pub fn count<T>(arg: impl IntoExpr<T>) -> AggregateExpr<i64> {
     })
 }
 
-pub fn sum<T>(arg: impl IntoExpr<T>) -> AggregateExpr<T> {
-    let expr = arg.into_expr();
-    Expr::new(ExprNode::Func {
-        name: "SUM",
-        args: vec![expr.node],
-    })
-}
-
 pub trait NullableAggregateOutput {
     type Output;
 }
@@ -765,6 +824,31 @@ impl_nullable_aggregate_output!(
     crate::PgInterval,
 );
 
+#[doc(hidden)]
+pub trait SumInput: NullableAggregateOutput {}
+
+macro_rules! impl_sum_input {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl SumInput for $ty {}
+            impl SumInput for Option<$ty> {}
+        )+
+    };
+}
+
+impl_sum_input!(i16, i32, i64, f32, f64, crate::PgInterval);
+
+pub fn sum<T>(arg: impl IntoExpr<T>) -> AggregateExpr<<T as NullableAggregateOutput>::Output>
+where
+    T: SumInput,
+{
+    let expr = arg.into_expr();
+    Expr::new(ExprNode::Func {
+        name: "SUM",
+        args: vec![expr.node],
+    })
+}
+
 pub fn min<T>(arg: impl IntoExpr<T>) -> AggregateExpr<<T as NullableAggregateOutput>::Output>
 where
     T: NullableAggregateOutput,
@@ -787,7 +871,32 @@ where
     })
 }
 
-pub fn coalesce<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+#[doc(hidden)]
+pub trait CoalesceOutput<Rhs> {
+    type Output;
+}
+
+impl<T> CoalesceOutput<T> for T {
+    type Output = T;
+}
+
+impl<T> CoalesceOutput<T> for Option<T> {
+    type Output = T;
+}
+
+impl<T> CoalesceOutput<Option<T>> for T {
+    type Output = T;
+}
+
+/// Returns the first non-NULL argument.
+///
+/// The result is required when either argument supplies a required value and remains optional when
+/// both arguments are optional.
+/// Maps to PostgreSQL `COALESCE`.
+pub fn coalesce<L, R>(a: impl IntoExpr<L>, b: impl IntoExpr<R>) -> Expr<<L as CoalesceOutput<R>>::Output>
+where
+    L: CoalesceOutput<R>,
+{
     let left = a.into_expr();
     let right = b.into_expr();
     Expr::new(ExprNode::Func {
@@ -796,7 +905,10 @@ pub fn coalesce<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     })
 }
 
-pub fn least<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+pub fn least<L, R>(a: impl IntoExpr<L>, b: impl IntoExpr<R>) -> Expr<<L as CoalesceOutput<R>>::Output>
+where
+    L: CoalesceOutput<R>,
+{
     let left = a.into_expr();
     let right = b.into_expr();
     Expr::new(ExprNode::Func {
@@ -805,7 +917,10 @@ pub fn least<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     })
 }
 
-pub fn greatest<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
+pub fn greatest<L, R>(a: impl IntoExpr<L>, b: impl IntoExpr<R>) -> Expr<<L as CoalesceOutput<R>>::Output>
+where
+    L: CoalesceOutput<R>,
+{
     let left = a.into_expr();
     let right = b.into_expr();
     Expr::new(ExprNode::Func {
@@ -814,10 +929,46 @@ pub fn greatest<T>(a: impl IntoExpr<T>, b: impl IntoExpr<T>) -> Expr<T> {
     })
 }
 
-pub fn power<B, E>(base: impl IntoExpr<B>, exponent: impl IntoExpr<E>) -> Expr<f64>
+#[doc(hidden)]
+pub trait PowerOutput<Rhs> {
+    type Output;
+}
+
+impl<B, E> PowerOutput<E> for B
 where
     B: NumericExprType,
     E: NumericExprType,
+{
+    type Output = f64;
+}
+
+impl<B, E> PowerOutput<E> for Option<B>
+where
+    B: NumericExprType,
+    E: NumericExprType,
+{
+    type Output = Option<f64>;
+}
+
+impl<B, E> PowerOutput<Option<E>> for B
+where
+    B: NumericExprType,
+    E: NumericExprType,
+{
+    type Output = Option<f64>;
+}
+
+impl<B, E> PowerOutput<Option<E>> for Option<B>
+where
+    B: NumericExprType,
+    E: NumericExprType,
+{
+    type Output = Option<f64>;
+}
+
+pub fn power<B, E>(base: impl IntoExpr<B>, exponent: impl IntoExpr<E>) -> Expr<<B as PowerOutput<E>>::Output>
+where
+    B: PowerOutput<E>,
 {
     let base = base.into_expr();
     let exponent = exponent.into_expr();
@@ -850,9 +1001,34 @@ pub trait VectorExpr<const N: usize> {}
 impl<const N: usize> VectorExpr<N> for PgVector<N> {}
 impl<const N: usize> VectorExpr<N> for Option<PgVector<N>> {}
 
-fn vector_binary_fn<const N: usize, L, R>(name: &'static str, left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+#[doc(hidden)]
+pub trait VectorOutput<Rhs, const N: usize> {
+    type Output;
+}
+
+impl<const N: usize> VectorOutput<PgVector<N>, N> for PgVector<N> {
+    type Output = f32;
+}
+
+impl<const N: usize> VectorOutput<Option<PgVector<N>>, N> for PgVector<N> {
+    type Output = Option<f32>;
+}
+
+impl<const N: usize> VectorOutput<PgVector<N>, N> for Option<PgVector<N>> {
+    type Output = Option<f32>;
+}
+
+impl<const N: usize> VectorOutput<Option<PgVector<N>>, N> for Option<PgVector<N>> {
+    type Output = Option<f32>;
+}
+
+fn vector_binary_fn<const N: usize, L, R>(
+    name: &'static str,
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     let left = left.into_expr();
@@ -863,9 +1039,13 @@ where
     })
 }
 
-fn vector_binary_operator<const N: usize, L, R>(op: VectorBinaryOp, left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+fn vector_binary_operator<const N: usize, L, R>(
+    op: VectorBinaryOp,
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     let left = left.into_expr();
@@ -884,9 +1064,9 @@ where
 /// ANN note:
 /// - This form is operator-based and can use pgvector ivfflat/hnsw indexes for
 ///   `ORDER BY ... LIMIT` nearest-neighbor queries.
-pub fn l2_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn l2_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::L2Distance, left, right)
@@ -899,9 +1079,9 @@ where
 /// ANN note:
 /// - This form is operator-based and can use pgvector ivfflat/hnsw indexes for
 ///   `ORDER BY ... LIMIT` nearest-neighbor queries.
-pub fn cosine_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn cosine_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::CosineDistance, left, right)
@@ -916,9 +1096,9 @@ where
 ///   but function expressions are generally not pgvector ANN index-compatible for
 ///   `ORDER BY ... LIMIT`.
 /// - For ANN-indexed retrieval, use [`inner_product_distance`] with `ORDER BY ASC`.
-pub fn inner_product<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn inner_product<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_fn::<N, L, R>("INNER_PRODUCT", left, right)
@@ -931,9 +1111,9 @@ where
 /// ANN note:
 /// - This form is operator-based and can use pgvector ivfflat/hnsw indexes for
 ///   `ORDER BY ... LIMIT` nearest-neighbor queries.
-pub fn l1_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn l1_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::L1Distance, left, right)
@@ -949,9 +1129,12 @@ where
 /// - Thresholds are inverted relative to true inner product
 ///   (for example `inner_product > 0.9` corresponds to
 ///   `inner_product_distance < -0.9`).
-pub fn inner_product_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<f32>
+pub fn inner_product_distance<const N: usize, L, R>(
+    left: impl IntoExpr<L>,
+    right: impl IntoExpr<R>,
+) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N>,
+    L: VectorExpr<N> + VectorOutput<R, N>,
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::InnerProductDistance, left, right)

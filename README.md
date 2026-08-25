@@ -71,6 +71,10 @@ If a Rust field needs a different DB column name, use `#[dbkit(column = "...")]`
 type_: String,
 ```
 
+Required and nullable model fields stay distinct throughout queries and mutations. `None` works
+only with nullable fields, and SQL functions keep nullable results nullable when PostgreSQL can
+return NULL.
+
 ## Common Mutations
 
 Insert with the generated insert type:
