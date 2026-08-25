@@ -111,6 +111,28 @@ fn main() {
     assert_nullable_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::required_count));
     assert_nullable_bool(NullabilityRow::nullable_count.ge_col(NullabilityRow::nullable_limit));
 
+    assert_nullable_bool(NullabilityRow::required_count.lt(NullabilityRow::nullable_count));
+    assert_nullable_bool(NullabilityRow::required_count.le(NullabilityRow::nullable_count));
+    assert_nullable_bool(NullabilityRow::required_count.gt(NullabilityRow::nullable_count));
+    assert_nullable_bool(NullabilityRow::required_count.ge(NullabilityRow::nullable_count));
+
+    let borrowed_text = Some("borrowed".to_string());
+    let borrowed_null_text: Option<String> = None;
+    let borrowed_count = Some(5_i32);
+    let borrowed_null_count: Option<i32> = None;
+    assert_nullable_bool(NullabilityRow::nullable_text.eq(&borrowed_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.eq(&borrowed_null_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.ne(&borrowed_text));
+    assert_nullable_bool(NullabilityRow::nullable_count.lt(&borrowed_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.le(&borrowed_null_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.gt(&borrowed_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.ge(&borrowed_null_count));
+    assert_nullable_bool(NullabilityRow::nullable_count.between(&borrowed_count, &borrowed_null_count));
+    assert_nullable_bool(NullabilityRow::nullable_text.like(&borrowed_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.ilike(&borrowed_null_text));
+    assert_nullable_bool(NullabilityRow::nullable_text.in_([&borrowed_text, &borrowed_null_text]));
+    assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq(&borrowed_text));
+
     assert_string(dbkit::func::lower(NullabilityRow::required_text));
     assert_nullable_string(dbkit::func::lower(NullabilityRow::nullable_text));
     assert_nullable_bool(dbkit::func::lower(NullabilityRow::nullable_text).eq("present"));
@@ -247,7 +269,9 @@ fn main() {
     let _insert_values = dbkit::Insert::<NullabilityRow>::new(NullabilityRow::TABLE)
         .value(NullabilityRow::required_text, "required")
         .value(NullabilityRow::nullable_text, "present")
-        .value(NullabilityRow::nullable_count, Some(2_i32));
+        .value(NullabilityRow::nullable_count, Some(2_i32))
+        .value(NullabilityRow::nullable_text, &borrowed_text)
+        .value(NullabilityRow::nullable_count, &borrowed_null_count);
 
     let _insert_nulls = dbkit::Insert::<NullabilityRow>::new(NullabilityRow::TABLE)
         .value(NullabilityRow::nullable_text, None)
@@ -267,6 +291,9 @@ fn main() {
     let _optional_owned_update = NullabilityRow::update()
         .set(NullabilityRow::nullable_text, Some("owned".to_string()))
         .set(NullabilityRow::nullable_count, Some(2_i32));
+    let _borrowed_optional_update = NullabilityRow::update()
+        .set(NullabilityRow::nullable_text, &borrowed_text)
+        .set(NullabilityRow::nullable_count, &borrowed_null_count);
     let _null_update = NullabilityRow::update()
         .set(NullabilityRow::nullable_text, None)
         .set(NullabilityRow::nullable_count, None::<i32>);

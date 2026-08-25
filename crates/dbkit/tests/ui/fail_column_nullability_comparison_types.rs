@@ -14,6 +14,7 @@ fn main() {
     let _required_to_nullable_base_mismatch = NullabilityRow::required_text.eq_col(NullabilityRow::nullable_count); //~ E0277
     let _nullable_to_required_base_mismatch = NullabilityRow::nullable_text.ne_col(NullabilityRow::required_count); //~ E0277
     let _ordered_base_mismatch = NullabilityRow::required_count.lt_col(NullabilityRow::nullable_text); //~ E0277
+    let _direct_ordered_base_mismatch = NullabilityRow::required_count.lt(NullabilityRow::nullable_text); //~ E0277
     let _expression_base_mismatch = dbkit::func::lower(NullabilityRow::nullable_text).eq_col(NullabilityRow::required_count);
     //~^ E0277
 }

@@ -1106,6 +1106,34 @@ async fn insert_update_and_filter_nulls() -> Result<(), dbkit::Error> {
         .expect("optional nullable value match");
     assert_eq!(optional_match.id, some_row.id);
 
+    let borrowed_optional = Some("borrowed".to_string());
+    let updated = NullableRow::update()
+        .set(NullableRow::note, &borrowed_optional)
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert_eq!(updated[0].note.as_deref(), Some("borrowed"));
+
+    let borrowed_match = NullableRow::query()
+        .filter(NullableRow::note.eq(&borrowed_optional))
+        .one(&tx)
+        .await?
+        .expect("borrowed optional nullable value match");
+    assert_eq!(borrowed_match.id, some_row.id);
+
+    let borrowed_none: Option<String> = None;
+    let updated = NullableRow::update()
+        .set(NullableRow::note, &borrowed_none)
+        .filter(NullableRow::id.eq(some_row.id))
+        .returning_all()
+        .all(&tx)
+        .await?;
+    assert!(updated[0].note.is_none());
+
+    let borrowed_null_match = NullableRow::query().filter(NullableRow::note.eq(&borrowed_none)).all(&tx).await?;
+    assert_eq!(borrowed_null_match.len(), 2);
+
     let updated = NullableRow::update()
         .set(NullableRow::note, None)
         .filter(NullableRow::id.eq(some_row.id))

@@ -63,6 +63,14 @@ struct NullableRhsComparisonResult {
     coalesced: bool,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct DirectNullableRhsComparisonResult {
+    less: Option<bool>,
+    less_or_equal: Option<bool>,
+    greater: Option<bool>,
+    greater_or_equal: Option<bool>,
+}
+
 fn db_url() -> String {
     let _ = dotenvy::dotenv();
     std::env::var("DB_URL")
@@ -507,6 +515,42 @@ async fn required_columns_compare_to_nullable_rhs_expressions() -> Result<(), db
             (Some(false), Some(true), Some(false), Some(true), Some(true), true, false),
             (Some(true), Some(true), Some(false), Some(false), Some(true), true, false),
             (None, None, None, None, None, true, false),
+        ]
+    );
+
+    let direct_rows: Vec<DirectNullableRhsComparisonResult> = NullableArithmeticRecord::query()
+        .select_only()
+        .column_as(
+            NullableArithmeticRecord::required_value.lt(NullableArithmeticRecord::nullable_left),
+            "less",
+        )
+        .column_as(
+            NullableArithmeticRecord::required_value.le(NullableArithmeticRecord::nullable_left),
+            "less_or_equal",
+        )
+        .column_as(
+            NullableArithmeticRecord::required_value.gt(NullableArithmeticRecord::nullable_left),
+            "greater",
+        )
+        .column_as(
+            NullableArithmeticRecord::required_value.ge(NullableArithmeticRecord::nullable_left),
+            "greater_or_equal",
+        )
+        .order_by(Order::asc(NullableArithmeticRecord::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(
+        direct_rows
+            .into_iter()
+            .map(|row| (row.less, row.less_or_equal, row.greater, row.greater_or_equal))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some(false), Some(false), Some(true), Some(true)),
+            (Some(false), Some(false), Some(true), Some(true)),
+            (Some(false), Some(true), Some(false), Some(true)),
+            (None, None, None, None),
         ]
     );
 
