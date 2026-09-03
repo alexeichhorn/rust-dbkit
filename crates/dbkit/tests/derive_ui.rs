@@ -102,6 +102,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_db_enum_duplicate_wire_name.rs".into(),
         "fail_arithmetic_string_rhs.rs".into(),
         "fail_arithmetic_datetime_integer.rs".into(),
+        "fail_cast_to_float8.rs".into(),
         "fail_bitwise_non_integer.rs".into(),
         "fail_bitwise_shift_count_type.rs".into(),
     ];

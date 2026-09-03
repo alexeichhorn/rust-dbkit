@@ -1237,7 +1237,7 @@ fn compiles_nested_arithmetic_expression_with_stable_parentheses() {
 
 #[test]
 fn compiles_division_expressions_with_stable_parentheses() {
-    let rate: Expr<f64> = 1.0_f64.into_expr() / sales_amount();
+    let rate: Expr<f64> = sales_amount().cast::<f64>() / sales_id();
     let query: Select<Sale> = Select::new(sales_table())
         .select_only()
         .column_as(rate.clone(), "rate")
@@ -1249,9 +1249,36 @@ fn compiles_division_expressions_with_stable_parentheses() {
     let sql = query.compile();
     assert_eq!(
         sql.sql,
-        "SELECT ($1 / sales.amount) AS rate FROM sales WHERE (((sales.amount / sales.id) / $2) > $3) ORDER BY ($1 / sales.amount) DESC LIMIT 10 OFFSET 5"
+        "SELECT (CAST(sales.amount AS DOUBLE PRECISION) / sales.id) AS rate FROM sales WHERE (((sales.amount / sales.id) / $1) > $2) ORDER BY (CAST(sales.amount AS DOUBLE PRECISION) / sales.id) DESC LIMIT 10 OFFSET 5"
     );
-    assert_eq!(sql.binds, vec![Value::F64(1.0), Value::I64(2), Value::I64(3)]);
+    assert_eq!(sql.binds, vec![Value::I64(2), Value::I64(3)]);
+}
+
+#[test]
+fn compiles_float8_casts_for_columns_computed_and_aggregate_expressions() {
+    let nullable_score: Expr<Option<f64>> = user_score().cast();
+    let computed: Expr<Option<f64>> = (user_score() + 5_i64).cast();
+    let aggregate: AggregateExpr<Option<f64>> = func::sum(sales_amount()).cast();
+
+    let users: Select<User> = Select::new(user_table())
+        .select_only()
+        .column_as(nullable_score, "score")
+        .column_as(computed, "adjusted_score");
+    let sales: Select<Sale> = Select::new(sales_table()).select_only().column_as(aggregate, "total");
+
+    let users_sql = users.compile();
+    assert_eq!(
+        users_sql.sql,
+        "SELECT CAST(users.score AS DOUBLE PRECISION) AS score, CAST((users.score + $1) AS DOUBLE PRECISION) AS adjusted_score FROM users"
+    );
+    assert_eq!(users_sql.binds, vec![Value::I64(5)]);
+
+    let sales_sql = sales.compile();
+    assert_eq!(
+        sales_sql.sql,
+        "SELECT CAST(SUM(sales.amount) AS DOUBLE PRECISION) AS total FROM sales"
+    );
+    assert!(sales_sql.binds.is_empty());
 }
 
 #[test]

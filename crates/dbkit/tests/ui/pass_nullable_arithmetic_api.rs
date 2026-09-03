@@ -1,6 +1,6 @@
 //@check-pass
 use chrono::{DateTime, NaiveDateTime, Utc};
-use dbkit::{model, Expr, PgInterval};
+use dbkit::{model, AggregateExpr, Expr, PgInterval};
 
 #[model(table = "nullable_arithmetic_rows")]
 pub struct NullableArithmeticRow {
@@ -54,6 +54,13 @@ macro_rules! assert_division {
         let _: Expr<Option<$output>> = $nullable_lhs / $required_rhs;
         let _: Expr<Option<$output>> = $required_lhs / $nullable_rhs;
         let _: Expr<Option<$output>> = $nullable_lhs / $nullable_rhs;
+    };
+}
+
+macro_rules! assert_float8_cast {
+    ($required:expr, $nullable:expr) => {
+        let _: Expr<f64> = $required.cast();
+        let _: Expr<Option<f64>> = $nullable.cast();
     };
 }
 
@@ -111,6 +118,19 @@ fn main() {
     assert_nullable_f32(1.0_f32 / NullableArithmeticRow::nullable_i32);
     assert_f64(dbkit::func::power(2.0_f64, 3_i32) / NullableArithmeticRow::required_i64);
     assert_nullable_f64(dbkit::func::sum(NullableArithmeticRow::required_i32) / NullableArithmeticRow::required_f64);
+
+    // Numeric columns and expressions cast to float8 while preserving nullability and aggregate kind.
+    assert_float8_cast!(R::required_i16, R::nullable_i16);
+    assert_float8_cast!(R::required_i32, R::nullable_i32);
+    assert_float8_cast!(R::required_i64, R::nullable_i64);
+    assert_float8_cast!(R::required_f32, R::nullable_f32);
+    assert_float8_cast!(R::required_f64, R::nullable_f64);
+    let _: Expr<f64> = (R::required_i32 + R::required_i32).cast();
+    let _: AggregateExpr<Option<f64>> = dbkit::func::sum(R::required_i32).cast();
+
+    // Casting one integer operand enables fractional division without changing integer division semantics.
+    let _: Expr<f64> = R::required_i32.cast::<f64>() / R::required_i64;
+    let _: Expr<Option<f64>> = R::nullable_i32.cast::<f64>() / R::required_i64;
 
     // Literals on the left preserve nullability too, including non-commutative subtraction.
     assert_i32(1 - NullableArithmeticRow::required_i32);

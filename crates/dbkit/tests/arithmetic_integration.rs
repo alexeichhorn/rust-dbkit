@@ -45,6 +45,7 @@ struct NullableArithmeticResult {
     subtracted: Option<i32>,
     multiplied: Option<i32>,
     divided: Option<i32>,
+    floating_divided: Option<f64>,
     literal_minus_nullable: Option<i32>,
     nullable_time_required_interval: Option<NaiveDateTime>,
     required_time_nullable_interval: Option<NaiveDateTime>,
@@ -226,24 +227,24 @@ async fn division_roundtrips_and_sorts_before_pagination() -> Result<(), dbkit::
     let day = NaiveDate::from_ymd_opt(2024, 4, 1).expect("day");
     let occurred_at = NaiveDateTime::new(day, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
     let first = seed_record(&tx, -5, 2, 0, occurred_at).await?;
-    let second = seed_record(&tx, 9, 4, 0, occurred_at).await?;
-    let _third = seed_record(&tx, 11, 5, 0, occurred_at).await?;
+    let _second = seed_record(&tx, 9, 4, 0, occurred_at).await?;
+    let third = seed_record(&tx, 11, 5, 0, occurred_at).await?;
 
-    let floating_quotient: dbkit::Expr<f64> = 1.0_f64 / Record::right_value;
+    let floating_quotient: dbkit::Expr<f64> = Record::left_value.cast::<f64>() / Record::right_value;
     let rows: Vec<DivisionResult> = Record::query()
         .select_only()
         .column(Record::id)
         .column_as(Record::left_value / Record::right_value, "integer_quotient")
         .column_as(floating_quotient.clone(), "floating_quotient")
-        .order_by(Order::desc(floating_quotient))
+        .order_by(Order::asc(floating_quotient))
         .limit(2)
         .into_model()
         .all(&tx)
         .await?;
 
-    assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), vec![first.id, second.id]);
+    assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), vec![first.id, third.id]);
     assert_eq!(rows.iter().map(|row| row.integer_quotient).collect::<Vec<_>>(), vec![-2, 2]);
-    assert_eq!(rows.iter().map(|row| row.floating_quotient).collect::<Vec<_>>(), vec![0.5, 0.25]);
+    assert_eq!(rows.iter().map(|row| row.floating_quotient).collect::<Vec<_>>(), vec![-2.5, 2.2]);
 
     Ok(())
 }
@@ -392,6 +393,10 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
             NullableArithmeticRecord::nullable_left / NullableArithmeticRecord::nullable_right,
             "divided",
         )
+        .column_as(
+            NullableArithmeticRecord::nullable_left.cast::<f64>() / NullableArithmeticRecord::nullable_right,
+            "floating_divided",
+        )
         .column_as(100 - NullableArithmeticRecord::nullable_left, "literal_minus_nullable")
         .column_as(
             NullableArithmeticRecord::nullable_at + NullableArithmeticRecord::required_interval,
@@ -424,6 +429,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[0].subtracted, Some(8));
     assert_eq!(rows[0].multiplied, Some(8));
     assert_eq!(rows[0].divided, Some(2));
+    assert_eq!(rows[0].floating_divided, Some(2.0));
     assert_eq!(rows[0].literal_minus_nullable, Some(96));
     assert_eq!(rows[0].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[0].required_time_nullable_interval, Some(base - Duration::hours(2)));
@@ -435,6 +441,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[1].subtracted, Some(8));
     assert_eq!(rows[1].multiplied, None);
     assert_eq!(rows[1].divided, None);
+    assert_eq!(rows[1].floating_divided, None);
     assert_eq!(rows[1].literal_minus_nullable, None);
     assert_eq!(rows[1].nullable_time_required_interval, None);
     assert_eq!(rows[1].required_time_nullable_interval, Some(base - Duration::hours(2)));
@@ -446,6 +453,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[2].subtracted, None);
     assert_eq!(rows[2].multiplied, None);
     assert_eq!(rows[2].divided, None);
+    assert_eq!(rows[2].floating_divided, None);
     assert_eq!(rows[2].literal_minus_nullable, Some(96));
     assert_eq!(rows[2].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[2].required_time_nullable_interval, None);
@@ -457,6 +465,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[3].subtracted, None);
     assert_eq!(rows[3].multiplied, None);
     assert_eq!(rows[3].divided, None);
+    assert_eq!(rows[3].floating_divided, None);
     assert_eq!(rows[3].literal_minus_nullable, None);
     assert_eq!(rows[3].nullable_time_required_interval, None);
     assert_eq!(rows[3].required_time_nullable_interval, None);
