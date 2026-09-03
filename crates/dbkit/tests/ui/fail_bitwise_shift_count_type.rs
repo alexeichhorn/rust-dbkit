@@ -10,8 +10,8 @@ struct BitRegister {
 
 fn main() {
     // PostgreSQL does not implicitly narrow a BIGINT literal to its INTEGER shift-count type.
-    let _large_literal = BitRegister::value >> 2_i64; //~ E0369
+    let _large_literal = BitRegister::value >> 2_i64; //~ E0277
 
     // The same restriction applies when the BIGINT count comes from a column.
-    let _large_column = BitRegister::value >> BitRegister::large_shift; //~ E0369
+    let _large_column = BitRegister::value >> BitRegister::large_shift; //~ E0277
 }

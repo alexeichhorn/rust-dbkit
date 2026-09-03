@@ -1,7 +1,7 @@
 //@check-pass
 use dbkit::{Column, Expr, Table, Value};
 
-// Into<i64> proves integer convertibility; Into<Value> keeps the real SQL width.
+// Into<i64> proves integer compatibility; Into<Value> keeps the real SQL width.
 #[derive(Debug, Clone, Copy)]
 struct SmallBits(i16);
 
