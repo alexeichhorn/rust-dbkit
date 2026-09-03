@@ -1251,6 +1251,23 @@ fn compiles_arithmetic_expression_in_projection_and_ordering() {
 }
 
 #[test]
+fn compiles_raw_sql_expression_without_rewriting_or_binds() {
+    let score = Expr::<f64>::raw_sql("SQRT(sales.amount::float8)");
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(score.clone(), "score")
+        .filter(score.clone().gt(0.5_f64))
+        .order_by(Order::desc(score));
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT SQRT(sales.amount::float8) AS score FROM sales WHERE (SQRT(sales.amount::float8) > $1) ORDER BY SQRT(sales.amount::float8) DESC"
+    );
+    assert_eq!(sql.binds, vec![Value::F64(0.5)]);
+}
+
+#[test]
 fn compiles_timestamp_plus_custom_offset_function_filter() {
     let cutoff = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("cutoff").naive_utc();
     let expr = (window_anchor_at() + dbkit_core::interval::hours(window_offset_units())).le(cutoff);

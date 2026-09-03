@@ -19,6 +19,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "basic.rs".into(),
         "pass_datetime_utc.rs".into(),
         "pass_arithmetic_api.rs".into(),
+        "pass_raw_sql_expression.rs".into(),
         "pass_nullable_arithmetic_api.rs".into(),
         "pass_bitwise_api.rs".into(),
         "pass_bitwise_custom_integer_types.rs".into(),
@@ -102,6 +103,7 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_db_enum_duplicate_wire_name.rs".into(),
         "fail_arithmetic_string_rhs.rs".into(),
         "fail_arithmetic_datetime_integer.rs".into(),
+        "fail_raw_sql_expression_dynamic_string.rs".into(),
         "fail_bitwise_non_integer.rs".into(),
         "fail_bitwise_shift_count_type.rs".into(),
     ];
