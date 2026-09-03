@@ -20,6 +20,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "pass_datetime_utc.rs".into(),
         "pass_arithmetic_api.rs".into(),
         "pass_nullable_arithmetic_api.rs".into(),
+        "pass_bitwise_api.rs".into(),
+        "pass_bitwise_custom_integer_types.rs".into(),
         "pass_aggregate_interval_arithmetic_api.rs".into(),
         "pass_ordered_comparison_value_api.rs".into(),
         "pass_dynamic_interval_math_api.rs".into(),
@@ -100,6 +102,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_db_enum_duplicate_wire_name.rs".into(),
         "fail_arithmetic_string_rhs.rs".into(),
         "fail_arithmetic_datetime_integer.rs".into(),
+        "fail_bitwise_non_integer.rs".into(),
+        "fail_bitwise_shift_count_type.rs".into(),
     ];
     ui_test::run_tests(config)
 }

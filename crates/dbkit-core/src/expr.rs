@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Mul, Not, Shl, Shr, Sub};
 
 use crate::compile::CompiledSql;
 use crate::schema::{Column, ColumnRef};
@@ -211,6 +211,11 @@ pub enum BinaryOp {
     Add,
     Sub,
     Mul,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
     Eq,
     Ne,
     IsDistinctFrom,
@@ -230,6 +235,7 @@ pub enum BoolOp {
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Not,
+    BitNot,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -388,6 +394,18 @@ pub trait ExprOperand {
 }
 
 #[doc(hidden)]
+pub trait BitwiseOperand {
+    type Value;
+
+    fn into_bitwise_expr(self) -> Expr<Self::Value>;
+}
+
+#[doc(hidden)]
+pub trait SqlInteger: Into<Value> + Into<i64> {}
+
+impl<T> SqlInteger for T where T: Into<Value> + Into<i64> {}
+
+#[doc(hidden)]
 pub struct ValueComparisonMarker;
 
 #[doc(hidden)]
@@ -537,6 +555,16 @@ pub trait SqlMul<Rhs> {
     type Output;
 }
 
+#[doc(hidden)]
+pub trait SqlBitwise<Rhs> {
+    type Output;
+}
+
+#[doc(hidden)]
+pub trait SqlShift<Rhs> {
+    type Output;
+}
+
 pub trait NumericExprType {}
 
 mod row_columns_private {
@@ -566,6 +594,14 @@ impl<T, Kind> ExprOperand for Expr<T, Kind> {
     type Value = T;
 
     fn into_operand_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
+impl<T, Kind> BitwiseOperand for Expr<T, Kind> {
+    type Value = T;
+
+    fn into_bitwise_expr(self) -> Expr<Self::Value> {
         self.into_expr()
     }
 }
@@ -608,6 +644,25 @@ impl<M, T> ExprOperand for Column<M, T> {
 
     fn into_operand_expr(self) -> Expr<Self::Value> {
         self.into_expr()
+    }
+}
+
+impl<M, T> BitwiseOperand for Column<M, T> {
+    type Value = T;
+
+    fn into_bitwise_expr(self) -> Expr<Self::Value> {
+        self.into_expr()
+    }
+}
+
+impl<T> BitwiseOperand for T
+where
+    T: SqlInteger,
+{
+    type Value = T;
+
+    fn into_bitwise_expr(self) -> Expr<Self::Value> {
+        Expr::new(ExprNode::Value(self.into()))
     }
 }
 
@@ -992,7 +1047,7 @@ impl<const N: usize> ExprOperand for PgVector<N> {
     }
 }
 
-macro_rules! impl_nullable_arithmetic_op {
+macro_rules! impl_nullable_binary_output {
     ($trait:ident, $lhs:ty, $rhs:ty, $output:ty) => {
         impl $trait<$rhs> for Option<$lhs> {
             type Output = Option<$output>;
@@ -1023,14 +1078,98 @@ macro_rules! impl_numeric_arithmetic {
                 type Output = $output;
             }
 
-            impl_nullable_arithmetic_op!(SqlAdd, $ty, $ty, $output);
-            impl_nullable_arithmetic_op!(SqlSub, $ty, $ty, $output);
-            impl_nullable_arithmetic_op!(SqlMul, $ty, $ty, $output);
+            impl_nullable_binary_output!(SqlAdd, $ty, $ty, $output);
+            impl_nullable_binary_output!(SqlSub, $ty, $ty, $output);
+            impl_nullable_binary_output!(SqlMul, $ty, $ty, $output);
         )*
     };
 }
 
 impl_numeric_arithmetic!((i16, i32), (i32, i32), (i64, i64), (f32, f32), (f64, f64));
+
+impl<T> SqlBitwise<T> for T
+where
+    T: SqlInteger,
+{
+    type Output = T;
+}
+
+impl<T> SqlBitwise<T> for Option<T>
+where
+    T: SqlInteger,
+{
+    type Output = Option<T>;
+}
+
+impl<T> SqlBitwise<Option<T>> for T
+where
+    T: SqlInteger,
+{
+    type Output = Option<T>;
+}
+
+impl<T> SqlBitwise<Option<T>> for Option<T>
+where
+    T: SqlInteger,
+{
+    type Output = Option<T>;
+}
+
+macro_rules! impl_mixed_bitwise_output {
+    ($(($lhs:ty, $rhs:ty, $output:ty)),* $(,)?) => {
+        $(
+            impl SqlBitwise<$rhs> for $lhs {
+                type Output = $output;
+            }
+
+            impl_nullable_binary_output!(SqlBitwise, $lhs, $rhs, $output);
+        )*
+    };
+}
+
+impl_mixed_bitwise_output!(
+    (i16, i32, i32),
+    (i16, i64, i64),
+    (i32, i16, i32),
+    (i32, i64, i64),
+    (i64, i16, i64),
+    (i64, i32, i64),
+);
+
+macro_rules! impl_shift_output {
+    ($rhs:ty) => {
+        impl<T> SqlShift<$rhs> for T
+        where
+            T: SqlInteger,
+        {
+            type Output = T;
+        }
+
+        impl<T> SqlShift<$rhs> for Option<T>
+        where
+            T: SqlInteger,
+        {
+            type Output = Option<T>;
+        }
+
+        impl<T> SqlShift<Option<$rhs>> for T
+        where
+            T: SqlInteger,
+        {
+            type Output = Option<T>;
+        }
+
+        impl<T> SqlShift<Option<$rhs>> for Option<T>
+        where
+            T: SqlInteger,
+        {
+            type Output = Option<T>;
+        }
+    };
+}
+
+impl_shift_output!(i16);
+impl_shift_output!(i32);
 
 impl SqlAdd<PgInterval> for chrono::NaiveDateTime {
     type Output = chrono::NaiveDateTime;
@@ -1048,10 +1187,10 @@ impl SqlSub<PgInterval> for chrono::DateTime<chrono::Utc> {
     type Output = chrono::DateTime<chrono::Utc>;
 }
 
-impl_nullable_arithmetic_op!(SqlAdd, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
-impl_nullable_arithmetic_op!(SqlSub, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
-impl_nullable_arithmetic_op!(SqlAdd, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
-impl_nullable_arithmetic_op!(SqlSub, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
+impl_nullable_binary_output!(SqlAdd, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
+impl_nullable_binary_output!(SqlSub, chrono::NaiveDateTime, PgInterval, chrono::NaiveDateTime);
+impl_nullable_binary_output!(SqlAdd, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
+impl_nullable_binary_output!(SqlSub, chrono::DateTime<chrono::Utc>, PgInterval, chrono::DateTime<chrono::Utc>);
 
 impl<Rhs, Kind> Add<Expr<Rhs, Kind>> for chrono::NaiveDateTime
 where
@@ -1060,7 +1199,7 @@ where
     type Output = Expr<<chrono::NaiveDateTime as SqlAdd<Rhs>>::Output>;
 
     fn add(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
-        arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
+        binary_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
@@ -1071,7 +1210,7 @@ where
     type Output = Expr<<chrono::NaiveDateTime as SqlSub<Rhs>>::Output>;
 
     fn sub(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
-        arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
+        binary_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
 
@@ -1082,7 +1221,7 @@ where
     type Output = Expr<<chrono::DateTime<chrono::Utc> as SqlAdd<Rhs>>::Output>;
 
     fn add(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
-        arithmetic_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
+        binary_expr(self.into_expr().node, BinaryOp::Add, rhs.node)
     }
 }
 
@@ -1093,11 +1232,11 @@ where
     type Output = Expr<<chrono::DateTime<chrono::Utc> as SqlSub<Rhs>>::Output>;
 
     fn sub(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
-        arithmetic_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
+        binary_expr(self.into_expr().node, BinaryOp::Sub, rhs.node)
     }
 }
 
-fn arithmetic_expr<Out>(left: ExprNode, op: BinaryOp, right: ExprNode) -> Expr<Out> {
+fn binary_expr<Out>(left: ExprNode, op: BinaryOp, right: ExprNode) -> Expr<Out> {
     Expr::new(ExprNode::Binary {
         left: Box::new(left),
         op,
@@ -1113,7 +1252,7 @@ where
     type Output = Expr<<Lhs as SqlAdd<RhsExpr::Value>>::Output>;
 
     fn add(self, rhs: RhsExpr) -> Self::Output {
-        arithmetic_expr(self.node, BinaryOp::Add, rhs.into_operand_expr().node)
+        binary_expr(self.node, BinaryOp::Add, rhs.into_operand_expr().node)
     }
 }
 
@@ -1125,7 +1264,7 @@ where
     type Output = Expr<<Lhs as SqlSub<RhsExpr::Value>>::Output>;
 
     fn sub(self, rhs: RhsExpr) -> Self::Output {
-        arithmetic_expr(self.node, BinaryOp::Sub, rhs.into_operand_expr().node)
+        binary_expr(self.node, BinaryOp::Sub, rhs.into_operand_expr().node)
     }
 }
 
@@ -1137,7 +1276,7 @@ where
     type Output = Expr<<Lhs as SqlMul<RhsExpr::Value>>::Output>;
 
     fn mul(self, rhs: RhsExpr) -> Self::Output {
-        arithmetic_expr(self.node, BinaryOp::Mul, rhs.into_operand_expr().node)
+        binary_expr(self.node, BinaryOp::Mul, rhs.into_operand_expr().node)
     }
 }
 
@@ -1149,7 +1288,7 @@ where
     type Output = Expr<<Lhs as SqlAdd<RhsExpr::Value>>::Output>;
 
     fn add(self, rhs: RhsExpr) -> Self::Output {
-        arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Add, rhs.into_operand_expr().node)
+        binary_expr(ExprNode::Column(self.as_ref()), BinaryOp::Add, rhs.into_operand_expr().node)
     }
 }
 
@@ -1161,7 +1300,7 @@ where
     type Output = Expr<<Lhs as SqlSub<RhsExpr::Value>>::Output>;
 
     fn sub(self, rhs: RhsExpr) -> Self::Output {
-        arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Sub, rhs.into_operand_expr().node)
+        binary_expr(ExprNode::Column(self.as_ref()), BinaryOp::Sub, rhs.into_operand_expr().node)
     }
 }
 
@@ -1173,7 +1312,7 @@ where
     type Output = Expr<<Lhs as SqlMul<RhsExpr::Value>>::Output>;
 
     fn mul(self, rhs: RhsExpr) -> Self::Output {
-        arithmetic_expr(ExprNode::Column(self.as_ref()), BinaryOp::Mul, rhs.into_operand_expr().node)
+        binary_expr(ExprNode::Column(self.as_ref()), BinaryOp::Mul, rhs.into_operand_expr().node)
     }
 }
 
@@ -1187,7 +1326,7 @@ macro_rules! impl_literal_numeric_op {
                 type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
 
                 fn $method(self, rhs: Column<M, Rhs>) -> Self::Output {
-                    arithmetic_expr(self.into_expr().node, $op, ExprNode::Column(rhs.as_ref()))
+                    binary_expr(self.into_expr().node, $op, ExprNode::Column(rhs.as_ref()))
                 }
             }
 
@@ -1198,7 +1337,7 @@ macro_rules! impl_literal_numeric_op {
                 type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
 
                 fn $method(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
-                    arithmetic_expr(self.into_expr().node, $op, rhs.node)
+                    binary_expr(self.into_expr().node, $op, rhs.node)
                 }
             }
         )+
@@ -1208,6 +1347,108 @@ macro_rules! impl_literal_numeric_op {
 impl_literal_numeric_op!(Add, add, SqlAdd, BinaryOp::Add, i16, i32, i64, f32, f64);
 impl_literal_numeric_op!(Sub, sub, SqlSub, BinaryOp::Sub, i16, i32, i64, f32, f64);
 impl_literal_numeric_op!(Mul, mul, SqlMul, BinaryOp::Mul, i16, i32, i64, f32, f64);
+
+macro_rules! impl_typed_binary_operator {
+    ($trait:ident, $method:ident, $sql_trait:ident, $op:expr) => {
+        impl<Lhs, Rhs, Kind> $trait<Rhs> for Expr<Lhs, Kind>
+        where
+            Rhs: BitwiseOperand,
+            Lhs: $sql_trait<Rhs::Value>,
+        {
+            type Output = Expr<<Lhs as $sql_trait<Rhs::Value>>::Output>;
+
+            fn $method(self, rhs: Rhs) -> Self::Output {
+                binary_expr(self.node, $op, rhs.into_bitwise_expr().node)
+            }
+        }
+
+        impl<M, Lhs, Rhs> $trait<Rhs> for Column<M, Lhs>
+        where
+            Rhs: BitwiseOperand,
+            Lhs: $sql_trait<Rhs::Value>,
+        {
+            type Output = Expr<<Lhs as $sql_trait<Rhs::Value>>::Output>;
+
+            fn $method(self, rhs: Rhs) -> Self::Output {
+                binary_expr(ExprNode::Column(self.as_ref()), $op, rhs.into_bitwise_expr().node)
+            }
+        }
+    };
+}
+
+impl_typed_binary_operator!(BitAnd, bitand, SqlBitwise, BinaryOp::BitAnd);
+impl_typed_binary_operator!(BitOr, bitor, SqlBitwise, BinaryOp::BitOr);
+impl_typed_binary_operator!(BitXor, bitxor, SqlBitwise, BinaryOp::BitXor);
+impl_typed_binary_operator!(Shl, shl, SqlShift, BinaryOp::Shl);
+impl_typed_binary_operator!(Shr, shr, SqlShift, BinaryOp::Shr);
+
+macro_rules! impl_literal_bitwise_operator {
+    ($trait:ident, $method:ident, $sql_trait:ident, $op:expr, $($lhs:ty),+ $(,)?) => {
+        $(
+            impl<M, Rhs> $trait<Column<M, Rhs>> for $lhs
+            where
+                $lhs: $sql_trait<Rhs>,
+            {
+                type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
+
+                fn $method(self, rhs: Column<M, Rhs>) -> Self::Output {
+                    binary_expr(self.into_expr().node, $op, ExprNode::Column(rhs.as_ref()))
+                }
+            }
+
+            impl<Rhs, Kind> $trait<Expr<Rhs, Kind>> for $lhs
+            where
+                $lhs: $sql_trait<Rhs>,
+            {
+                type Output = Expr<<$lhs as $sql_trait<Rhs>>::Output>;
+
+                fn $method(self, rhs: Expr<Rhs, Kind>) -> Self::Output {
+                    binary_expr(self.into_expr().node, $op, rhs.node)
+                }
+            }
+        )+
+    };
+}
+
+macro_rules! impl_literal_bitwise_operators {
+    ($($lhs:ty),+ $(,)?) => {
+        impl_literal_bitwise_operator!(BitAnd, bitand, SqlBitwise, BinaryOp::BitAnd, $($lhs),+);
+        impl_literal_bitwise_operator!(BitOr, bitor, SqlBitwise, BinaryOp::BitOr, $($lhs),+);
+        impl_literal_bitwise_operator!(BitXor, bitxor, SqlBitwise, BinaryOp::BitXor, $($lhs),+);
+        impl_literal_bitwise_operator!(Shl, shl, SqlShift, BinaryOp::Shl, $($lhs),+);
+        impl_literal_bitwise_operator!(Shr, shr, SqlShift, BinaryOp::Shr, $($lhs),+);
+    };
+}
+
+impl_literal_bitwise_operators!(i16, i32, i64);
+
+impl<T, Kind> Not for Expr<T, Kind>
+where
+    T: SqlBitwise<T>,
+{
+    type Output = Expr<<T as SqlBitwise<T>>::Output>;
+
+    fn not(self) -> Self::Output {
+        Expr::new(ExprNode::Unary {
+            op: UnaryOp::BitNot,
+            expr: Box::new(self.node),
+        })
+    }
+}
+
+impl<M, T> Not for Column<M, T>
+where
+    T: SqlBitwise<T>,
+{
+    type Output = Expr<<T as SqlBitwise<T>>::Output>;
+
+    fn not(self) -> Self::Output {
+        Expr::new(ExprNode::Unary {
+            op: UnaryOp::BitNot,
+            expr: Box::new(ExprNode::Column(self.as_ref())),
+        })
+    }
+}
 
 impl<T, Kind> Expr<T, Kind>
 where

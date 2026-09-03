@@ -225,6 +225,11 @@ impl ToSql for ExprNode {
                     BinaryOp::Add => " + ",
                     BinaryOp::Sub => " - ",
                     BinaryOp::Mul => " * ",
+                    BinaryOp::BitAnd => " & ",
+                    BinaryOp::BitOr => " | ",
+                    BinaryOp::BitXor => " # ",
+                    BinaryOp::Shl => " << ",
+                    BinaryOp::Shr => " >> ",
                     BinaryOp::Eq => " = ",
                     BinaryOp::Ne => " <> ",
                     BinaryOp::IsDistinctFrom => " IS DISTINCT FROM ",
@@ -247,14 +252,18 @@ impl ToSql for ExprNode {
                 right.to_sql(builder);
                 builder.push_sql(")");
             }
-            ExprNode::Unary { op, expr } => {
-                builder.push_sql(match op {
-                    UnaryOp::Not => "NOT ",
-                });
-                builder.push_sql("(");
-                expr.to_sql(builder);
-                builder.push_sql(")");
-            }
+            ExprNode::Unary { op, expr } => match op {
+                UnaryOp::Not => {
+                    builder.push_sql("NOT (");
+                    expr.to_sql(builder);
+                    builder.push_sql(")");
+                }
+                UnaryOp::BitNot => {
+                    builder.push_sql("(~");
+                    expr.to_sql(builder);
+                    builder.push_sql(")");
+                }
+            },
             ExprNode::In { expr, values } => {
                 if values.is_empty() {
                     builder.push_sql("(FALSE)");
