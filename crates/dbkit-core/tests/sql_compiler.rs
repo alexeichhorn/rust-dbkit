@@ -1236,6 +1236,25 @@ fn compiles_nested_arithmetic_expression_with_stable_parentheses() {
 }
 
 #[test]
+fn compiles_division_expressions_with_stable_parentheses() {
+    let rate: Expr<f64> = 1.0_f64.into_expr() / sales_amount();
+    let query: Select<Sale> = Select::new(sales_table())
+        .select_only()
+        .column_as(rate.clone(), "rate")
+        .filter(((sales_amount() / sales_id()) / 2_i64).gt(3_i64))
+        .order_by(Order::desc(rate))
+        .limit(10)
+        .offset(5);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT ($1 / sales.amount) AS rate FROM sales WHERE (((sales.amount / sales.id) / $2) > $3) ORDER BY ($1 / sales.amount) DESC LIMIT 10 OFFSET 5"
+    );
+    assert_eq!(sql.binds, vec![Value::F64(1.0), Value::I64(2), Value::I64(3)]);
+}
+
+#[test]
 fn compiles_arithmetic_expression_in_projection_and_ordering() {
     let query: Select<Sale> = Select::new(sales_table())
         .select_only()

@@ -9,4 +9,5 @@ pub struct Record {
 
 fn main() {
     let _query = Record::query().filter((Record::label + 1_i64).eq("x")); //~ E0369
+    let _invalid_division = Record::label / 1_i64; //~ E0369
 }

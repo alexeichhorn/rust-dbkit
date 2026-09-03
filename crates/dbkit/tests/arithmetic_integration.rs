@@ -44,12 +44,20 @@ struct NullableArithmeticResult {
     added: Option<i32>,
     subtracted: Option<i32>,
     multiplied: Option<i32>,
+    divided: Option<i32>,
     literal_minus_nullable: Option<i32>,
     nullable_time_required_interval: Option<NaiveDateTime>,
     required_time_nullable_interval: Option<NaiveDateTime>,
     nullable_time_nullable_interval: Option<NaiveDateTime>,
     literal_time_plus_nullable_interval: Option<NaiveDateTime>,
     literal_time_minus_nullable_interval: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct DivisionResult {
+    id: i64,
+    integer_quotient: i32,
+    floating_quotient: f64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -210,6 +218,63 @@ async fn arithmetic_numeric_filters_and_ordering_roundtrip() -> Result<(), dbkit
 }
 
 #[tokio::test]
+async fn division_roundtrips_and_sorts_before_pagination() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let day = NaiveDate::from_ymd_opt(2024, 4, 1).expect("day");
+    let occurred_at = NaiveDateTime::new(day, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
+    let first = seed_record(&tx, -5, 2, 0, occurred_at).await?;
+    let second = seed_record(&tx, 9, 4, 0, occurred_at).await?;
+    let _third = seed_record(&tx, 11, 5, 0, occurred_at).await?;
+
+    let floating_quotient: dbkit::Expr<f64> = 1.0_f64 / Record::right_value;
+    let rows: Vec<DivisionResult> = Record::query()
+        .select_only()
+        .column(Record::id)
+        .column_as(Record::left_value / Record::right_value, "integer_quotient")
+        .column_as(floating_quotient.clone(), "floating_quotient")
+        .order_by(Order::desc(floating_quotient))
+        .limit(2)
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), vec![first.id, second.id]);
+    assert_eq!(rows.iter().map(|row| row.integer_quotient).collect::<Vec<_>>(), vec![-2, 2]);
+    assert_eq!(rows.iter().map(|row| row.floating_quotient).collect::<Vec<_>>(), vec![0.5, 0.25]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn division_by_zero_returns_postgres_error() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let day = NaiveDate::from_ymd_opt(2024, 4, 1).expect("day");
+    let occurred_at = NaiveDateTime::new(day, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
+    seed_record(&tx, 1, 0, 0, occurred_at).await?;
+
+    let error = Record::query()
+        .filter((Record::left_value / Record::right_value).gt(0_i32))
+        .all(&tx)
+        .await
+        .expect_err("division by zero must fail");
+
+    match error {
+        dbkit::Error::Sqlx(dbkit::sqlx::Error::Database(error)) => {
+            assert_eq!(error.code().as_deref(), Some("22012"));
+        }
+        error => panic!("unexpected error: {error}"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn arithmetic_temporal_offset_filter_and_ordering_roundtrip() -> Result<(), dbkit::Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
@@ -323,6 +388,10 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
             NullableArithmeticRecord::nullable_left * NullableArithmeticRecord::nullable_right,
             "multiplied",
         )
+        .column_as(
+            NullableArithmeticRecord::nullable_left / NullableArithmeticRecord::nullable_right,
+            "divided",
+        )
         .column_as(100 - NullableArithmeticRecord::nullable_left, "literal_minus_nullable")
         .column_as(
             NullableArithmeticRecord::nullable_at + NullableArithmeticRecord::required_interval,
@@ -354,6 +423,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[0].added, Some(14));
     assert_eq!(rows[0].subtracted, Some(8));
     assert_eq!(rows[0].multiplied, Some(8));
+    assert_eq!(rows[0].divided, Some(2));
     assert_eq!(rows[0].literal_minus_nullable, Some(96));
     assert_eq!(rows[0].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[0].required_time_nullable_interval, Some(base - Duration::hours(2)));
@@ -364,6 +434,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[1].added, None);
     assert_eq!(rows[1].subtracted, Some(8));
     assert_eq!(rows[1].multiplied, None);
+    assert_eq!(rows[1].divided, None);
     assert_eq!(rows[1].literal_minus_nullable, None);
     assert_eq!(rows[1].nullable_time_required_interval, None);
     assert_eq!(rows[1].required_time_nullable_interval, Some(base - Duration::hours(2)));
@@ -374,6 +445,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[2].added, Some(14));
     assert_eq!(rows[2].subtracted, None);
     assert_eq!(rows[2].multiplied, None);
+    assert_eq!(rows[2].divided, None);
     assert_eq!(rows[2].literal_minus_nullable, Some(96));
     assert_eq!(rows[2].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[2].required_time_nullable_interval, None);
@@ -384,6 +456,7 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[3].added, None);
     assert_eq!(rows[3].subtracted, None);
     assert_eq!(rows[3].multiplied, None);
+    assert_eq!(rows[3].divided, None);
     assert_eq!(rows[3].literal_minus_nullable, None);
     assert_eq!(rows[3].nullable_time_required_interval, None);
     assert_eq!(rows[3].required_time_nullable_interval, None);
