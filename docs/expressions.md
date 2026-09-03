@@ -43,6 +43,56 @@ let rows = Record::query()
 Arithmetic expressions also support `*` and compose with typed SQL helpers like
 `dbkit::func::least`, `dbkit::func::greatest`, and `dbkit::func::power`.
 
+## Bitwise Expressions
+
+PostgreSQL bitwise operators work with `i16`, `i32`, and `i64` columns, values, and expressions:
+
+| Rust | PostgreSQL |
+| --- | --- |
+| `left & right` | `left & right` |
+| `left \| right` | `left \| right` |
+| `left ^ right` | `left # right` |
+| `!value` | `~value` |
+| `value << count` | `value << count` |
+| `value >> count` | `value >> count` |
+
+```rust,ignore
+let rows = Account::query()
+    .filter((Account::access_mask & 0b0010_i64).ne(0_i64))
+    .order_by(dbkit::Order::desc(Account::access_mask >> 1_i32))
+    .all(&db)
+    .await?;
+```
+
+Mixed integer widths produce the wider expression type. Nullable operands produce nullable
+expressions. Shift counts may be `i16` or `i32`; `i64` shift counts are rejected because
+PostgreSQL does not implicitly narrow `BIGINT` to its `INTEGER` shift-count type.
+
+Custom integer-backed types work without a dbkit-specific opt-in trait when they convert into both
+their real bound `dbkit::Value` and `i64`:
+
+```rust,ignore
+#[derive(Debug, Clone, Copy)]
+struct AccessMask(i64);
+
+impl From<AccessMask> for dbkit::Value {
+    fn from(value: AccessMask) -> Self {
+        dbkit::Value::I64(value.0)
+    }
+}
+
+impl From<AccessMask> for i64 {
+    fn from(value: AccessMask) -> Self {
+        value.0
+    }
+}
+
+let can_edit = (Account::access_mask & AccessMask(0b0010)).ne(AccessMask(0));
+```
+
+Use the matching `Value` variant for the PostgreSQL storage width (`I16`, `I32`, or `I64`). The
+conversion contract is structural; dbkit does not cast the underlying database column type.
+
 ## Interval Expressions
 
 ```rust,ignore
