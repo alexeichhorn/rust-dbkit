@@ -1,4 +1,4 @@
-use dbkit_core::{expr::Value, func, Column, Order, Select, Table};
+use dbkit_core::{expr::Value, func, Column, Expr, Order, Select, Table};
 
 #[derive(Debug)]
 struct Account;
@@ -225,4 +225,42 @@ fn exists_subquery_does_not_treat_dollar_digits_inside_quoted_identifier_as_bind
         "SELECT employees.* FROM employees WHERE EXISTS (SELECT \"$1\".id FROM employees \"$1\" WHERE (\"$1\".manager_id = employees.id))"
     );
     assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn exists_subquery_preserves_dollar_digits_inside_raw_sql_string_without_binds() {
+    let subquery: Select<Employee> = Select::new(employees_table())
+        .select_only()
+        .column(Expr::<String>::raw_sql("regexp_replace(employees.name, '(.)', '$1')"));
+
+    let query: Select<Employee> = Select::new(employees_table()).where_exists(subquery);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT employees.* FROM employees WHERE EXISTS (SELECT regexp_replace(employees.name, '(.)', '$1') FROM employees)"
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn exists_subquery_does_not_rebind_dollar_digits_inside_raw_sql_string() {
+    let subquery: Select<Employee> = Select::new(employees_table())
+        .select_only()
+        .column(Expr::<String>::raw_sql("regexp_replace(employees.name, '(.)', '$1')"))
+        .filter(employee_name().eq("active"));
+
+    let query: Select<Employee> = Select::new(employees_table())
+        .filter(employee_name().eq("root"))
+        .where_exists(subquery);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT employees.* FROM employees WHERE (employees.name = $1) AND EXISTS (SELECT regexp_replace(employees.name, '(.)', '$1') FROM employees WHERE (employees.name = $2))"
+    );
+    assert_eq!(
+        sql.binds,
+        vec![Value::String("root".to_string()), Value::String("active".to_string())]
+    );
 }
