@@ -1,6 +1,6 @@
 //@check-pass
 use chrono::{DateTime, NaiveDateTime, Utc};
-use dbkit::{model, AggregateExpr, Expr, PgInterval};
+use dbkit::{model, Expr, PgInterval};
 
 #[model(table = "nullable_arithmetic_rows")]
 pub struct NullableArithmeticRow {
@@ -119,14 +119,14 @@ fn main() {
     assert_f64(dbkit::func::power(2.0_f64, 3_i32) / NullableArithmeticRow::required_i64);
     assert_nullable_f64(dbkit::func::sum(NullableArithmeticRow::required_i32) / NullableArithmeticRow::required_f64);
 
-    // Numeric columns and expressions cast to float8 while preserving nullability and aggregate kind.
+    // Numeric columns and expressions cast to float8 while preserving nullability.
     assert_float8_cast!(R::required_i16, R::nullable_i16);
     assert_float8_cast!(R::required_i32, R::nullable_i32);
     assert_float8_cast!(R::required_i64, R::nullable_i64);
     assert_float8_cast!(R::required_f32, R::nullable_f32);
     assert_float8_cast!(R::required_f64, R::nullable_f64);
     let _: Expr<f64> = (R::required_i32 + R::required_i32).cast();
-    let _: AggregateExpr<Option<f64>> = dbkit::func::sum(R::required_i32).cast();
+    let _: Expr<Option<f64>> = dbkit::func::sum(R::required_i32).cast();
 
     // Casting one integer operand enables fractional division without changing integer division semantics.
     let _: Expr<f64> = R::required_i32.cast::<f64>() / R::required_i64;

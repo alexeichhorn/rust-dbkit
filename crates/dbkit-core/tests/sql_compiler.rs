@@ -1258,7 +1258,7 @@ fn compiles_division_expressions_with_stable_parentheses() {
 fn compiles_float8_casts_for_columns_computed_and_aggregate_expressions() {
     let nullable_score: Expr<Option<f64>> = user_score().cast();
     let computed: Expr<Option<f64>> = (user_score() + 5_i64).cast();
-    let aggregate: AggregateExpr<Option<f64>> = func::sum(sales_amount()).cast();
+    let aggregate: Expr<Option<f64>> = func::sum(sales_amount()).cast();
 
     let users: Select<User> = Select::new(user_table())
         .select_only()
@@ -1279,6 +1279,19 @@ fn compiles_float8_casts_for_columns_computed_and_aggregate_expressions() {
         "SELECT CAST(SUM(sales.amount) AS DOUBLE PRECISION) AS total FROM sales"
     );
     assert!(sales_sql.binds.is_empty());
+}
+
+#[test]
+fn compiles_filtered_aggregate_cast_with_filter_inside_cast() {
+    let aggregate: Expr<Option<f64>> = func::sum(sales_amount()).filter(sales_region().eq("us")).cast();
+    let query: Select<Sale> = Select::new(sales_table()).select_only().column_as(aggregate, "total");
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        "SELECT CAST(SUM(sales.amount) FILTER (WHERE (sales.region = $1)) AS DOUBLE PRECISION) AS total FROM sales"
+    );
+    assert_eq!(sql.binds, vec![Value::String("us".to_string())]);
 }
 
 #[test]
