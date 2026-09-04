@@ -64,9 +64,21 @@ impl SqlBuilder {
         let mut idx = 0;
         let mut segment_start = 0;
         let mut in_quoted_identifier = false;
+        let mut in_string_literal = false;
 
         while idx < bytes.len() {
-            if bytes[idx] == b'"' {
+            if !in_quoted_identifier && bytes[idx] == b'\'' {
+                if in_string_literal && idx + 1 < bytes.len() && bytes[idx + 1] == b'\'' {
+                    idx += 2;
+                    continue;
+                }
+
+                in_string_literal = !in_string_literal;
+                idx += 1;
+                continue;
+            }
+
+            if !in_string_literal && bytes[idx] == b'"' {
                 // Quoted identifiers may legally contain `$1` text. Treat doubled quotes as
                 // escaped identifier content and avoid placeholder scanning until the closing `"`.
                 if in_quoted_identifier && idx + 1 < bytes.len() && bytes[idx + 1] == b'"' {
@@ -79,7 +91,7 @@ impl SqlBuilder {
                 continue;
             }
 
-            if !in_quoted_identifier && bytes[idx] == b'$' {
+            if !in_quoted_identifier && !in_string_literal && bytes[idx] == b'$' {
                 // Scan bytewise and only interpret ASCII placeholder syntax (`$` + digits).
                 // Everything else is copied through verbatim below as UTF-8 string slices.
                 let prev_is_ident = idx > 0 && is_bind_ident_char(bytes[idx - 1]);
