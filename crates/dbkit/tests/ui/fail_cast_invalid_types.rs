@@ -13,8 +13,8 @@ pub struct CastRow {
 }
 
 fn main() {
-    let _timestamp_to_float = CastRow::recorded_at.cast::<f64>(); //~ ERROR: cast
-    let _bool_to_bigint = CastRow::enabled.cast::<i64>(); //~ ERROR: cast
-    let _uuid_to_timestamp = CastRow::external_id.cast::<NaiveDateTime>(); //~ ERROR: cast
-    let _interval_to_integer = CastRow::elapsed.cast::<i32>(); //~ ERROR: cast
+    let _timestamp_to_float = CastRow::recorded_at.cast::<f64>(); //~ ERROR: SqlCast
+    let _bool_to_bigint = CastRow::enabled.cast::<i64>(); //~ ERROR: SqlCast
+    let _uuid_to_timestamp = CastRow::external_id.cast::<NaiveDateTime>(); //~ ERROR: SqlCast
+    let _interval_to_integer = CastRow::elapsed.cast::<i32>(); //~ ERROR: SqlCast
 }

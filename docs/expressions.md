@@ -40,8 +40,18 @@ let rows = Record::query()
     .await?;
 ```
 
-Arithmetic expressions also support `*` and compose with typed SQL helpers like
+Arithmetic expressions also support `*` and `/` and compose with typed SQL helpers like
 `dbkit::func::least`, `dbkit::func::greatest`, and `dbkit::func::power`.
+
+Integer division keeps PostgreSQL's integer semantics. Cast either operand when a fractional result
+is needed:
+
+```rust,ignore
+let rate = Record::bookmark_count.cast::<f64>() / Record::play_count;
+```
+
+`cast::<T>()` compiles to PostgreSQL `CAST(... AS ...)`, preserves nullability, and also works on
+computed and aggregate expressions.
 
 ## Bitwise Expressions
 

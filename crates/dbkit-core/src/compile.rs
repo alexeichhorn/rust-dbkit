@@ -1,4 +1,4 @@
-use crate::expr::{BinaryOp, BoolOp, ExprNode, IntervalField, TrimDirection, UnaryOp, Value, VectorBinaryOp};
+use crate::expr::{BinaryOp, BoolOp, CastType, ExprNode, IntervalField, TrimDirection, UnaryOp, Value, VectorBinaryOp};
 use crate::schema::ColumnRef;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +218,27 @@ impl ToSql for ExprNode {
                 value.to_sql(builder);
                 builder.push_sql(")");
             }
+            ExprNode::Cast { expr, target } => {
+                builder.push_sql("CAST(");
+                expr.to_sql(builder);
+                builder.push_sql(" AS ");
+                builder.push_sql(match target {
+                    CastType::Boolean => "BOOLEAN",
+                    CastType::SmallInt => "SMALLINT",
+                    CastType::Integer => "INTEGER",
+                    CastType::BigInt => "BIGINT",
+                    CastType::Real => "REAL",
+                    CastType::DoublePrecision => "DOUBLE PRECISION",
+                    CastType::Text => "TEXT",
+                    CastType::Uuid => "UUID",
+                    CastType::Timestamp => "TIMESTAMP",
+                    CastType::TimestampTz => "TIMESTAMPTZ",
+                    CastType::Date => "DATE",
+                    CastType::Time => "TIME",
+                    CastType::Interval => "INTERVAL",
+                });
+                builder.push_sql(")");
+            }
             ExprNode::Binary { left, op, right } => {
                 builder.push_sql("(");
                 left.to_sql(builder);
@@ -225,6 +246,7 @@ impl ToSql for ExprNode {
                     BinaryOp::Add => " + ",
                     BinaryOp::Sub => " - ",
                     BinaryOp::Mul => " * ",
+                    BinaryOp::Div => " / ",
                     BinaryOp::BitAnd => " & ",
                     BinaryOp::BitOr => " | ",
                     BinaryOp::BitXor => " # ",
