@@ -3,7 +3,7 @@
 use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
-use dbkit::{model, Database, Executor, Order, PgInterval};
+use dbkit::{model, Database, Executor, Expr, Order, PgInterval};
 
 #[model(table = "records")]
 pub struct Record {
@@ -12,6 +12,7 @@ pub struct Record {
     pub id: i64,
     pub left_value: i32,
     pub right_value: i32,
+    pub real_value: f32,
     pub baseline_value: i32,
     pub occurred_at: NaiveDateTime,
 }
@@ -62,6 +63,13 @@ struct DivisionResult {
 }
 
 #[derive(Debug, sqlx::FromRow)]
+struct MixedRealDivisionResult {
+    integer_by_real: f64,
+    real_by_integer: f64,
+    real_by_real: f32,
+}
+
+#[derive(Debug, sqlx::FromRow)]
 struct NullableRhsComparisonResult {
     less: Option<bool>,
     less_or_equal: Option<bool>,
@@ -93,6 +101,7 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
             id BIGSERIAL PRIMARY KEY,\
             left_value INTEGER NOT NULL,\
             right_value INTEGER NOT NULL,\
+            real_value REAL NOT NULL,\
             baseline_value INTEGER NOT NULL,\
             occurred_at TIMESTAMP NOT NULL\
         )",
@@ -113,6 +122,7 @@ async fn seed_record<E: Executor + Send + Sync>(
     let row = Record::insert(RecordInsert {
         left_value,
         right_value,
+        real_value: 2.0,
         baseline_value,
         occurred_at,
     })
@@ -245,6 +255,37 @@ async fn division_roundtrips_and_sorts_before_pagination() -> Result<(), dbkit::
     assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), vec![first.id, third.id]);
     assert_eq!(rows.iter().map(|row| row.integer_quotient).collect::<Vec<_>>(), vec![-2, 2]);
     assert_eq!(rows.iter().map(|row| row.floating_quotient).collect::<Vec<_>>(), vec![-2.5, 2.2]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mixed_integer_and_real_division_roundtrips_as_double_precision() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let day = NaiveDate::from_ymd_opt(2024, 4, 1).expect("day");
+    let occurred_at = NaiveDateTime::new(day, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
+    let row = seed_record(&tx, 5, 2, 0, occurred_at).await?;
+
+    let integer_by_real: Expr<f64> = Record::left_value / Record::real_value;
+    let real_by_integer: Expr<f64> = Record::real_value / Record::left_value;
+    let real_by_real: Expr<f32> = Record::real_value / Record::real_value;
+    let result: MixedRealDivisionResult = Record::query()
+        .select_only()
+        .column_as(integer_by_real, "integer_by_real")
+        .column_as(real_by_integer, "real_by_integer")
+        .column_as(real_by_real, "real_by_real")
+        .filter(Record::id.eq(row.id))
+        .into_model()
+        .one(&tx)
+        .await?
+        .ok_or(dbkit::Error::NotFound)?;
+
+    assert_eq!(result.integer_by_real, 2.5);
+    assert_eq!(result.real_by_integer, 0.4);
+    assert_eq!(result.real_by_real, 1.0);
 
     Ok(())
 }

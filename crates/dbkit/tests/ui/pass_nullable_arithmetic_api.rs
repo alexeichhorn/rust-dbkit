@@ -89,21 +89,21 @@ fn main() {
     assert_division!(i16, R::required_i16, R::nullable_i16, R::required_i16, R::nullable_i16);
     assert_division!(i32, R::required_i16, R::nullable_i16, R::required_i32, R::nullable_i32);
     assert_division!(i64, R::required_i16, R::nullable_i16, R::required_i64, R::nullable_i64);
-    assert_division!(f32, R::required_i16, R::nullable_i16, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_i16, R::nullable_i16, R::required_f32, R::nullable_f32);
     assert_division!(f64, R::required_i16, R::nullable_i16, R::required_f64, R::nullable_f64);
     assert_division!(i32, R::required_i32, R::nullable_i32, R::required_i16, R::nullable_i16);
     assert_division!(i32, R::required_i32, R::nullable_i32, R::required_i32, R::nullable_i32);
     assert_division!(i64, R::required_i32, R::nullable_i32, R::required_i64, R::nullable_i64);
-    assert_division!(f32, R::required_i32, R::nullable_i32, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_i32, R::nullable_i32, R::required_f32, R::nullable_f32);
     assert_division!(f64, R::required_i32, R::nullable_i32, R::required_f64, R::nullable_f64);
     assert_division!(i64, R::required_i64, R::nullable_i64, R::required_i16, R::nullable_i16);
     assert_division!(i64, R::required_i64, R::nullable_i64, R::required_i32, R::nullable_i32);
     assert_division!(i64, R::required_i64, R::nullable_i64, R::required_i64, R::nullable_i64);
-    assert_division!(f32, R::required_i64, R::nullable_i64, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_i64, R::nullable_i64, R::required_f32, R::nullable_f32);
     assert_division!(f64, R::required_i64, R::nullable_i64, R::required_f64, R::nullable_f64);
-    assert_division!(f32, R::required_f32, R::nullable_f32, R::required_i16, R::nullable_i16);
-    assert_division!(f32, R::required_f32, R::nullable_f32, R::required_i32, R::nullable_i32);
-    assert_division!(f32, R::required_f32, R::nullable_f32, R::required_i64, R::nullable_i64);
+    assert_division!(f64, R::required_f32, R::nullable_f32, R::required_i16, R::nullable_i16);
+    assert_division!(f64, R::required_f32, R::nullable_f32, R::required_i32, R::nullable_i32);
+    assert_division!(f64, R::required_f32, R::nullable_f32, R::required_i64, R::nullable_i64);
     assert_division!(f32, R::required_f32, R::nullable_f32, R::required_f32, R::nullable_f32);
     assert_division!(f64, R::required_f32, R::nullable_f32, R::required_f64, R::nullable_f64);
     assert_division!(f64, R::required_f64, R::nullable_f64, R::required_i16, R::nullable_i16);
@@ -115,7 +115,7 @@ fn main() {
     // Literals work on both sides, and computed expressions remain composable.
     assert_i32(NullableArithmeticRow::required_i32 / 2_i16);
     assert_f64(1.0_f64 / NullableArithmeticRow::required_i64);
-    assert_nullable_f32(1.0_f32 / NullableArithmeticRow::nullable_i32);
+    assert_nullable_f64(1.0_f32 / NullableArithmeticRow::nullable_i32);
     assert_f64(dbkit::func::power(2.0_f64, 3_i32) / NullableArithmeticRow::required_i64);
     assert_nullable_f64(dbkit::func::sum(NullableArithmeticRow::required_i32) / NullableArithmeticRow::required_f64);
 
