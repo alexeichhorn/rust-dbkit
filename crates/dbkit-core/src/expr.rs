@@ -1241,7 +1241,7 @@ macro_rules! impl_cast_method {
     ($($source:ty),+ $(,)?) => {
         $(
             impl<Kind> Expr<$source, Kind> {
-                pub fn cast<Target>(self) -> Expr<Target, Kind>
+                pub fn cast<Target>(self) -> Expr<Target>
                 where
                     $source: SqlCast<Target>,
                     Target: SqlCastTarget,
@@ -1251,7 +1251,7 @@ macro_rules! impl_cast_method {
             }
 
             impl<Kind> Expr<Option<$source>, Kind> {
-                pub fn cast<Target>(self) -> Expr<Option<Target>, Kind>
+                pub fn cast<Target>(self) -> Expr<Option<Target>>
                 where
                     $source: SqlCast<Target>,
                     Target: SqlCastTarget,
