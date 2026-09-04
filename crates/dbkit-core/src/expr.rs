@@ -263,6 +263,7 @@ pub enum TrimDirection {
 
 #[derive(Debug, Clone)]
 pub enum ExprNode {
+    RawSql(&'static str),
     Column(ColumnRef),
     Value(Value),
     Row {
@@ -358,6 +359,15 @@ impl<T, Kind> Expr<T, Kind> {
             node,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<T> Expr<T> {
+    /// Creates a typed expression from a trusted static SQL fragment.
+    ///
+    /// dbkit emits the fragment unchanged and does not validate its result type or quote identifiers.
+    pub fn raw_sql(sql: &'static str) -> Self {
+        Self::new(ExprNode::RawSql(sql))
     }
 }
 

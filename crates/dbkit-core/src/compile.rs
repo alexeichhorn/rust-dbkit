@@ -129,6 +129,7 @@ pub trait ToSql {
 impl ToSql for ExprNode {
     fn to_sql(&self, builder: &mut SqlBuilder) {
         match self {
+            ExprNode::RawSql(sql) => builder.push_sql(sql),
             ExprNode::Column(col) => builder.push_column(*col),
             ExprNode::Value(value) => builder.push_value(value.clone()),
             ExprNode::Row { values } => {
