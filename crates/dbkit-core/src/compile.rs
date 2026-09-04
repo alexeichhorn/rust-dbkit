@@ -63,37 +63,11 @@ impl SqlBuilder {
         let bytes = compiled.sql.as_bytes();
         let mut idx = 0;
         let mut segment_start = 0;
-        let mut in_quoted_identifier = false;
-        let mut in_string_literal = false;
 
         while idx < bytes.len() {
-            if !in_quoted_identifier && bytes[idx] == b'\'' {
-                if in_string_literal && idx + 1 < bytes.len() && bytes[idx + 1] == b'\'' {
-                    idx += 2;
-                    continue;
-                }
-
-                in_string_literal = !in_string_literal;
-                idx += 1;
-                continue;
-            }
-
-            if !in_string_literal && bytes[idx] == b'"' {
-                // Quoted identifiers may legally contain `$1` text. Treat doubled quotes as
-                // escaped identifier content and avoid placeholder scanning until the closing `"`.
-                if in_quoted_identifier && idx + 1 < bytes.len() && bytes[idx + 1] == b'"' {
-                    idx += 2;
-                    continue;
-                }
-
-                in_quoted_identifier = !in_quoted_identifier;
-                idx += 1;
-                continue;
-            }
-
-            if !in_quoted_identifier && !in_string_literal && bytes[idx] == b'$' {
-                // Scan bytewise and only interpret ASCII placeholder syntax (`$` + digits).
-                // Everything else is copied through verbatim below as UTF-8 string slices.
+            if let Some(end) = quoted_or_commented_region_end(bytes, idx) {
+                idx = end;
+            } else if bytes[idx] == b'$' {
                 let prev_is_ident = idx > 0 && is_bind_ident_char(bytes[idx - 1]);
                 let start = idx + 1;
                 let mut end = start;
@@ -106,17 +80,16 @@ impl SqlBuilder {
                     self.push_sql(&compiled.sql[segment_start..idx]);
                     let bind_idx = compiled.sql[start..end].parse::<usize>().expect("valid bind index");
                     let value = compiled.binds[bind_idx - 1].clone();
-                    // Rebind only the placeholder token. Any suffix text such as `::vector`,
-                    // `::interval`, or `::schema.enum_type` remains in `compiled.sql` and is
-                    // copied verbatim by the fallback branch after this placeholder is emitted.
+                    // Cast suffixes remain in the source SQL and are copied on the next pass.
                     self.push_placeholder(value);
                     idx = end;
                     segment_start = end;
                     continue;
                 }
+                idx += 1;
+            } else {
+                idx += 1;
             }
-
-            idx += 1;
         }
 
         self.push_sql(&compiled.sql[segment_start..]);
@@ -132,6 +105,101 @@ impl SqlBuilder {
 
 fn is_bind_ident_char(byte: u8) -> bool {
     !byte.is_ascii() || byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+}
+
+fn quoted_or_commented_region_end(bytes: &[u8], start: usize) -> Option<usize> {
+    match bytes[start] {
+        b'\'' => Some(quoted_region_end(bytes, start, b'\'', is_escape_string_start(bytes, start))),
+        b'"' => Some(quoted_region_end(bytes, start, b'"', false)),
+        b'-' if bytes.get(start + 1) == Some(&b'-') => Some(
+            bytes[start + 2..]
+                .iter()
+                .position(|byte| matches!(byte, b'\r' | b'\n'))
+                .map_or(bytes.len(), |offset| start + offset + 3),
+        ),
+        b'/' if bytes.get(start + 1) == Some(&b'*') => Some(block_comment_end(bytes, start)),
+        b'$' if start == 0 || !is_bind_ident_char(bytes[start - 1]) => {
+            let delimiter_end = dollar_quote_delimiter_end(bytes, start)?;
+            Some(dollar_quoted_region_end(bytes, start, delimiter_end))
+        }
+        _ => None,
+    }
+}
+
+fn quoted_region_end(bytes: &[u8], start: usize, quote: u8, backslash_escapes: bool) -> usize {
+    let mut idx = start + 1;
+    while idx < bytes.len() {
+        if backslash_escapes && bytes[idx] == b'\\' {
+            idx = (idx + 2).min(bytes.len());
+        } else if bytes[idx] == quote {
+            if bytes.get(idx + 1) == Some(&quote) {
+                idx += 2;
+            } else {
+                return idx + 1;
+            }
+        } else {
+            idx += 1;
+        }
+    }
+    bytes.len()
+}
+
+fn is_escape_string_start(bytes: &[u8], quote_idx: usize) -> bool {
+    quote_idx > 0 && matches!(bytes[quote_idx - 1], b'e' | b'E') && (quote_idx == 1 || !is_bind_ident_char(bytes[quote_idx - 2]))
+}
+
+fn dollar_quote_delimiter_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut idx = start + 1;
+    let first = *bytes.get(idx)?;
+    if first == b'$' {
+        return Some(idx + 1);
+    }
+    if !is_dollar_quote_tag_start(first) {
+        return None;
+    }
+
+    idx += 1;
+    while idx < bytes.len() && is_dollar_quote_tag_continue(bytes[idx]) {
+        idx += 1;
+    }
+
+    (idx < bytes.len() && bytes[idx] == b'$').then_some(idx + 1)
+}
+
+fn dollar_quoted_region_end(bytes: &[u8], start: usize, delimiter_end: usize) -> usize {
+    let delimiter = &bytes[start..delimiter_end];
+    bytes[delimiter_end..]
+        .windows(delimiter.len())
+        .position(|candidate| candidate == delimiter)
+        .map_or(bytes.len(), |offset| delimiter_end + offset + delimiter.len())
+}
+
+fn block_comment_end(bytes: &[u8], start: usize) -> usize {
+    let mut idx = start + 2;
+    let mut depth = 1;
+    while idx < bytes.len() {
+        if bytes[idx..].starts_with(b"/*") {
+            depth += 1;
+            idx += 2;
+        } else if bytes[idx..].starts_with(b"*/") {
+            depth -= 1;
+            idx += 2;
+            if depth == 0 {
+                return idx;
+            }
+        } else {
+            idx += 1;
+        }
+    }
+    bytes.len()
+}
+
+fn is_dollar_quote_tag_start(byte: u8) -> bool {
+    !byte.is_ascii() || byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn is_dollar_quote_tag_continue(byte: u8) -> bool {
+    is_dollar_quote_tag_start(byte) || byte.is_ascii_digit()
 }
 
 pub trait ToSql {
