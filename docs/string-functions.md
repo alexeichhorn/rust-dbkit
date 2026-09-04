@@ -4,6 +4,12 @@
 generated model columns, and other expressions, so the same helper can be used in projections,
 filters, and ordering.
 
+String columns and expressions also support `.trim()`, `.lower()`, and `.starts_with(prefix)`
+with the same SQL behavior and nullability as their `dbkit::func` equivalents. These methods
+chain directly; `.trim()` removes spaces, and `.starts_with()` treats `%` and `_` literally.
+The function syntax remains available: `dbkit::func::lower(Article::title)` is equivalent to
+`Article::title.lower()`.
+
 ## Practical queries
 
 This example uses generated model columns directly.
@@ -40,9 +46,9 @@ struct ArticleText {
     character: String,
 }
 
-let normalized_title = func::lower(func::trim(Article::title));
+let normalized_title = Article::title.trim().lower();
 let _matching_articles = Article::query()
-    .filter(normalized_title.clone().eq("rust and postgres"))
+    .filter(normalized_title.clone().starts_with("rust"))
     .order_by(Order::asc(normalized_title));
 
 let heading = func::concat_with_separator!(

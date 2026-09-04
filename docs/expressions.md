@@ -13,9 +13,9 @@ struct Article {
     subtitle: Option<String>,
 }
 
-let normalized_title = dbkit::func::lower(Article::title);
-let normalized_subtitle = dbkit::func::lower(Article::subtitle);
-let subtitle_with_fallback = dbkit::func::coalesce(Article::subtitle, "No subtitle");
+let normalized_title = Article::title.lower();
+let normalized_subtitle = Article::subtitle.lower();
+let subtitle_with_fallback = Article::subtitle.unwrap_or("No subtitle");
 
 let articles = Article::query()
     .filter(normalized_title.eq("rust"))
@@ -23,8 +23,11 @@ let articles = Article::query()
     .order_by(dbkit::Order::asc(subtitle_with_fallback));
 ```
 
-Functions that propagate PostgreSQL NULL keep optional inputs optional. Use `coalesce` with a
-non-null fallback when downstream code needs a guaranteed value.
+Functions that propagate PostgreSQL NULL keep optional inputs optional. Nullable columns and
+expressions support `.unwrap_or(fallback)`, which produces SQL `COALESCE` and returns `Expr<T>`.
+The fallback can be a non-null value, column, or expression of the matching type.
+`.unwrap_or_default()` uses Rust's `T::default()` when `T: Default + IntoExpr<T>`, such as `""`,
+`0`, or `false`. Both methods replace only NULL, preserving existing empty strings and zeroes.
 
 Nullable columns accept direct values and `Option<T>` values. `eq(None)` and `ne(None)` compile to
 `IS NULL` and `IS NOT NULL`. Required columns reject `None` at compile time.
@@ -167,6 +170,9 @@ let summary: SaleSummary = Sale::query()
 Query-level `.filter(...)` limits the input to every aggregate. An aggregate's `.filter(...)`
 limits only that aggregate and generates PostgreSQL `FILTER (WHERE ...)` syntax. When every
 selected expression is an aggregate, PostgreSQL returns one summary row without `GROUP BY`.
+
+Apply an aggregate's `.filter(...)` before wrapping it, for example
+`dbkit::func::sum(Sale::amount).filter(us_sale).unwrap_or_default()`.
 
 ## SQL Functions And Expression-Based Grouping
 
