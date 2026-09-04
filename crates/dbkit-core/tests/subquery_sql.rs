@@ -264,3 +264,50 @@ fn exists_subquery_does_not_rebind_dollar_digits_inside_raw_sql_string() {
         vec![Value::String("root".to_string()), Value::String("active".to_string())]
     );
 }
+
+fn assert_raw_sql_preserved_in_exists(expression: &'static str) {
+    let subquery: Select<Employee> = Select::new(employees_table())
+        .select_only()
+        .column(Expr::<String>::raw_sql(expression));
+
+    let query: Select<Employee> = Select::new(employees_table()).where_exists(subquery);
+
+    let sql = query.compile();
+    assert_eq!(
+        sql.sql,
+        format!("SELECT employees.* FROM employees WHERE EXISTS (SELECT {expression} FROM employees)")
+    );
+    assert!(sql.binds.is_empty());
+}
+
+#[test]
+fn exists_subquery_preserves_untagged_dollar_quoted_raw_sql() {
+    assert_raw_sql_preserved_in_exists("$$literal $1 text$$");
+}
+
+#[test]
+fn exists_subquery_preserves_tagged_dollar_quoted_raw_sql() {
+    for expression in ["$body_2$literal $1 text$body_2$", "$café$literal $1 text$café$"] {
+        assert_raw_sql_preserved_in_exists(expression);
+    }
+}
+
+#[test]
+fn exists_subquery_preserves_escape_string_raw_sql() {
+    assert_raw_sql_preserved_in_exists("E'escaped \\' quote $1'");
+}
+
+#[test]
+fn exists_subquery_preserves_line_comment_raw_sql() {
+    assert_raw_sql_preserved_in_exists("UPPER(employees.name) -- literal $1\r\n");
+}
+
+#[test]
+fn exists_subquery_preserves_block_comment_raw_sql() {
+    for expression in [
+        "UPPER(employees.name) /* literal $1 */",
+        "UPPER(employees.name) /* outer $1 /* inner $2 */ end $3 */",
+    ] {
+        assert_raw_sql_preserved_in_exists(expression);
+    }
+}
