@@ -3,7 +3,7 @@
 use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
-use dbkit::{model, Database, Executor, Order, PgInterval};
+use dbkit::{model, Database, Executor, Expr, Order, PgInterval};
 
 #[model(table = "records")]
 pub struct Record {
@@ -12,6 +12,7 @@ pub struct Record {
     pub id: i64,
     pub left_value: i32,
     pub right_value: i32,
+    pub real_value: f32,
     pub baseline_value: i32,
     pub occurred_at: NaiveDateTime,
 }
@@ -44,12 +45,28 @@ struct NullableArithmeticResult {
     added: Option<i32>,
     subtracted: Option<i32>,
     multiplied: Option<i32>,
+    divided: Option<i32>,
+    floating_divided: Option<f64>,
     literal_minus_nullable: Option<i32>,
     nullable_time_required_interval: Option<NaiveDateTime>,
     required_time_nullable_interval: Option<NaiveDateTime>,
     nullable_time_nullable_interval: Option<NaiveDateTime>,
     literal_time_plus_nullable_interval: Option<NaiveDateTime>,
     literal_time_minus_nullable_interval: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct DivisionResult {
+    id: i64,
+    integer_quotient: i32,
+    floating_quotient: f64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct MixedRealDivisionResult {
+    integer_by_real: f64,
+    real_by_integer: f64,
+    real_by_real: f32,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -84,6 +101,7 @@ async fn setup_schema<E: Executor + Send + Sync>(ex: &E) -> Result<(), dbkit::Er
             id BIGSERIAL PRIMARY KEY,\
             left_value INTEGER NOT NULL,\
             right_value INTEGER NOT NULL,\
+            real_value REAL NOT NULL,\
             baseline_value INTEGER NOT NULL,\
             occurred_at TIMESTAMP NOT NULL\
         )",
@@ -104,6 +122,7 @@ async fn seed_record<E: Executor + Send + Sync>(
     let row = Record::insert(RecordInsert {
         left_value,
         right_value,
+        real_value: 2.0,
         baseline_value,
         occurred_at,
     })
@@ -205,6 +224,94 @@ async fn arithmetic_numeric_filters_and_ordering_roundtrip() -> Result<(), dbkit
 
     let ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
     assert_eq!(ids, vec![row2.id, row1.id]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn division_roundtrips_and_sorts_before_pagination() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let day = NaiveDate::from_ymd_opt(2024, 4, 1).expect("day");
+    let occurred_at = NaiveDateTime::new(day, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
+    let first = seed_record(&tx, -5, 2, 0, occurred_at).await?;
+    let _second = seed_record(&tx, 9, 4, 0, occurred_at).await?;
+    let third = seed_record(&tx, 11, 5, 0, occurred_at).await?;
+
+    let floating_quotient: dbkit::Expr<f64> = Record::left_value.cast::<f64>() / Record::right_value;
+    let rows: Vec<DivisionResult> = Record::query()
+        .select_only()
+        .column(Record::id)
+        .column_as(Record::left_value / Record::right_value, "integer_quotient")
+        .column_as(floating_quotient.clone(), "floating_quotient")
+        .order_by(Order::asc(floating_quotient))
+        .limit(2)
+        .into_model()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), vec![first.id, third.id]);
+    assert_eq!(rows.iter().map(|row| row.integer_quotient).collect::<Vec<_>>(), vec![-2, 2]);
+    assert_eq!(rows.iter().map(|row| row.floating_quotient).collect::<Vec<_>>(), vec![-2.5, 2.2]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mixed_integer_and_real_division_roundtrips_as_double_precision() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let day = NaiveDate::from_ymd_opt(2024, 4, 1).expect("day");
+    let occurred_at = NaiveDateTime::new(day, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
+    let row = seed_record(&tx, 5, 2, 0, occurred_at).await?;
+
+    let integer_by_real: Expr<f64> = Record::left_value / Record::real_value;
+    let real_by_integer: Expr<f64> = Record::real_value / Record::left_value;
+    let real_by_real: Expr<f32> = Record::real_value / Record::real_value;
+    let result: MixedRealDivisionResult = Record::query()
+        .select_only()
+        .column_as(integer_by_real, "integer_by_real")
+        .column_as(real_by_integer, "real_by_integer")
+        .column_as(real_by_real, "real_by_real")
+        .filter(Record::id.eq(row.id))
+        .into_model()
+        .one(&tx)
+        .await?
+        .ok_or(dbkit::Error::NotFound)?;
+
+    assert_eq!(result.integer_by_real, 2.5);
+    assert_eq!(result.real_by_integer, 0.4);
+    assert_eq!(result.real_by_real, 1.0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn division_by_zero_returns_postgres_error() -> Result<(), dbkit::Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+
+    let day = NaiveDate::from_ymd_opt(2024, 4, 1).expect("day");
+    let occurred_at = NaiveDateTime::new(day, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
+    seed_record(&tx, 1, 0, 0, occurred_at).await?;
+
+    let error = Record::query()
+        .filter((Record::left_value / Record::right_value).gt(0_i32))
+        .all(&tx)
+        .await
+        .expect_err("division by zero must fail");
+
+    match error {
+        dbkit::Error::Sqlx(dbkit::sqlx::Error::Database(error)) => {
+            assert_eq!(error.code().as_deref(), Some("22012"));
+        }
+        error => panic!("unexpected error: {error}"),
+    }
 
     Ok(())
 }
@@ -323,6 +430,14 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
             NullableArithmeticRecord::nullable_left * NullableArithmeticRecord::nullable_right,
             "multiplied",
         )
+        .column_as(
+            NullableArithmeticRecord::nullable_left / NullableArithmeticRecord::nullable_right,
+            "divided",
+        )
+        .column_as(
+            NullableArithmeticRecord::nullable_left.cast::<f64>() / NullableArithmeticRecord::nullable_right,
+            "floating_divided",
+        )
         .column_as(100 - NullableArithmeticRecord::nullable_left, "literal_minus_nullable")
         .column_as(
             NullableArithmeticRecord::nullable_at + NullableArithmeticRecord::required_interval,
@@ -354,6 +469,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[0].added, Some(14));
     assert_eq!(rows[0].subtracted, Some(8));
     assert_eq!(rows[0].multiplied, Some(8));
+    assert_eq!(rows[0].divided, Some(2));
+    assert_eq!(rows[0].floating_divided, Some(2.0));
     assert_eq!(rows[0].literal_minus_nullable, Some(96));
     assert_eq!(rows[0].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[0].required_time_nullable_interval, Some(base - Duration::hours(2)));
@@ -364,6 +481,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[1].added, None);
     assert_eq!(rows[1].subtracted, Some(8));
     assert_eq!(rows[1].multiplied, None);
+    assert_eq!(rows[1].divided, None);
+    assert_eq!(rows[1].floating_divided, None);
     assert_eq!(rows[1].literal_minus_nullable, None);
     assert_eq!(rows[1].nullable_time_required_interval, None);
     assert_eq!(rows[1].required_time_nullable_interval, Some(base - Duration::hours(2)));
@@ -374,6 +493,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[2].added, Some(14));
     assert_eq!(rows[2].subtracted, None);
     assert_eq!(rows[2].multiplied, None);
+    assert_eq!(rows[2].divided, None);
+    assert_eq!(rows[2].floating_divided, None);
     assert_eq!(rows[2].literal_minus_nullable, Some(96));
     assert_eq!(rows[2].nullable_time_required_interval, Some(base + Duration::hours(1)));
     assert_eq!(rows[2].required_time_nullable_interval, None);
@@ -384,6 +505,8 @@ async fn nullable_arithmetic_propagates_null_from_either_operand() -> Result<(),
     assert_eq!(rows[3].added, None);
     assert_eq!(rows[3].subtracted, None);
     assert_eq!(rows[3].multiplied, None);
+    assert_eq!(rows[3].divided, None);
+    assert_eq!(rows[3].floating_divided, None);
     assert_eq!(rows[3].literal_minus_nullable, None);
     assert_eq!(rows[3].nullable_time_required_interval, None);
     assert_eq!(rows[3].required_time_nullable_interval, None);

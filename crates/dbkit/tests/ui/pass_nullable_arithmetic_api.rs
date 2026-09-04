@@ -48,6 +48,22 @@ fn assert_bool(_: Expr<bool>) {}
 
 fn assert_nullable_bool(_: Expr<Option<bool>>) {}
 
+macro_rules! assert_division {
+    ($output:ty, $required_lhs:expr, $nullable_lhs:expr, $required_rhs:expr, $nullable_rhs:expr) => {
+        let _: Expr<$output> = $required_lhs / $required_rhs;
+        let _: Expr<Option<$output>> = $nullable_lhs / $required_rhs;
+        let _: Expr<Option<$output>> = $required_lhs / $nullable_rhs;
+        let _: Expr<Option<$output>> = $nullable_lhs / $nullable_rhs;
+    };
+}
+
+macro_rules! assert_float8_cast {
+    ($required:expr, $nullable:expr) => {
+        let _: Expr<f64> = $required.cast();
+        let _: Expr<Option<f64>> = $nullable.cast();
+    };
+}
+
 fn main() {
     // Required arithmetic remains required.
     assert_i32(NullableArithmeticRow::required_i32 + NullableArithmeticRow::required_i32);
@@ -67,6 +83,54 @@ fn main() {
     assert_nullable_i32(NullableArithmeticRow::nullable_i32 * NullableArithmeticRow::required_i32);
     assert_nullable_i32(NullableArithmeticRow::required_i32 * NullableArithmeticRow::nullable_i32);
     assert_nullable_i32(NullableArithmeticRow::nullable_i32 * NullableArithmeticRow::nullable_i32);
+
+    // Division follows PostgreSQL's complete numeric promotion matrix and preserves NULL from either operand.
+    use NullableArithmeticRow as R;
+    assert_division!(i16, R::required_i16, R::nullable_i16, R::required_i16, R::nullable_i16);
+    assert_division!(i32, R::required_i16, R::nullable_i16, R::required_i32, R::nullable_i32);
+    assert_division!(i64, R::required_i16, R::nullable_i16, R::required_i64, R::nullable_i64);
+    assert_division!(f64, R::required_i16, R::nullable_i16, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_i16, R::nullable_i16, R::required_f64, R::nullable_f64);
+    assert_division!(i32, R::required_i32, R::nullable_i32, R::required_i16, R::nullable_i16);
+    assert_division!(i32, R::required_i32, R::nullable_i32, R::required_i32, R::nullable_i32);
+    assert_division!(i64, R::required_i32, R::nullable_i32, R::required_i64, R::nullable_i64);
+    assert_division!(f64, R::required_i32, R::nullable_i32, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_i32, R::nullable_i32, R::required_f64, R::nullable_f64);
+    assert_division!(i64, R::required_i64, R::nullable_i64, R::required_i16, R::nullable_i16);
+    assert_division!(i64, R::required_i64, R::nullable_i64, R::required_i32, R::nullable_i32);
+    assert_division!(i64, R::required_i64, R::nullable_i64, R::required_i64, R::nullable_i64);
+    assert_division!(f64, R::required_i64, R::nullable_i64, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_i64, R::nullable_i64, R::required_f64, R::nullable_f64);
+    assert_division!(f64, R::required_f32, R::nullable_f32, R::required_i16, R::nullable_i16);
+    assert_division!(f64, R::required_f32, R::nullable_f32, R::required_i32, R::nullable_i32);
+    assert_division!(f64, R::required_f32, R::nullable_f32, R::required_i64, R::nullable_i64);
+    assert_division!(f32, R::required_f32, R::nullable_f32, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_f32, R::nullable_f32, R::required_f64, R::nullable_f64);
+    assert_division!(f64, R::required_f64, R::nullable_f64, R::required_i16, R::nullable_i16);
+    assert_division!(f64, R::required_f64, R::nullable_f64, R::required_i32, R::nullable_i32);
+    assert_division!(f64, R::required_f64, R::nullable_f64, R::required_i64, R::nullable_i64);
+    assert_division!(f64, R::required_f64, R::nullable_f64, R::required_f32, R::nullable_f32);
+    assert_division!(f64, R::required_f64, R::nullable_f64, R::required_f64, R::nullable_f64);
+
+    // Literals work on both sides, and computed expressions remain composable.
+    assert_i32(NullableArithmeticRow::required_i32 / 2_i16);
+    assert_f64(1.0_f64 / NullableArithmeticRow::required_i64);
+    assert_nullable_f64(1.0_f32 / NullableArithmeticRow::nullable_i32);
+    assert_f64(dbkit::func::power(2.0_f64, 3_i32) / NullableArithmeticRow::required_i64);
+    assert_nullable_f64(dbkit::func::sum(NullableArithmeticRow::required_i32) / NullableArithmeticRow::required_f64);
+
+    // Numeric columns and expressions cast to float8 while preserving nullability.
+    assert_float8_cast!(R::required_i16, R::nullable_i16);
+    assert_float8_cast!(R::required_i32, R::nullable_i32);
+    assert_float8_cast!(R::required_i64, R::nullable_i64);
+    assert_float8_cast!(R::required_f32, R::nullable_f32);
+    assert_float8_cast!(R::required_f64, R::nullable_f64);
+    let _: Expr<f64> = (R::required_i32 + R::required_i32).cast();
+    let _: Expr<Option<f64>> = dbkit::func::sum(R::required_i32).cast();
+
+    // Casting one integer operand enables fractional division without changing integer division semantics.
+    let _: Expr<f64> = R::required_i32.cast::<f64>() / R::required_i64;
+    let _: Expr<Option<f64>> = R::nullable_i32.cast::<f64>() / R::required_i64;
 
     // Literals on the left preserve nullability too, including non-commutative subtraction.
     assert_i32(1 - NullableArithmeticRow::required_i32);

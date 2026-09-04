@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Mul, Not, Shl, Shr, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub};
 
 use crate::compile::CompiledSql;
 use crate::schema::{Column, ColumnRef};
@@ -211,6 +211,7 @@ pub enum BinaryOp {
     Add,
     Sub,
     Mul,
+    Div,
     BitAnd,
     BitOr,
     BitXor,
@@ -224,6 +225,24 @@ pub enum BinaryOp {
     Le,
     Gt,
     Ge,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[doc(hidden)]
+pub enum CastType {
+    Boolean,
+    SmallInt,
+    Integer,
+    BigInt,
+    Real,
+    DoublePrecision,
+    Text,
+    Uuid,
+    Timestamp,
+    TimestampTz,
+    Date,
+    Time,
+    Interval,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -293,6 +312,10 @@ pub enum ExprNode {
     MakeInterval {
         field: IntervalField,
         value: Box<ExprNode>,
+    },
+    Cast {
+        expr: Box<ExprNode>,
+        target: CastType,
     },
     Binary {
         left: Box<ExprNode>,
@@ -553,6 +576,18 @@ pub trait SqlSub<Rhs> {
 
 pub trait SqlMul<Rhs> {
     type Output;
+}
+
+pub trait SqlDiv<Rhs> {
+    type Output;
+}
+
+#[doc(hidden)]
+pub trait SqlCast<Target> {}
+
+#[doc(hidden)]
+pub trait SqlCastTarget {
+    const CAST_TYPE: CastType;
 }
 
 #[doc(hidden)]
@@ -1087,6 +1122,183 @@ macro_rules! impl_numeric_arithmetic {
 
 impl_numeric_arithmetic!((i16, i32), (i32, i32), (i64, i64), (f32, f32), (f64, f64));
 
+macro_rules! impl_numeric_division {
+    ($($lhs:ty, $rhs:ty => $output:ty);* $(;)?) => {
+        $(
+            impl SqlDiv<$rhs> for $lhs {
+                type Output = $output;
+            }
+
+            impl_nullable_binary_output!(SqlDiv, $lhs, $rhs, $output);
+        )*
+    };
+}
+
+impl_numeric_division! {
+    i16, i16 => i16;
+    i16, i32 => i32;
+    i16, i64 => i64;
+    i16, f32 => f64;
+    i16, f64 => f64;
+    i32, i16 => i32;
+    i32, i32 => i32;
+    i32, i64 => i64;
+    i32, f32 => f64;
+    i32, f64 => f64;
+    i64, i16 => i64;
+    i64, i32 => i64;
+    i64, i64 => i64;
+    i64, f32 => f64;
+    i64, f64 => f64;
+    f32, i16 => f64;
+    f32, i32 => f64;
+    f32, i64 => f64;
+    f32, f32 => f32;
+    f32, f64 => f64;
+    f64, i16 => f64;
+    f64, i32 => f64;
+    f64, i64 => f64;
+    f64, f32 => f64;
+    f64, f64 => f64;
+}
+
+macro_rules! impl_cast_target {
+    ($target:ty, $cast_type:ident) => {
+        impl SqlCastTarget for $target {
+            const CAST_TYPE: CastType = CastType::$cast_type;
+        }
+    };
+}
+
+impl_cast_target!(bool, Boolean);
+impl_cast_target!(i16, SmallInt);
+impl_cast_target!(i32, Integer);
+impl_cast_target!(i64, BigInt);
+impl_cast_target!(f32, Real);
+impl_cast_target!(f64, DoublePrecision);
+impl_cast_target!(String, Text);
+impl_cast_target!(uuid::Uuid, Uuid);
+impl_cast_target!(chrono::NaiveDateTime, Timestamp);
+impl_cast_target!(chrono::DateTime<chrono::Utc>, TimestampTz);
+impl_cast_target!(chrono::NaiveDate, Date);
+impl_cast_target!(chrono::NaiveTime, Time);
+impl_cast_target!(PgInterval, Interval);
+
+macro_rules! impl_sql_casts {
+    ($source:ty => $($target:ty),+ $(,)?) => {
+        $(
+            impl SqlCast<$target> for $source {}
+        )+
+    };
+}
+
+impl_sql_casts!(i16 => i16, i32, i64, f32, f64, String);
+impl_sql_casts!(i32 => bool, i16, i32, i64, f32, f64, String);
+impl_sql_casts!(i64 => i16, i32, i64, f32, f64, String);
+impl_sql_casts!(f32 => i16, i32, i64, f32, f64, String);
+impl_sql_casts!(f64 => i16, i32, i64, f32, f64, String);
+impl_sql_casts!(bool => i32, String);
+impl_sql_casts!(
+    String => bool,
+    i16,
+    i32,
+    i64,
+    f32,
+    f64,
+    String,
+    uuid::Uuid,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::Utc>,
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    PgInterval
+);
+impl_sql_casts!(uuid::Uuid => String);
+impl_sql_casts!(chrono::NaiveDate => String, chrono::NaiveDateTime, chrono::DateTime<chrono::Utc>);
+impl_sql_casts!(chrono::NaiveTime => String, PgInterval);
+impl_sql_casts!(
+    chrono::NaiveDateTime => String,
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::DateTime<chrono::Utc>
+);
+impl_sql_casts!(
+    chrono::DateTime<chrono::Utc> => String,
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime
+);
+impl_sql_casts!(PgInterval => String, chrono::NaiveTime);
+
+fn cast_expr<Output, Kind>(node: ExprNode, target: CastType) -> Expr<Output, Kind> {
+    Expr::new(ExprNode::Cast {
+        expr: Box::new(node),
+        target,
+    })
+}
+
+macro_rules! impl_cast_method {
+    ($($source:ty),+ $(,)?) => {
+        $(
+            impl<Kind> Expr<$source, Kind> {
+                pub fn cast<Target>(self) -> Expr<Target>
+                where
+                    $source: SqlCast<Target>,
+                    Target: SqlCastTarget,
+                {
+                    cast_expr(self.node, Target::CAST_TYPE)
+                }
+            }
+
+            impl<Kind> Expr<Option<$source>, Kind> {
+                pub fn cast<Target>(self) -> Expr<Option<Target>>
+                where
+                    $source: SqlCast<Target>,
+                    Target: SqlCastTarget,
+                {
+                    cast_expr(self.node, Target::CAST_TYPE)
+                }
+            }
+
+            impl<M> Column<M, $source> {
+                pub fn cast<Target>(self) -> Expr<Target>
+                where
+                    $source: SqlCast<Target>,
+                    Target: SqlCastTarget,
+                {
+                    cast_expr(ExprNode::Column(self.as_ref()), Target::CAST_TYPE)
+                }
+            }
+
+            impl<M> Column<M, Option<$source>> {
+                pub fn cast<Target>(self) -> Expr<Option<Target>>
+                where
+                    $source: SqlCast<Target>,
+                    Target: SqlCastTarget,
+                {
+                    cast_expr(ExprNode::Column(self.as_ref()), Target::CAST_TYPE)
+                }
+            }
+        )+
+    };
+}
+
+impl_cast_method!(
+    bool,
+    i16,
+    i32,
+    i64,
+    f32,
+    f64,
+    String,
+    uuid::Uuid,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::Utc>,
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    PgInterval,
+);
+
 impl<T> SqlBitwise<T> for T
 where
     T: SqlInteger,
@@ -1280,6 +1492,18 @@ where
     }
 }
 
+impl<Lhs, RhsExpr, Kind> Div<RhsExpr> for Expr<Lhs, Kind>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlDiv<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlDiv<RhsExpr::Value>>::Output>;
+
+    fn div(self, rhs: RhsExpr) -> Self::Output {
+        binary_expr(self.node, BinaryOp::Div, rhs.into_operand_expr().node)
+    }
+}
+
 impl<M, Lhs, RhsExpr> Add<RhsExpr> for Column<M, Lhs>
 where
     RhsExpr: ExprOperand,
@@ -1316,6 +1540,18 @@ where
     }
 }
 
+impl<M, Lhs, RhsExpr> Div<RhsExpr> for Column<M, Lhs>
+where
+    RhsExpr: ExprOperand,
+    Lhs: SqlDiv<RhsExpr::Value>,
+{
+    type Output = Expr<<Lhs as SqlDiv<RhsExpr::Value>>::Output>;
+
+    fn div(self, rhs: RhsExpr) -> Self::Output {
+        binary_expr(ExprNode::Column(self.as_ref()), BinaryOp::Div, rhs.into_operand_expr().node)
+    }
+}
+
 macro_rules! impl_literal_numeric_op {
     ($trait:ident, $method:ident, $sql_trait:ident, $op:expr, $($lhs:ty),+ $(,)?) => {
         $(
@@ -1347,6 +1583,7 @@ macro_rules! impl_literal_numeric_op {
 impl_literal_numeric_op!(Add, add, SqlAdd, BinaryOp::Add, i16, i32, i64, f32, f64);
 impl_literal_numeric_op!(Sub, sub, SqlSub, BinaryOp::Sub, i16, i32, i64, f32, f64);
 impl_literal_numeric_op!(Mul, mul, SqlMul, BinaryOp::Mul, i16, i32, i64, f32, f64);
+impl_literal_numeric_op!(Div, div, SqlDiv, BinaryOp::Div, i16, i32, i64, f32, f64);
 
 macro_rules! impl_typed_binary_operator {
     ($trait:ident, $method:ident, $sql_trait:ident, $op:expr) => {

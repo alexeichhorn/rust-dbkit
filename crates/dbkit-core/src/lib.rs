@@ -12,7 +12,7 @@ pub mod types;
 pub use compile::CompiledSql;
 pub use expr::{
     row, AggregateExpr, ColumnValue, ComparisonValue, Condition, Expr, ExprNode, IntervalField, IntoExpr, NumericExprType, RowColumns,
-    RowExpr, SqlAdd, SqlMul, SqlSub, Value,
+    RowExpr, SqlAdd, SqlDiv, SqlMul, SqlSub, Value,
 };
 pub use load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 pub use mutation::{Delete, Insert, Update};
