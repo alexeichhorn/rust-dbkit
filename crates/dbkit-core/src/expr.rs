@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub};
 
 use crate::compile::CompiledSql;
+use crate::func::{StringBinaryExpr, StringUnaryExpr};
 use crate::schema::{Column, ColumnRef};
 use crate::types::{PgInterval, PgVector};
 
@@ -394,6 +395,82 @@ impl<T> AggregateExpr<T> {
             aggregate: Box::new(self.node),
             predicate: Box::new(predicate.node),
         })
+    }
+}
+
+impl<T, Kind> Expr<Option<T>, Kind> {
+    /// Replaces NULL with a required fallback using SQL `COALESCE`.
+    pub fn unwrap_or(self, fallback: impl IntoExpr<T>) -> Expr<T> {
+        crate::func::coalesce(self, fallback)
+    }
+
+    /// Replaces NULL with Rust's `T::default()`, evaluated when building the query.
+    pub fn unwrap_or_default(self) -> Expr<T>
+    where
+        T: Default + IntoExpr<T>,
+    {
+        self.unwrap_or(T::default())
+    }
+}
+
+impl<M, T> Column<M, Option<T>> {
+    /// Replaces NULL with a required fallback using SQL `COALESCE`.
+    pub fn unwrap_or(self, fallback: impl IntoExpr<T>) -> Expr<T> {
+        self.into_expr().unwrap_or(fallback)
+    }
+
+    /// Replaces NULL with Rust's `T::default()`, evaluated when building the query.
+    pub fn unwrap_or_default(self) -> Expr<T>
+    where
+        T: Default + IntoExpr<T>,
+    {
+        self.into_expr().unwrap_or_default()
+    }
+}
+
+impl<T, Kind> Expr<T, Kind>
+where
+    T: StringUnaryExpr,
+{
+    /// Removes leading and trailing spaces using SQL `TRIM`, preserving nullability.
+    pub fn trim(self) -> Expr<T::Output> {
+        crate::func::trim(self)
+    }
+
+    /// Converts text to lowercase using SQL `LOWER`, preserving nullability.
+    pub fn lower(self) -> Expr<T::Output> {
+        crate::func::lower(self)
+    }
+
+    /// Tests a literal, case-sensitive prefix. NULL in either operand produces NULL.
+    pub fn starts_with<R>(self, prefix: impl IntoExpr<R>) -> Expr<<T as StringBinaryExpr<R, bool>>::Output>
+    where
+        T: StringBinaryExpr<R, bool>,
+    {
+        crate::func::starts_with(self, prefix)
+    }
+}
+
+impl<M, T> Column<M, T>
+where
+    T: StringUnaryExpr,
+{
+    /// Removes leading and trailing spaces using SQL `TRIM`, preserving nullability.
+    pub fn trim(self) -> Expr<T::Output> {
+        self.into_expr().trim()
+    }
+
+    /// Converts text to lowercase using SQL `LOWER`, preserving nullability.
+    pub fn lower(self) -> Expr<T::Output> {
+        self.into_expr().lower()
+    }
+
+    /// Tests a literal, case-sensitive prefix. NULL in either operand produces NULL.
+    pub fn starts_with<R>(self, prefix: impl IntoExpr<R>) -> Expr<<T as StringBinaryExpr<R, bool>>::Output>
+    where
+        T: StringBinaryExpr<R, bool>,
+    {
+        self.into_expr().starts_with(prefix)
     }
 }
 
