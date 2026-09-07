@@ -266,6 +266,53 @@ async fn correlated_sibling_paths_keep_their_local_comparison_and_outer_identity
 }
 
 #[tokio::test]
+async fn nested_exists_matches_the_nearer_owner_instead_of_the_outer_member() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let members: Vec<Member> = Member::query()
+        .where_exists(
+            Record::query()
+                .join(Record::owner)
+                .filter(Record::id.eq(1_i64))
+                .where_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id))),
+        )
+        .order_by(Order::asc(Member::id))
+        .all(&tx)
+        .await?;
+    // Record 1's owner has assignments, independently of the outer member.
+    // Resolving the innermost ID to the outer member incorrectly excludes member 4.
+    assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn nested_not_exists_keeps_a_missing_nearer_relation_instead_of_using_an_outer_relation() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let records: Vec<Record> = Record::query()
+        .join(Record::owner)
+        .where_exists(
+            Assignment::query()
+                .left_join(Assignment::first)
+                .filter(Assignment::id.eq(4_i64))
+                .where_not_exists(Organization::query().filter(Organization::id.eq_col(Member::organization_id))),
+        )
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // Assignment 4 has no first member, so NOT EXISTS succeeds for every joined
+    // record. Falling back to the record's owner incorrectly leaves only record 7.
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3, 4, 7]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn correlated_exists_matches_the_outer_relation_join() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;

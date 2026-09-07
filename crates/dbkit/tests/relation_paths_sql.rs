@@ -465,6 +465,58 @@ fn correlated_outer_join_alias_stays_distinct_from_an_inner_relation_path() {
 }
 
 #[test]
+fn nested_subquery_uses_the_nearer_relation_instead_of_the_outer_base_table() {
+    for middle in [
+        Record::query().join(Record::owner),
+        Record::query().left_join(Record::owner),
+        Record::query().filter(Record::owner.enabled.eq(true)),
+    ] {
+        let compiled = Member::query()
+            .where_exists(
+                middle
+                    .filter(Record::owner.id.eq(Member::id))
+                    .where_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id))),
+            )
+            .compile();
+        let owner = only_alias(&compiled.sql, "path_members");
+        // The middle query still correlates to the outer member. Its child sees
+        // the middle query's owner as the nearest enclosing member binding.
+        assert!(
+            compiled.sql.contains(&format!("({owner}.id = path_members.id)")),
+            "{}",
+            compiled.sql
+        );
+        assert!(
+            compiled.sql.contains(&format!("(path_assignments.first_id = {owner}.id)")),
+            "{}",
+            compiled.sql
+        );
+    }
+}
+
+#[test]
+fn nested_subquery_uses_the_nearer_relation_instead_of_an_outer_relation() {
+    let compiled = Record::query()
+        .join(Record::owner)
+        .where_exists(
+            Assignment::query()
+                .left_join(Assignment::first)
+                .where_not_exists(Organization::query().filter(Organization::id.eq_col(Member::organization_id))),
+        )
+        .compile();
+    let members = aliases(&compiled.sql, "path_members");
+    assert_eq!(members.len(), 2);
+    assert_ne!(members[0], members[1]);
+    assert!(
+        compiled
+            .sql
+            .contains(&format!("(path_organizations.id = {}.organization_id)", members[1])),
+        "{}",
+        compiled.sql
+    );
+}
+
+#[test]
 fn correlated_nested_exists_uses_the_enclosing_relation_join_alias() {
     let compiled = Record::query()
         .join(Record::owner)
