@@ -112,6 +112,14 @@ impl SqlBuilder {
     }
 
     pub fn push_related_column(&mut self, col: ColumnRef, path: &[crate::Relation]) {
+        if path.is_empty() {
+            let table = self
+                .base_table
+                .filter(|base| base.name == col.table.name && base.schema == col.table.schema)
+                .unwrap_or(col.table);
+            self.sql.push_str(&ColumnRef { table, ..col }.qualified_name());
+            return;
+        }
         let (_, alias) = self
             .relation_aliases
             .iter()

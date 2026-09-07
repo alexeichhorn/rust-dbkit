@@ -260,7 +260,11 @@ pub fn join_on(path: &[Relation]) -> Expr<bool> {
     Expr::new(ExprNode::Binary {
         left: Box::new(column(target, path)),
         op: BinaryOp::Eq,
-        right: Box::new(column(source, previous)),
+        // An empty path still identifies the source row; it is not an unscoped model column.
+        right: Box::new(ExprNode::RelatedColumn {
+            column: source,
+            path: previous.to_vec(),
+        }),
     })
 }
 
