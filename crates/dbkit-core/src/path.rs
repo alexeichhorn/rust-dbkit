@@ -210,24 +210,31 @@ impl<P, T> RelatedColumn<P, T> {
 }
 
 macro_rules! forward_operator {
-    ($($trait:ident::$method:ident),* $(,)?) => {$(
+    ($($trait:ident::$method:ident => [$($scalar:ty),+]),* $(,)?) => {$(
         impl<P, T, R> $trait<R> for RelatedColumn<P, T>
         where Column<P, T>: $trait<R> {
             type Output = <Column<P, T> as $trait<R>>::Output;
             fn $method(self, rhs: R) -> Self::Output { self.0.$method(rhs) }
         }
+        $(
+            impl<P, T> $trait<RelatedColumn<P, T>> for $scalar
+            where $scalar: $trait<Column<P, T>> {
+                type Output = <$scalar as $trait<Column<P, T>>>::Output;
+                fn $method(self, rhs: RelatedColumn<P, T>) -> Self::Output { self.$method(rhs.0) }
+            }
+        )+
     )*};
 }
 forward_operator!(
-    Add::add,
-    Sub::sub,
-    Mul::mul,
-    Div::div,
-    BitAnd::bitand,
-    BitOr::bitor,
-    BitXor::bitxor,
-    Shl::shl,
-    Shr::shr
+    Add::add => [i16, i32, i64, f32, f64],
+    Sub::sub => [i16, i32, i64, f32, f64],
+    Mul::mul => [i16, i32, i64, f32, f64],
+    Div::div => [i16, i32, i64, f32, f64],
+    BitAnd::bitand => [i16, i32, i64],
+    BitOr::bitor => [i16, i32, i64],
+    BitXor::bitxor => [i16, i32, i64],
+    Shl::shl => [i16, i32, i64],
+    Shr::shr => [i16, i32, i64]
 );
 impl<P, T> Not for RelatedColumn<P, T>
 where

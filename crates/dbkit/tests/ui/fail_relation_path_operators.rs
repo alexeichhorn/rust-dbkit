@@ -9,7 +9,7 @@ fn main() {
     let _ = 1_u32 + Record::owner.score; //~ E0277
     let _ = 1_i16 + Record::owner.score; //~ E0277
     let _ = 1_f64 * Record::owner.score; //~ E0277
-    let _ = 1_f64 & Record::owner.score; //~ E0277
+    let _ = 1_f64 & Record::owner.score; //~ E0369
     let _ = true | Record::owner.enabled; //~ E0277
     let _ = 1_i32 ^ Record::owner.note; //~ E0277
 
