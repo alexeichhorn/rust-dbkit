@@ -108,6 +108,10 @@ impl SqlBuilder {
         if let Some((_, qualifier)) = self.outer_scope.bindings.iter().rev().find(|(bound, _)| *bound == table) {
             return qualifier;
         }
+        self.relation_qualifier(table)
+    }
+
+    fn relation_qualifier(&self, table: crate::Table) -> &str {
         let mut matches = self
             .relation_aliases
             .iter()
@@ -140,14 +144,16 @@ impl SqlBuilder {
 
     fn push_subquery(&mut self, subquery: &crate::query::Select<()>) {
         let mut scope = self.outer_scope.clone();
+        let local_start = scope.bindings.len();
         for table in self.base_table.iter().chain(&self.declared_tables) {
             scope.bindings.push((*table, table.qualifier().to_owned()));
             scope.qualifiers.push(table.qualifier().to_owned());
         }
         for (path, alias) in &self.relation_aliases {
             let table = path.last().expect("relation joins have a nonempty path").join_table();
-            if !scope.bindings.iter().any(|(bound, _)| *bound == table) {
-                scope.bindings.push((table, self.column_qualifier(table).to_owned()));
+            // A child sees this query's bindings before those inherited from farther scopes.
+            if !scope.bindings[local_start..].iter().any(|(bound, _)| *bound == table) {
+                scope.bindings.push((table, self.relation_qualifier(table).to_owned()));
             }
             scope.qualifiers.push(alias.clone());
         }
