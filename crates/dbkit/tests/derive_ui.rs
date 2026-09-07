@@ -70,6 +70,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "pass_relation_state_into_generic_names.rs".into(),
         "pass_relation_state_into_shadowed_traits.rs".into(),
         "pass_relation_paths.rs".into(),
+        "pass_relation_path_operators.rs".into(),
+        "fail_relation_path_operators.rs".into(),
         "pass_relation_paths_graphs.rs".into(),
         "pass_relation_paths_field_names.rs".into(),
         "fail_relation_paths_value_types.rs".into(),

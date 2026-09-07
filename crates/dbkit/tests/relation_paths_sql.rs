@@ -56,6 +56,59 @@ fn filter_adds_a_left_join_without_selecting_or_loading_the_relation() {
 }
 
 #[test]
+fn scalar_left_arithmetic_keeps_operand_order_binds_and_nested_relation_paths() {
+    let compiled = Record::query()
+        .select_only()
+        .column(1_i32 + Record::owner.score)
+        .column(100_i32 - Record::owner.score)
+        .column(2_i32 * Record::owner.score)
+        .column(60_f64 / Record::owner.score)
+        .column(10_i64 - Record::owner.organization.id)
+        .filter((100_i32 - Record::owner.score).gt(70_i32))
+        .order_by(Order::asc(100_i32 - Record::owner.score))
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    let organization = only_alias(&compiled.sql, "path_organizations");
+    assert!(compiled.sql.starts_with(&format!(
+        "SELECT ($1 + {owner}.score), ($2 - {owner}.score), ($3 * {owner}.score), ($4 / {owner}.score), ($5 - {organization}.id) FROM "
+    )));
+    assert_eq!(
+        compiled.binds,
+        vec![
+            Value::I32(1),
+            Value::I32(100),
+            Value::I32(2),
+            Value::F64(60.0),
+            Value::I64(10),
+            Value::I32(70)
+        ]
+    );
+    assert!(compiled
+        .sql
+        .ends_with(&format!("WHERE (($2 - {owner}.score) > $6) ORDER BY ($2 - {owner}.score) ASC")));
+}
+
+#[test]
+fn scalar_left_bitwise_and_shift_operators_share_the_relation_join() {
+    let compiled = Record::query()
+        .select_only()
+        .column(7_i32 & Record::owner.score)
+        .column(8_i32 | Record::owner.score)
+        .column(3_i32 ^ Record::owner.score)
+        .column(1_i64 << Record::owner.score)
+        .column(1024_i64 >> Record::owner.score)
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    assert!(compiled.sql.starts_with(&format!(
+        "SELECT ($1 & {owner}.score), ($2 | {owner}.score), ($3 # {owner}.score), ($4 << {owner}.score), ($5 >> {owner}.score) FROM "
+    )));
+    assert_eq!(
+        compiled.binds,
+        vec![Value::I32(7), Value::I32(8), Value::I32(3), Value::I64(1), Value::I64(1024)]
+    );
+}
+
+#[test]
 fn repeated_columns_and_computed_expressions_reuse_the_path() {
     let compiled = Record::query()
         .filter(Record::owner.enabled.eq(true))

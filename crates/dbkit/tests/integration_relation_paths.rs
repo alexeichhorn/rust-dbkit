@@ -66,6 +66,110 @@ async fn setup_correlated(ex: &(impl Executor + Send + Sync)) -> Result<(), Erro
 }
 
 #[tokio::test]
+async fn scalar_left_arithmetic_evaluates_in_order_and_preserves_missing_relations() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let rows: Vec<(i64, Option<i32>, Option<i32>, Option<i32>, Option<f64>, Option<i64>)> = Record::query()
+        .select_only()
+        .column(Record::id)
+        .column(1_i32 + Record::owner.score)
+        .column(100_i32 - Record::owner.score)
+        .column(2_i32 * Record::owner.score)
+        .column(15_f64 / Record::owner.score)
+        .column(10_i64 - Record::owner.organization.id)
+        .order_by(Order::asc(Record::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+    assert_eq!(
+        rows,
+        [
+            (1, Some(31), Some(70), Some(60), Some(0.5), Some(9)),
+            (2, Some(11), Some(90), Some(20), Some(1.5), Some(8)),
+            (3, Some(31), Some(70), Some(60), Some(0.5), Some(9)),
+            (4, Some(21), Some(80), Some(40), Some(0.75), Some(8)),
+            (5, None, None, None, None, None),
+            (6, None, None, None, None, None),
+            (7, Some(6), Some(95), Some(10), Some(3.0), None),
+        ]
+    );
+    let filtered: Vec<Record> = Record::query()
+        .filter((100_i32 - Record::owner.score).gt(70_i32))
+        .order_by(Order::asc(100_i32 - Record::owner.score))
+        .all(&tx)
+        .await?;
+    assert_eq!(filtered.iter().map(|row| row.id).collect::<Vec<_>>(), [4, 2, 7]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn scalar_left_bitwise_and_shift_operators_preserve_values_and_nulls() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let rows: Vec<(i64, Option<i32>, Option<i32>, Option<i32>, Option<i64>, Option<i64>)> = Record::query()
+        .select_only()
+        .column(Record::id)
+        .column(7_i32 & Record::owner.score)
+        .column(8_i32 | Record::owner.score)
+        .column(3_i32 ^ Record::owner.score)
+        .column(1_i64 << Record::owner.score)
+        .column(1024_i64 >> Record::owner.score)
+        .order_by(Order::asc(Record::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+    assert_eq!(
+        rows,
+        [
+            (1, Some(6), Some(30), Some(29), Some(1_073_741_824), Some(0)),
+            (2, Some(2), Some(10), Some(9), Some(1024), Some(1)),
+            (3, Some(6), Some(30), Some(29), Some(1_073_741_824), Some(0)),
+            (4, Some(4), Some(28), Some(23), Some(1_048_576), Some(0)),
+            (5, None, None, None, None, None),
+            (6, None, None, None, None, None),
+            (7, Some(5), Some(13), Some(6), Some(32), Some(32)),
+        ]
+    );
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn scalar_left_operators_preserve_null_fields_on_existing_self_relations() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let rows: Vec<(i64, Option<i64>, Option<i64>)> = Node::query()
+        .select_only()
+        .column(Node::id)
+        .column(1_i64 + Node::parent.parent_id)
+        .column(7_i64 & Node::parent.parent_id)
+        .order_by(Order::asc(Node::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+    // Node 2 has a parent whose parent_id is NULL; nodes 1 and 4 have no parent row.
+    assert_eq!(
+        rows,
+        [
+            (1, None, None),
+            (2, None, None),
+            (3, Some(2), Some(1)),
+            (4, None, None),
+            (5, Some(6), Some(5))
+        ]
+    );
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn correlated_exists_returns_only_members_with_matching_records() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
