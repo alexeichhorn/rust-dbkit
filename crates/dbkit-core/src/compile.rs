@@ -99,7 +99,7 @@ impl SqlBuilder {
         self.sql.push_str(col.name);
     }
 
-    fn column_qualifier(&self, table: crate::Table) -> &str {
+    pub(crate) fn column_qualifier(&self, table: crate::Table) -> &str {
         if Some(table) == self.base_table || self.declared_tables.contains(&table) {
             return table.qualifier();
         }

@@ -198,6 +198,72 @@ fn custom_table_join_keeps_its_columns_when_a_relation_path_uses_the_same_table(
 }
 
 #[test]
+fn filter_relation_join_precedes_a_custom_join_that_uses_its_alias() {
+    let on = Organization::id
+        .eq_col(Member::organization_id)
+        .and(Organization::label.eq("north"));
+    for query in [
+        Record::query()
+            .join_on(Organization::TABLE, on.clone())
+            .filter(Record::owner.enabled.eq(true)),
+        Record::query()
+            .filter(Record::owner.enabled.eq(true))
+            .join_on(Organization::TABLE, on),
+    ] {
+        let compiled = query.compile();
+        let owner = only_alias(&compiled.sql, "path_members");
+        let owner_join = compiled.sql.find(&format!("LEFT JOIN path_members {owner} ON ")).unwrap();
+        let organization_join = compiled.sql.find("JOIN path_organizations ON ").unwrap();
+        // The shorthand in ON is rewritten to the owner alias, which must already be in scope.
+        assert!(owner_join < organization_join, "{}", compiled.sql);
+        assert!(compiled.sql.contains(&format!("(path_organizations.id = {owner}.organization_id)")));
+        assert!(compiled.sql.contains("(path_organizations.label = $1)"));
+        assert_eq!(compiled.binds, vec![Value::String("north".into()), Value::Bool(true)]);
+    }
+}
+
+#[test]
+fn projection_relation_join_precedes_a_custom_left_join_that_uses_its_alias() {
+    let compiled = Record::query()
+        .left_join_on(Organization::TABLE, Organization::id.eq_col(Member::organization_id))
+        .select_only()
+        .column(Record::id)
+        .column(Record::owner.label)
+        .column(Organization::label)
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    let owner_join = compiled.sql.find(&format!("LEFT JOIN path_members {owner} ON ")).unwrap();
+    let organization_join = compiled.sql.find("LEFT JOIN path_organizations ON ").unwrap();
+    assert!(owner_join < organization_join, "{}", compiled.sql);
+    assert!(compiled.sql.contains(&format!("(path_organizations.id = {owner}.organization_id)")));
+    assert!(compiled.binds.is_empty());
+}
+
+#[test]
+fn nested_join_dependencies_move_together_without_reordering_custom_joins() {
+    let compiled = Record::query()
+        .join_on(Node::TABLE, Node::id.eq_col(Record::id))
+        .join_on(Assignment::TABLE, Assignment::first_id.eq_col(Organization::id))
+        .filter(Record::owner.organization.label.eq("north"))
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    let organization = only_alias(&compiled.sql, "path_organizations");
+    let unrelated_join = compiled.sql.find("JOIN path_nodes ON ").unwrap();
+    let owner_join = compiled.sql.find(&format!("LEFT JOIN path_members {owner} ON ")).unwrap();
+    let organization_join = compiled
+        .sql
+        .find(&format!("LEFT JOIN path_organizations {organization} ON "))
+        .unwrap();
+    let dependent_join = compiled.sql.find("JOIN path_assignments ON ").unwrap();
+    assert!(
+        unrelated_join < owner_join && owner_join < organization_join && organization_join < dependent_join,
+        "{}",
+        compiled.sql
+    );
+    assert!(compiled.sql.contains(&format!("(path_assignments.first_id = {organization}.id)")));
+}
+
+#[test]
 fn dynamic_relation_column_keeps_custom_join_predicates_and_binds() {
     let enabled: dbkit::Expr<Option<bool>> = dbkit::Expr::new(dbkit::path::column(Member::enabled.as_ref(), &[Record::owner.descriptor()]));
     // Both public ways of expressing the path must preserve the custom ON clause.

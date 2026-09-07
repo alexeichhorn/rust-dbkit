@@ -270,22 +270,28 @@ pub fn join_on(path: &[Relation]) -> Expr<bool> {
 
 impl ExprNode {
     pub(crate) fn visit_paths(&self, visit: &mut impl FnMut(&[Relation])) {
+        self.visit_columns(&mut |_, path| visit(path));
+    }
+
+    fn visit_columns(&self, visit: &mut impl FnMut(crate::ColumnRef, &[Relation])) {
         match self {
             Self::Column(col) => {
                 if let Some(path) = col.path {
-                    visit(&path.steps());
+                    visit(*col, &path.steps());
+                } else {
+                    visit(*col, &[]);
                 }
             }
-            Self::RelatedColumn { path, .. } => visit(path),
+            Self::RelatedColumn { column, path } => visit(*column, path),
             Self::Row { values } | Self::Func { args: values, .. } => {
                 for value in values {
-                    value.visit_paths(visit);
+                    value.visit_columns(visit);
                 }
             }
             Self::Trim { expr, characters, .. } => {
-                expr.visit_paths(visit);
+                expr.visit_columns(visit);
                 if let Some(chars) = characters {
-                    chars.visit_paths(visit);
+                    chars.visit_columns(visit);
                 }
             }
             Self::AggregateFilter {
@@ -295,8 +301,8 @@ impl ExprNode {
             | Self::VectorBinary { left, right, .. }
             | Self::Binary { left, right, .. }
             | Self::Bool { left, right, .. } => {
-                left.visit_paths(visit);
-                right.visit_paths(visit);
+                left.visit_columns(visit);
+                right.visit_columns(visit);
             }
             Self::Normalize { expr, .. }
             | Self::MakeInterval { value: expr, .. }
@@ -305,7 +311,7 @@ impl ExprNode {
             | Self::In { expr, .. }
             | Self::RowIn { expr, .. }
             | Self::IsNull { expr, .. }
-            | Self::Like { expr, .. } => expr.visit_paths(visit),
+            | Self::Like { expr, .. } => expr.visit_columns(visit),
             // Subqueries discover their own paths when compiled in their enclosing scope.
             Self::Value(_) | Self::Exists { .. } => {}
         }
@@ -319,6 +325,25 @@ enum PlannedJoin {
         alias: String,
         kind: crate::JoinKind,
     },
+}
+
+impl PlannedJoin {
+    fn depends_on(&self, path: &[Relation], alias: &str, builder: &crate::compile::SqlBuilder) -> bool {
+        match self {
+            Self::Related { path: child, .. } => child.starts_with(path),
+            Self::Declared(join) => {
+                let mut depends = false;
+                join.on.node.visit_columns(&mut |column, column_path| {
+                    depends |= if column_path.is_empty() {
+                        builder.column_qualifier(column.table) == alias
+                    } else {
+                        column_path.starts_with(path)
+                    };
+                });
+                depends
+            }
+        }
+    }
 }
 
 pub(crate) struct JoinPlan {
@@ -445,7 +470,19 @@ impl JoinPlan {
 
     pub(crate) fn write(&self, builder: &mut crate::compile::SqlBuilder) {
         use crate::compile::ToSql;
-        for join in &self.joins {
+        let mut joins: Vec<_> = self.joins.iter().collect();
+        // Children are planned after parents. Moving them first lets each parent
+        // follow its earliest dependent without reordering custom joins.
+        for join in self.joins.iter().rev() {
+            if let PlannedJoin::Related { path, alias, .. } = join {
+                let index = joins.iter().position(|other| std::ptr::eq(*other, join)).unwrap();
+                if let Some(before) = joins[..index].iter().position(|other| other.depends_on(path, alias, builder)) {
+                    joins.remove(index);
+                    joins.insert(before, join);
+                }
+            }
+        }
+        for join in joins {
             let (table, alias, kind, on) = match join {
                 PlannedJoin::Declared(join) => (join.table, join.table.alias, join.kind, join.on.clone()),
                 PlannedJoin::Related { path, alias, kind } => {

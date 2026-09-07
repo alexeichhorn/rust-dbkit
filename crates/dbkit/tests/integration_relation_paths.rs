@@ -784,6 +784,64 @@ async fn explicit_inner_joins_and_existing_table_column_filters_still_work() -> 
 }
 
 #[tokio::test]
+async fn custom_join_can_use_a_relation_discovered_in_a_filter_in_either_builder_order() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let on = Organization::id
+        .eq_col(Member::organization_id)
+        .and(Organization::label.eq("north"));
+    for query in [
+        Record::query()
+            .join_on(Organization::TABLE, on.clone())
+            .filter(Record::owner.enabled.eq(true)),
+        Record::query()
+            .filter(Record::owner.enabled.eq(true))
+            .join_on(Organization::TABLE, on),
+    ] {
+        let records: Vec<Record> = query.order_by(Order::asc(Record::id)).all(&tx).await?;
+        // Keep both the custom organization condition and the related owner filter.
+        assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 3]);
+    }
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn custom_left_join_can_use_a_projection_relation_and_preserve_missing_targets() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let rows: Vec<(i64, Option<String>, Option<String>)> = Record::query()
+        .left_join_on(Organization::TABLE, Organization::id.eq_col(Member::organization_id))
+        .select_only()
+        .column(Record::id)
+        .column(Record::owner.label)
+        .column(Organization::label)
+        .order_by(Order::asc(Record::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+    // Missing owners and an owner with a dangling organization must survive both LEFT JOINs.
+    assert_eq!(
+        rows,
+        [
+            (1, Some("Atlas".into()), Some("north".into())),
+            (2, Some("Birch".into()), Some("south".into())),
+            (3, Some("Atlas".into()), Some("north".into())),
+            (4, Some("Cedar".into()), Some("south".into())),
+            (5, None, None),
+            (6, None, None),
+            (7, Some("Delta".into()), None),
+        ]
+    );
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn custom_left_join_with_a_dynamic_relation_column_preserves_matches_and_missing_owners() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
