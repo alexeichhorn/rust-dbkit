@@ -305,6 +305,207 @@ fn subquery_paths_stay_in_the_subquery_and_preserve_correlated_base_columns() {
 }
 
 #[test]
+fn correlated_exists_preserves_outer_columns_with_automatic_and_declared_relation_joins() {
+    for inner in [
+        Record::query(),
+        Record::query().join(Record::owner),
+        Record::query().left_join(Record::owner),
+    ] {
+        let compiled = Member::query()
+            .where_exists(inner.filter(Record::owner.id.eq(Member::id)))
+            .compile();
+        let owner = only_alias(&compiled.sql, "path_members");
+        assert!(
+            compiled.sql.contains(&format!("({owner}.id = path_members.id)")),
+            "{}",
+            compiled.sql
+        );
+        assert!(!compiled.sql.contains(&format!("({owner}.id = {owner}.id)")), "{}", compiled.sql);
+        assert!(compiled.binds.is_empty());
+    }
+}
+
+#[test]
+fn correlated_not_exists_keeps_outer_filters_and_bind_order() {
+    let compiled = Member::query()
+        .filter(Member::label.eq("Atlas"))
+        .where_not_exists(
+            Record::query()
+                .filter(Record::owner.id.eq(Member::id))
+                .filter(Record::owner.score.gt(25_i32)),
+        )
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    assert!(compiled.sql.contains("NOT (EXISTS ("));
+    assert!(
+        compiled.sql.contains(&format!("({owner}.id = path_members.id)")),
+        "{}",
+        compiled.sql
+    );
+    assert!(compiled.sql.contains(&format!("({owner}.score > $2)")), "{}", compiled.sql);
+    assert_eq!(compiled.binds, vec![Value::String("Atlas".into()), Value::I32(25)]);
+}
+
+#[test]
+fn correlated_renamed_computed_and_nullable_columns_keep_the_outer_qualifier() {
+    let compiled = Member::query()
+        .where_exists(
+            Record::query()
+                .filter(Record::owner.code.eq(Member::code))
+                .filter(func::lower(Record::owner.label).eq_col(Member::label))
+                .filter(Member::score.gt(Record::owner.score))
+                .filter(Record::owner.note.is_distinct_from_col(Member::note)),
+        )
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    for expected in [
+        format!("({owner}.external_ref = path_members.external_ref)"),
+        format!("(LOWER({owner}.label) = path_members.label)"),
+        format!("(path_members.score > {owner}.score)"),
+        format!("({owner}.note IS DISTINCT FROM path_members.note)"),
+    ] {
+        assert!(compiled.sql.contains(&expected), "missing {expected}: {}", compiled.sql);
+    }
+}
+
+#[test]
+fn correlated_nested_relation_keeps_the_outer_target_table() {
+    let compiled = Organization::query()
+        .where_exists(Record::query().filter(Record::owner.organization.id.eq(Organization::id)))
+        .compile();
+    only_alias(&compiled.sql, "path_members");
+    let organization = only_alias(&compiled.sql, "path_organizations");
+    assert!(
+        compiled.sql.contains(&format!("({organization}.id = path_organizations.id)")),
+        "{}",
+        compiled.sql
+    );
+}
+
+#[test]
+fn correlated_columns_can_reference_both_enclosing_query_levels() {
+    let compiled = Member::query()
+        .where_exists(
+            Organization::query().where_exists(
+                Record::query()
+                    .filter(Record::owner.id.eq(Member::id))
+                    .filter(Record::owner.organization_id.eq(Organization::id)),
+            ),
+        )
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    assert_eq!(compiled.sql.matches("EXISTS (").count(), 2);
+    assert!(
+        compiled.sql.contains(&format!("({owner}.id = path_members.id)")),
+        "{}",
+        compiled.sql
+    );
+    assert!(
+        compiled.sql.contains(&format!("({owner}.organization_id = path_organizations.id)")),
+        "{}",
+        compiled.sql
+    );
+}
+
+#[test]
+fn correlated_exists_projection_preserves_outer_column_identity() {
+    let compiled = Member::query()
+        .select_only()
+        .column(Member::id)
+        .column_as(func::exists(Record::query().filter(Record::owner.id.eq(Member::id))), "has_records")
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    assert!(compiled.sql.starts_with("SELECT path_members.id, EXISTS ("));
+    assert!(compiled.sql.contains(" AS has_records FROM path_members"));
+    assert!(
+        compiled.sql.contains(&format!("({owner}.id = path_members.id)")),
+        "{}",
+        compiled.sql
+    );
+}
+
+#[test]
+fn correlated_outer_alias_cannot_be_shadowed_by_an_automatic_join_alias() {
+    // Include a name currently used by the automatic allocator. Its spelling is
+    // not a contract; respecting an explicitly named enclosing table is.
+    for outer_alias in ["outer_member", "__dbkit_r0"] {
+        let table = Member::TABLE.with_alias(outer_alias);
+        let outer_id = dbkit::Column::<Member, i64>::new(table, "id");
+        let compiled = dbkit::Select::<Member>::new(table)
+            .where_exists(Record::query().filter(Record::owner.id.eq(outer_id)))
+            .compile();
+        let owner = only_alias(&compiled.sql, "path_members");
+        assert_ne!(owner, outer_alias, "inner alias shadows outer table: {}", compiled.sql);
+        assert!(
+            compiled.sql.contains(&format!("({owner}.id = {outer_alias}.id)")),
+            "{}",
+            compiled.sql
+        );
+    }
+}
+
+#[test]
+fn correlated_reused_exists_expression_is_resolved_in_each_enclosing_scope() {
+    let inner = Record::query().filter(Record::owner.id.eq(Member::id));
+    let standalone = inner.compile();
+    let predicate = func::exists(inner.clone());
+    let correlated = Member::query().filter(predicate.clone()).compile();
+    let local = Organization::query().filter(predicate).compile();
+
+    let owner = only_alias(&correlated.sql, "path_members");
+    assert!(
+        correlated.sql.contains(&format!("({owner}.id = path_members.id)")),
+        "{}",
+        correlated.sql
+    );
+    // No enclosing Member binding exists here, so the legacy local table-column
+    // spelling still refers to this query's joined owner. Compilation must not mutate the reusable expression.
+    let local_owner = only_alias(&local.sql, "path_members");
+    assert!(
+        local.sql.contains(&format!("({local_owner}.id = {local_owner}.id)")),
+        "{}",
+        local.sql
+    );
+    assert_eq!(inner.compile(), standalone);
+}
+
+#[test]
+fn correlated_sibling_paths_keep_local_comparisons_distinct_from_outer_columns() {
+    let compiled = Member::query()
+        .where_exists(
+            Assignment::query()
+                .filter(Assignment::first.id.eq(Member::id))
+                .filter(Assignment::first.score.gt(Assignment::second.score)),
+        )
+        .compile();
+    let members = aliases(&compiled.sql, "path_members");
+    assert_eq!(members.len(), 2);
+    let first = members
+        .iter()
+        .find(|alias| compiled.sql.contains(&format!("({alias}.id = path_assignments.first_id)")))
+        .unwrap();
+    let second = members
+        .iter()
+        .find(|alias| {
+            compiled
+                .sql
+                .contains(&format!("({alias}.external_ref = path_assignments.second_code)"))
+        })
+        .unwrap();
+    assert_ne!(first, second);
+    assert!(
+        compiled.sql.contains(&format!("({first}.id = path_members.id)")),
+        "{}",
+        compiled.sql
+    );
+    assert!(
+        compiled.sql.contains(&format!("({first}.score > {second}.score)")),
+        "{}",
+        compiled.sql
+    );
+}
+
+#[test]
 fn compiling_and_cloning_do_not_accumulate_joins_or_change_aliases() {
     let query = Record::query().filter(Record::owner.enabled.eq(true));
     let first = query.compile();

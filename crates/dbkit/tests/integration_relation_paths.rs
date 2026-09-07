@@ -51,6 +51,220 @@ async fn setup(ex: &(impl Executor + Send + Sync)) -> Result<(), Error> {
     Ok(())
 }
 
+async fn setup_correlated(ex: &(impl Executor + Send + Sync)) -> Result<(), Error> {
+    setup(ex).await?;
+    // The original fixture gives every member a record. Add unmatched outer rows
+    // so accidentally uncorrelated EXISTS queries cannot pass by returning everyone.
+    ex.execute(
+        "INSERT INTO path_members VALUES (5, 1, 'atlas', false, 0, NULL, 'e')",
+        PgArguments::default(),
+    )
+    .await?;
+    ex.execute("INSERT INTO path_organizations VALUES (3, 'unused')", PgArguments::default())
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_exists_returns_only_members_with_matching_records() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    for inner in [
+        Record::query(),
+        Record::query().join(Record::owner),
+        Record::query().left_join(Record::owner),
+    ] {
+        let members: Vec<Member> = Member::query()
+            .where_exists(inner.filter(Record::owner.id.eq(Member::id)))
+            .order_by(Order::asc(Member::id))
+            .all(&tx)
+            .await?;
+        assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    }
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_not_exists_returns_unmatched_members_despite_missing_record_owners() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let members: Vec<Member> = Member::query()
+        .where_not_exists(Record::query().filter(Record::owner.id.eq(Member::id)))
+        .order_by(Order::asc(Member::id))
+        .all(&tx)
+        .await?;
+    // NULL and dangling owner IDs in records 5 and 6 must not match any member.
+    assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [5]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_exists_projection_is_evaluated_for_each_outer_row() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let rows: Vec<(i64, bool)> = Member::query()
+        .select_only()
+        .column(Member::id)
+        .column_as(func::exists(Record::query().filter(Record::owner.id.eq(Member::id))), "has_records")
+        .order_by(Order::asc(Member::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+    assert_eq!(rows, [(1, true), (2, true), (3, true), (4, true), (5, false)]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_renamed_column_and_local_predicate_select_the_matching_member() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let members: Vec<Member> = Member::query()
+        .where_exists(
+            Record::query()
+                .filter(Record::owner.code.eq(Member::code))
+                .filter(Record::owner.score.gt(25_i32)),
+        )
+        .order_by(Order::asc(Member::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [1]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_computed_comparison_uses_the_outer_text_value() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let members: Vec<Member> = Member::query()
+        .where_exists(Record::query().filter(func::lower(Record::owner.label).eq_col(Member::label)))
+        .order_by(Order::asc(Member::id))
+        .all(&tx)
+        .await?;
+    // Member 5's label is the lowercase version of member 1's label. Comparing
+    // the owner's normalized label to its own original label would find nobody.
+    assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [5]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_nullable_comparison_does_not_compare_the_inner_column_to_itself() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let members: Vec<Member> = Member::query()
+        .where_exists(
+            Record::query()
+                .filter(Record::id.eq(1_i64))
+                .filter(Record::owner.note.is_distinct_from_col(Member::note)),
+        )
+        .order_by(Order::asc(Member::id))
+        .all(&tx)
+        .await?;
+    // Record 1's owner has a NULL note; only members 2 and 3 have non-NULL notes.
+    assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [2, 3]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_nested_relation_excludes_an_organization_without_records() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let organizations: Vec<Organization> = Organization::query()
+        .where_exists(Record::query().filter(Record::owner.organization.id.eq(Organization::id)))
+        .order_by(Order::asc(Organization::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(organizations.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_nested_exists_resolves_both_enclosing_models() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let members: Vec<Member> = Member::query()
+        .where_exists(
+            Organization::query().where_exists(
+                Record::query()
+                    .filter(Record::owner.id.eq(Member::id))
+                    .filter(Record::owner.organization_id.eq(Organization::id)),
+            ),
+        )
+        .order_by(Order::asc(Member::id))
+        .all(&tx)
+        .await?;
+    // Member 4 has a record but no organization; member 5 has no record.
+    assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_explicit_outer_alias_is_not_shadowed_by_an_automatic_alias() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    for outer_alias in ["outer_member", "__dbkit_r0"] {
+        let table = Member::TABLE.with_alias(outer_alias);
+        let outer_id = dbkit::Column::<Member, i64>::new(table, "id");
+        let members: Vec<Member> = dbkit::Select::new(table)
+            .where_exists(Record::query().filter(Record::owner.id.eq(outer_id)))
+            .order_by(Order::asc(outer_id))
+            .all(&tx)
+            .await?;
+        assert_eq!(
+            members.iter().map(|row| row.id).collect::<Vec<_>>(),
+            [1, 2, 3, 4],
+            "outer alias: {outer_alias}"
+        );
+    }
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_sibling_paths_keep_their_local_comparison_and_outer_identity() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_correlated(&tx).await?;
+
+    let members: Vec<Member> = Member::query()
+        .where_exists(
+            Assignment::query()
+                .filter(Assignment::first.id.eq(Member::id))
+                .filter(Assignment::first.score.gt(Assignment::second.score)),
+        )
+        .order_by(Order::asc(Member::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(members.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 3]);
+    tx.rollback().await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn filtering_is_independent_of_loading_strategy() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
