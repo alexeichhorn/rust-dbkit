@@ -302,7 +302,7 @@ impl ExprNode {
             | Self::RowIn { expr, .. }
             | Self::IsNull { expr, .. }
             | Self::Like { expr, .. } => expr.visit_paths(visit),
-            // Subqueries have already compiled their own paths in their own scope.
+            // Subqueries discover their own paths when compiled in their enclosing scope.
             Self::Value(_) | Self::Exists { .. } => {}
         }
     }
@@ -323,11 +323,12 @@ pub(crate) struct JoinPlan {
 }
 
 impl JoinPlan {
-    pub(crate) fn new(base: Table, declared: &[crate::Join], extra: &[crate::Join]) -> Self {
+    pub(crate) fn new(base: Table, declared: &[crate::Join], extra: &[crate::Join], outer_qualifiers: &[String]) -> Self {
         let mut plan = Self {
             joins: Vec::new(),
             reserved: std::iter::once(base.qualifier().to_owned())
                 .chain(declared.iter().chain(extra).map(|join| join.table.qualifier().to_owned()))
+                .chain(outer_qualifiers.iter().cloned())
                 .collect(),
         };
         for (joins, explicit) in [(declared, true), (extra, false)] {

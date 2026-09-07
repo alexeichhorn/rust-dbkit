@@ -7,6 +7,13 @@ pub struct CompiledSql {
     pub binds: Vec<Value>,
 }
 
+/// Enclosing table bindings and SQL qualifiers visible to a subquery.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct QueryScope {
+    tables: Vec<crate::Table>,
+    pub(crate) qualifiers: Vec<String>,
+}
+
 #[derive(Debug, Default)]
 pub struct SqlBuilder {
     sql: String,
@@ -14,11 +21,19 @@ pub struct SqlBuilder {
     base_table: Option<crate::Table>,
     relation_aliases: Vec<(Vec<crate::Relation>, String)>,
     declared_tables: Vec<crate::Table>,
+    outer_scope: QueryScope,
 }
 
 impl SqlBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn for_table(table: crate::Table) -> Self {
+        Self {
+            base_table: Some(table),
+            ..Self::default()
+        }
     }
 
     pub fn push_sql(&mut self, fragment: &str) {
@@ -62,11 +77,13 @@ impl SqlBuilder {
         base: crate::Table,
         relation_aliases: Vec<(Vec<crate::Relation>, String)>,
         declared_tables: Vec<crate::Table>,
+        outer_scope: QueryScope,
     ) -> Self {
         Self {
             base_table: Some(base),
             relation_aliases,
             declared_tables,
+            outer_scope,
             ..Self::default()
         }
     }
@@ -76,11 +93,12 @@ impl SqlBuilder {
             self.push_related_column(col, &path.steps());
             return;
         }
-        // Preserve table-qualified queries when exactly one relation supplies that
-        // table. The base table always keeps its own identity, including self joins.
+        // An enclosing table binding takes precedence over the legacy shorthand
+        // for a local relation target. Explicit paths always identify local joins.
         let mut matches = self.relation_aliases.iter().filter(|(path, _)| {
             Some(col.table) != self.base_table
                 && !self.declared_tables.contains(&col.table)
+                && !self.outer_scope.tables.contains(&col.table)
                 && path.last().is_some_and(|rel| rel.join_table() == col.table)
         });
         let alias = matches.next().filter(|_| matches.next().is_none());
@@ -102,6 +120,18 @@ impl SqlBuilder {
         self.sql.push_str(alias);
         self.sql.push('.');
         self.sql.push_str(col.name);
+    }
+
+    fn push_subquery(&mut self, subquery: &crate::query::Select<()>) {
+        let mut scope = self.outer_scope.clone();
+        for table in self.base_table.iter().chain(&self.declared_tables) {
+            scope.tables.push(*table);
+            scope.qualifiers.push(table.qualifier().to_owned());
+        }
+        scope
+            .qualifiers
+            .extend(self.relation_aliases.iter().map(|(_, alias)| alias.clone()));
+        self.push_compiled_sql(&subquery.compile_for_exists(scope));
     }
 
     pub fn push_compiled_sql(&mut self, compiled: &CompiledSql) {
@@ -393,7 +423,7 @@ impl ToSql for ExprNode {
             }
             ExprNode::Exists { subquery } => {
                 builder.push_sql("EXISTS (");
-                builder.push_compiled_sql(subquery);
+                builder.push_subquery(subquery);
                 builder.push_sql(")");
             }
         }

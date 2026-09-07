@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::compile::{CompiledSql, SqlBuilder, ToSql};
+use crate::compile::{CompiledSql, QueryScope, SqlBuilder, ToSql};
 use crate::expr::{into_predicate, BooleanExprType, Expr, ExprNode, IntoExpr};
 use crate::func;
 use crate::load::{ApplyLoad, LoadChain, NoLoad};
@@ -348,27 +348,55 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         self.compile_inner(false, false, false)
     }
 
-    pub(crate) fn compile_for_exists(&self) -> CompiledSql {
-        self.compile_inner(true, true, true)
+    pub(crate) fn into_subquery(self) -> Select<()> {
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
+            loads: NoLoad,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn compile_for_exists(&self, scope: QueryScope) -> CompiledSql {
+        self.compile_inner_with((&[], &[]), true, true, true, scope)
     }
 
     pub fn compile_with_extra(&self, extra_columns: &[SelectItem], extra_joins: &[Join]) -> CompiledSql {
-        self.compile_inner_with(extra_columns, extra_joins, true, true, true)
+        self.compile_inner_with((extra_columns, extra_joins), true, true, true, QueryScope::default())
     }
 
     fn compile_inner(&self, include_order: bool, include_pagination: bool, include_locking: bool) -> CompiledSql {
-        self.compile_inner_with(&[], &[], include_order, include_pagination, include_locking)
+        self.compile_inner_with(
+            (&[], &[]),
+            include_order,
+            include_pagination,
+            include_locking,
+            QueryScope::default(),
+        )
     }
 
     fn compile_inner_with(
         &self,
-        extra_columns: &[SelectItem],
-        extra_joins: &[Join],
+        extra: (&[SelectItem], &[Join]),
         include_order: bool,
         include_pagination: bool,
         include_locking: bool,
+        scope: QueryScope,
     ) -> CompiledSql {
-        let mut plan = crate::path::JoinPlan::new(self.table, &self.joins, extra_joins);
+        let (extra_columns, extra_joins) = extra;
+        let mut plan = crate::path::JoinPlan::new(self.table, &self.joins, extra_joins, &scope.qualifiers);
         for item in self.columns.iter().flatten().chain(extra_columns) {
             plan.discover(&item.expr);
         }
@@ -385,7 +413,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
                 }
             }
         }
-        let mut builder = SqlBuilder::for_query(self.table, plan.aliases(), plan.declared_tables());
+        let mut builder = SqlBuilder::for_query(self.table, plan.aliases(), plan.declared_tables(), scope);
         builder.push_sql("SELECT ");
         if self.distinct {
             builder.push_sql("DISTINCT ");

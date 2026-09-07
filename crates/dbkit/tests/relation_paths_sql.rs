@@ -506,6 +506,22 @@ fn correlated_sibling_paths_keep_local_comparisons_distinct_from_outer_columns()
 }
 
 #[test]
+fn correlated_subqueries_in_mutations_keep_the_outer_target_column() {
+    let predicate = func::exists(Record::query().filter(Record::owner.id.eq(Member::id)));
+    for compiled in [
+        Member::update().set(Member::enabled, false).filter(predicate.clone()).compile(),
+        Member::delete().filter(predicate).compile(),
+    ] {
+        let owner = only_alias(&compiled.sql, "path_members");
+        assert!(
+            compiled.sql.contains(&format!("({owner}.id = path_members.id)")),
+            "{}",
+            compiled.sql
+        );
+    }
+}
+
+#[test]
 fn compiling_and_cloning_do_not_accumulate_joins_or_change_aliases() {
     let query = Record::query().filter(Record::owner.enabled.eq(true));
     let first = query.compile();

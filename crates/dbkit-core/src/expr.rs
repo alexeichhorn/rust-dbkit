@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub};
 
-use crate::compile::CompiledSql;
 use crate::func::{StringBinaryExpr, StringUnaryExpr};
 use crate::schema::{Column, ColumnRef};
 use crate::types::{PgInterval, PgVector};
@@ -354,7 +353,7 @@ pub enum ExprNode {
         case_insensitive: bool,
     },
     Exists {
-        subquery: CompiledSql,
+        subquery: Box<crate::query::Select<()>>,
     },
 }
 

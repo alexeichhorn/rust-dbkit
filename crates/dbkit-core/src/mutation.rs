@@ -394,7 +394,7 @@ impl<Out> Update<Out> {
     }
 
     pub fn compile(&self) -> CompiledSql {
-        let mut builder = SqlBuilder::new();
+        let mut builder = SqlBuilder::for_table(self.table);
         builder.push_sql("UPDATE ");
         builder.push_sql(&self.table.qualified_name());
         builder.push_sql(" SET ");
@@ -485,7 +485,7 @@ impl Delete {
     }
 
     pub fn compile(&self) -> CompiledSql {
-        let mut builder = SqlBuilder::new();
+        let mut builder = SqlBuilder::for_table(self.table);
         builder.push_sql("DELETE FROM ");
         builder.push_sql(&self.table.qualified_name());
         if !self.filters.is_empty() {
