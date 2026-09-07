@@ -614,6 +614,30 @@ async fn self_relations_support_finite_depth_missing_parents_and_cycles() -> Res
 }
 
 #[tokio::test]
+async fn aliased_self_relation_filters_by_each_base_rows_parent() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let table = Node::TABLE.with_alias("n");
+    let base_id = dbkit::Column::<Node, i64>::new(table, "id");
+    let mut results = Vec::new();
+    for label in ["branch", "cycle"] {
+        let rows: Vec<Node> = dbkit::Select::new(table)
+            .filter(Node::parent.label.eq(label))
+            .order_by(Order::asc(base_id))
+            .all(&tx)
+            .await?;
+        results.push((label, rows.iter().map(|row| row.id).collect::<Vec<_>>()));
+    }
+
+    // A parent-to-itself join loses the leaf and makes the cycle match every base row.
+    assert_eq!(results, [("branch", vec![3]), ("cycle", vec![5])]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn explicit_inner_joins_and_existing_table_column_filters_still_work() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;

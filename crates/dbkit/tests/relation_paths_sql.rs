@@ -299,6 +299,24 @@ fn self_paths_keep_the_base_parent_and_grandparent_distinct() {
 }
 
 #[test]
+fn aliased_self_relation_join_keeps_the_source_key_on_the_base_row() {
+    let compiled = dbkit::Select::<Node>::new(Node::TABLE.with_alias("n"))
+        .filter(Node::parent.label.eq("branch"))
+        .compile();
+    let parent = only_alias(&compiled.sql, "path_nodes");
+
+    assert_ne!(parent, "n");
+    // The new relation rewrite must not turn the source key into the parent's own key.
+    assert!(
+        compiled.sql.contains(&format!("({parent}.id = n.parent_id)")),
+        "self-relation must join to the aliased base row: {}",
+        compiled.sql
+    );
+    assert!(!compiled.sql.contains(&format!("({parent}.id = {parent}.parent_id)")));
+    assert_eq!(compiled.binds, vec![Value::String("branch".into())]);
+}
+
+#[test]
 fn subquery_paths_stay_in_the_subquery_and_preserve_correlated_base_columns() {
     let compiled = Organization::query()
         .filter(Organization::label.eq("north"))
