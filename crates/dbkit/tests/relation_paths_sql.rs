@@ -198,6 +198,54 @@ fn custom_table_join_keeps_its_columns_when_a_relation_path_uses_the_same_table(
 }
 
 #[test]
+fn dynamic_relation_column_keeps_custom_join_predicates_and_binds() {
+    let enabled: dbkit::Expr<Option<bool>> = dbkit::Expr::new(dbkit::path::column(Member::enabled.as_ref(), &[Record::owner.descriptor()]));
+    // Both public ways of expressing the path must preserve the custom ON clause.
+    for (actual, expected) in [
+        (
+            Record::query().join_on(Member::TABLE, enabled.clone().eq(true)).compile(),
+            Record::query().join_on(Member::TABLE, Record::owner.enabled.eq(true)).compile(),
+        ),
+        (
+            Record::query().left_join_on(Member::TABLE, enabled.eq(true)).compile(),
+            Record::query()
+                .left_join_on(Member::TABLE, Record::owner.enabled.eq(true))
+                .compile(),
+        ),
+    ] {
+        assert_eq!(actual.binds, vec![Value::Bool(true)], "{}", actual.sql);
+        assert_eq!(actual, expected);
+        assert_eq!(actual.sql.matches("JOIN path_members ").count(), 2);
+    }
+}
+
+#[test]
+fn dynamic_relation_key_compared_to_a_literal_is_a_custom_join() {
+    let owner_id: dbkit::Expr<Option<i64>> = dbkit::Expr::new(dbkit::path::column(Member::id.as_ref(), &[Record::owner.descriptor()]));
+    let compiled = Record::query().join_on(Member::TABLE, owner_id.eq(1_i64)).compile();
+    // Even the relation's target key is not a foreign-key join when the RHS is a value.
+    assert_eq!(compiled.binds, vec![Value::I64(1)], "{}", compiled.sql);
+    assert_eq!(
+        compiled,
+        Record::query().join_on(Member::TABLE, Record::owner.id.eq(1_i64)).compile()
+    );
+    assert_eq!(compiled.sql.matches("JOIN path_members ").count(), 2);
+}
+
+#[test]
+fn dynamic_relation_key_compared_to_another_source_column_keeps_that_column() {
+    let owner_id: dbkit::Expr<Option<i64>> = dbkit::Expr::new(dbkit::path::column(Member::id.as_ref(), &[Record::owner.descriptor()]));
+    let compiled = Record::query().join_on(Member::TABLE, owner_id.eq_col(Record::id)).compile();
+    // The caller chose the record's ID, not its owner_id foreign key.
+    assert_eq!(
+        compiled,
+        Record::query().join_on(Member::TABLE, Record::owner.id.eq(Record::id)).compile()
+    );
+    assert_eq!(compiled.sql.matches("JOIN path_members ").count(), 2);
+    assert!(compiled.binds.is_empty());
+}
+
+#[test]
 fn nested_paths_share_their_prefix_and_join_in_dependency_order() {
     let compiled = Record::query()
         .filter(Record::owner.organization.label.eq("north"))

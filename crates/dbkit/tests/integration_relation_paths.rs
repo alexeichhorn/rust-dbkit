@@ -737,6 +737,46 @@ async fn explicit_inner_joins_and_existing_table_column_filters_still_work() -> 
 }
 
 #[tokio::test]
+async fn custom_left_join_with_a_dynamic_relation_column_preserves_matches_and_missing_owners() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let enabled: dbkit::Expr<Option<bool>> = dbkit::Expr::new(dbkit::path::column(Member::enabled.as_ref(), &[Record::owner.descriptor()]));
+    let records: Vec<Record> = Record::query()
+        .left_join_on(Member::TABLE, enabled.eq(true))
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // An enabled owner matches all four rows of the custom join. Disabled,
+    // NULL, and dangling owners survive once because this is a LEFT JOIN.
+    assert_eq!(
+        records.iter().map(|row| row.id).collect::<Vec<_>>(),
+        [1, 1, 1, 1, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 6, 7]
+    );
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn custom_inner_join_with_a_dynamic_relation_key_uses_the_requested_source_column() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let owner_id: dbkit::Expr<Option<i64>> = dbkit::Expr::new(dbkit::path::column(Member::id.as_ref(), &[Record::owner.descriptor()]));
+    let records: Vec<Record> = Record::query()
+        .join_on(Member::TABLE, owner_id.eq_col(Record::id))
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // Only records 1 and 2 have owner.id == record.id; each matches all four members.
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 1, 1, 1, 2, 2, 2, 2]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn grouped_projections_and_correlated_exists_resolve_paths_in_their_query() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
