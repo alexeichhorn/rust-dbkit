@@ -10,7 +10,7 @@ pub struct CompiledSql {
 /// Enclosing table bindings and SQL qualifiers visible to a subquery.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct QueryScope {
-    tables: Vec<crate::Table>,
+    bindings: Vec<(crate::Table, String)>,
     pub(crate) qualifiers: Vec<String>,
 }
 
@@ -93,21 +93,29 @@ impl SqlBuilder {
             self.push_related_column(col, &path.steps());
             return;
         }
-        // An enclosing table binding takes precedence over the legacy shorthand
-        // for a local relation target. Explicit paths always identify local joins.
-        let mut matches = self.relation_aliases.iter().filter(|(path, _)| {
-            Some(col.table) != self.base_table
-                && !self.declared_tables.contains(&col.table)
-                && !self.outer_scope.tables.contains(&col.table)
-                && path.last().is_some_and(|rel| rel.join_table() == col.table)
-        });
-        let alias = matches.next().filter(|_| matches.next().is_none());
-        if let Some((_, alias)) = alias {
-            self.sql.push_str(alias);
-            self.sql.push('.');
-            self.sql.push_str(col.name);
+        let qualifier = self.column_qualifier(col.table).to_owned();
+        self.sql.push_str(&qualifier);
+        self.sql.push('.');
+        self.sql.push_str(col.name);
+    }
+
+    fn column_qualifier(&self, table: crate::Table) -> &str {
+        if Some(table) == self.base_table || self.declared_tables.contains(&table) {
+            return table.qualifier();
+        }
+        // Enclosing bindings precede the legacy shorthand for a local relation
+        // target. Explicit paths always identify local joins.
+        if let Some((_, qualifier)) = self.outer_scope.bindings.iter().rev().find(|(bound, _)| *bound == table) {
+            return qualifier;
+        }
+        let mut matches = self
+            .relation_aliases
+            .iter()
+            .filter(|(path, _)| path.last().is_some_and(|rel| rel.join_table() == table));
+        if let Some((_, alias)) = matches.next().filter(|_| matches.next().is_none()) {
+            alias
         } else {
-            self.sql.push_str(&col.qualified_name());
+            table.qualifier()
         }
     }
 
@@ -133,12 +141,16 @@ impl SqlBuilder {
     fn push_subquery(&mut self, subquery: &crate::query::Select<()>) {
         let mut scope = self.outer_scope.clone();
         for table in self.base_table.iter().chain(&self.declared_tables) {
-            scope.tables.push(*table);
+            scope.bindings.push((*table, table.qualifier().to_owned()));
             scope.qualifiers.push(table.qualifier().to_owned());
         }
-        scope
-            .qualifiers
-            .extend(self.relation_aliases.iter().map(|(_, alias)| alias.clone()));
+        for (path, alias) in &self.relation_aliases {
+            let table = path.last().expect("relation joins have a nonempty path").join_table();
+            if !scope.bindings.iter().any(|(bound, _)| *bound == table) {
+                scope.bindings.push((table, self.column_qualifier(table).to_owned()));
+            }
+            scope.qualifiers.push(alias.clone());
+        }
         self.push_compiled_sql(&subquery.compile_for_exists(scope));
     }
 

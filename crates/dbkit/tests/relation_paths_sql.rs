@@ -373,6 +373,50 @@ fn correlated_exists_uses_the_outer_relation_join_alias() {
 }
 
 #[test]
+fn local_table_bindings_shadow_outer_relation_join_aliases() {
+    for compiled in [
+        Record::query()
+            .join(Record::owner)
+            .where_exists(Member::query().filter(Member::label.eq("Atlas")))
+            .compile(),
+        Record::query()
+            .join(Record::owner)
+            .where_exists(
+                Organization::query()
+                    .join_on(Member::TABLE, Member::organization_id.eq_col(Organization::id))
+                    .where_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id)))
+                    .filter(Member::label.eq("Atlas")),
+            )
+            .compile(),
+    ] {
+        assert!(compiled.sql.contains("(path_members.label = $1)"), "{}", compiled.sql);
+        if compiled.sql.contains("path_assignments") {
+            assert!(
+                compiled.sql.contains("(path_assignments.first_id = path_members.id)"),
+                "{}",
+                compiled.sql
+            );
+        }
+    }
+}
+
+#[test]
+fn correlated_outer_join_alias_stays_distinct_from_an_inner_relation_path() {
+    let compiled = Record::query()
+        .join(Record::owner)
+        .where_exists(Assignment::query().filter(Assignment::first.id.eq(Member::id)))
+        .compile();
+    let members = aliases(&compiled.sql, "path_members");
+    assert_eq!(members.len(), 2);
+    assert_ne!(members[0], members[1]);
+    assert!(
+        compiled.sql.contains(&format!("({}.id = {}.id)", members[1], members[0])),
+        "{}",
+        compiled.sql
+    );
+}
+
+#[test]
 fn correlated_nested_exists_uses_the_enclosing_relation_join_alias() {
     let compiled = Record::query()
         .join(Record::owner)
