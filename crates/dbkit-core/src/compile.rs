@@ -11,6 +11,9 @@ pub struct CompiledSql {
 pub struct SqlBuilder {
     sql: String,
     binds: Vec<Value>,
+    base_table: Option<crate::Table>,
+    relation_aliases: Vec<(Vec<crate::Relation>, String)>,
+    declared_tables: Vec<crate::Table>,
 }
 
 impl SqlBuilder {
@@ -55,8 +58,50 @@ impl SqlBuilder {
         }
     }
 
+    pub(crate) fn for_query(
+        base: crate::Table,
+        relation_aliases: Vec<(Vec<crate::Relation>, String)>,
+        declared_tables: Vec<crate::Table>,
+    ) -> Self {
+        Self {
+            base_table: Some(base),
+            relation_aliases,
+            declared_tables,
+            ..Self::default()
+        }
+    }
+
     pub fn push_column(&mut self, col: ColumnRef) {
-        self.sql.push_str(&col.qualified_name());
+        if let Some(path) = col.path {
+            self.push_related_column(col, &path.steps());
+            return;
+        }
+        // Preserve table-qualified queries when exactly one relation supplies that
+        // table. The base table always keeps its own identity, including self joins.
+        let mut matches = self.relation_aliases.iter().filter(|(path, _)| {
+            Some(col.table) != self.base_table
+                && !self.declared_tables.contains(&col.table)
+                && path.last().is_some_and(|rel| rel.join_table() == col.table)
+        });
+        let alias = matches.next().filter(|_| matches.next().is_none());
+        if let Some((_, alias)) = alias {
+            self.sql.push_str(alias);
+            self.sql.push('.');
+            self.sql.push_str(col.name);
+        } else {
+            self.sql.push_str(&col.qualified_name());
+        }
+    }
+
+    pub fn push_related_column(&mut self, col: ColumnRef, path: &[crate::Relation]) {
+        let (_, alias) = self
+            .relation_aliases
+            .iter()
+            .find(|(existing, _)| existing == path)
+            .expect("relation columns require a SELECT query containing their path");
+        self.sql.push_str(alias);
+        self.sql.push('.');
+        self.sql.push_str(col.name);
     }
 
     pub fn push_compiled_sql(&mut self, compiled: &CompiledSql) {
@@ -130,6 +175,7 @@ impl ToSql for ExprNode {
     fn to_sql(&self, builder: &mut SqlBuilder) {
         match self {
             ExprNode::Column(col) => builder.push_column(*col),
+            ExprNode::RelatedColumn { column, path } => builder.push_related_column(*column, path),
             ExprNode::Value(value) => builder.push_value(value.clone()),
             ExprNode::Row { values } => {
                 builder.push_sql("(");

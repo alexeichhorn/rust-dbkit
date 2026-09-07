@@ -58,6 +58,49 @@ let filtered = User::query()
     .await?;
 ```
 
+## Relation Column Paths
+
+Access a `BelongsTo` target's columns through the relation itself:
+
+```rust,ignore
+let todos = Todo::query()
+    .filter(Todo::user.name.eq("Sam"))
+    .with(Todo::user.joined())
+    .all(&db)
+    .await?;
+```
+
+Using a relation column adds a `LEFT JOIN` automatically. `.with(...)` separately
+controls loading: without it, `todo.user` remains `NotLoaded`. You can also use
+`.selectin()` to load the filtered results' users in a separate batched query.
+
+Relation paths work in filters, expressions, projections, ordering, grouping, and
+aggregate predicates. They can traverse multiple `BelongsTo` relations, including
+self-relations:
+
+```rust,ignore
+let records = Record::query()
+    .filter(Record::owner.organization.name.eq("Acme"))
+    .order_by(dbkit::Order::asc(Record::owner.name))
+    .all(&db)
+    .await?;
+```
+
+Repeated uses of a path share its join, including joins needed for eager loading.
+An explicit `.join(relation)` or `.left_join(relation)` is reused with its declared
+join kind. Different foreign keys to the same model get separate aliases and
+loaded fields. Custom `join_on(...)` conditions keep their own joins and columns.
+The referenced key must be unique so each `BelongsTo` matches at most one row.
+
+Related columns are nullable expressions because an outer join can find no target,
+even if the target column is required. `Todo::user.id.is_null()` finds missing users;
+an already nullable column stays `Option<T>`, not `Option<Option<T>>`.
+
+Paths are supported in SELECT queries and start at the current query's model.
+They are read-only and cannot be passed directly to `.set(...)`. Collection filters still use explicit joins or
+`.where_exists(...)`. When multiple `BelongsTo` fields reference the same model,
+an inverse `#[has_many]` cannot infer which foreign key to use.
+
 ## Nested Eager Loading
 
 Parent -> children -> grandchildren loading is reflected in the result type:

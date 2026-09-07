@@ -1,5 +1,4 @@
 use crate::executor::{build_arguments, BoxFuture};
-use crate::expr::ExprNode;
 use crate::load::{ApplyLoad, Joined, LoadChain, NoLoad, SelectIn};
 use crate::query::{Join, JoinKind, SelectItem};
 use crate::rel::RelationInfo;
@@ -199,6 +198,7 @@ pub(crate) struct JoinContext {
     pub extra_joins: Vec<Join>,
     joined_tables: Vec<Table>,
     next_alias: usize,
+    current_path: Vec<crate::Relation>,
 }
 
 impl JoinContext {
@@ -209,6 +209,7 @@ impl JoinContext {
             extra_joins: Vec::new(),
             joined_tables,
             next_alias: 0,
+            current_path: Vec::new(),
         }
     }
 
@@ -226,11 +227,59 @@ impl JoinContext {
         self.extra_joins.push(join);
     }
 
+    fn enter_relation(&mut self, relation: crate::Relation, scoped: bool) {
+        if !scoped && self.current_path.is_empty() {
+            for (table, on) in relation.join_steps() {
+                self.ensure_join(Join {
+                    table,
+                    on,
+                    kind: JoinKind::Left,
+                });
+            }
+            return;
+        }
+        let steps = if relation.kind == crate::RelationKind::ManyToMany {
+            let bridge = relation.join_table.expect("join table");
+            vec![
+                crate::Relation {
+                    kind: crate::RelationKind::HasMany,
+                    parent: relation.parent,
+                    child: bridge,
+                    parent_key: relation.parent_key,
+                    child_key: relation.join_parent_key.unwrap(),
+                    join_table: None,
+                    join_parent_key: None,
+                    join_child_key: None,
+                },
+                crate::Relation {
+                    kind: crate::RelationKind::BelongsTo,
+                    parent: relation.child,
+                    child: bridge,
+                    parent_key: relation.child_key,
+                    child_key: relation.join_child_key.unwrap(),
+                    join_table: None,
+                    join_parent_key: None,
+                    join_child_key: None,
+                },
+            ]
+        } else {
+            vec![relation]
+        };
+        for step in steps {
+            self.current_path.push(step);
+            self.extra_joins.push(Join {
+                table: step.join_table(),
+                on: crate::path::join_on(&self.current_path),
+                kind: JoinKind::Left,
+            });
+        }
+    }
+
     fn add_columns<T: JoinedModel>(&mut self, prefix: &str) {
         for column in T::joined_columns() {
             let alias = format!("{}{}", prefix, column.name);
             self.extra_columns.push(SelectItem {
-                expr: ExprNode::Column(*column),
+                expr: crate::path::column(*column, &self.current_path),
                 alias: Some(alias),
             });
         }
@@ -397,20 +446,15 @@ where
     Child: Clone + Send + 'static,
 {
     fn build_collectors(&self, ctx: &mut JoinContext) -> Vec<Box<dyn JoinCollector<ParentOut>>> {
-        let relation = self.rel.relation();
-        for (table, on) in relation.join_steps() {
-            ctx.ensure_join(Join {
-                table,
-                on,
-                kind: JoinKind::Left,
-            });
-        }
+        let previous_path = ctx.current_path.clone();
+        ctx.enter_relation(self.rel.relation(), self.rel.path().is_some());
 
         let prefix = ctx.next_prefix();
         ctx.add_columns::<<Nested as ApplyLoad<Child>>::Out2>(&prefix);
 
         let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>>::build_collectors(&self.nested, ctx);
 
+        ctx.current_path = previous_path;
         let collector = HasManyCollector {
             rel: self.rel.clone(),
             prefix,
@@ -420,31 +464,27 @@ where
     }
 }
 
-impl<Child, Parent, Nested, ChildOut> BuildJoinPlan<ChildOut> for Joined<crate::rel::BelongsTo<Child, Parent>, Nested>
+impl<Child, Parent, Key, Nested, ChildOut> BuildJoinPlan<ChildOut> for Joined<crate::rel::BelongsTo<Child, Parent, Key>, Nested>
 where
     Nested: ApplyLoad<Parent> + BuildJoinPlan<<Nested as ApplyLoad<Parent>>::Out2>,
     <Nested as ApplyLoad<Parent>>::Out2: JoinedModel + 'static,
-    ChildOut: GetRelation<crate::rel::BelongsTo<Child, Parent>, Option<<Nested as ApplyLoad<Parent>>::Out2>> + 'static,
+    ChildOut: GetRelation<crate::rel::BelongsTo<Child, Parent, Key>, Option<<Nested as ApplyLoad<Parent>>::Out2>> + 'static,
     Child: Clone + Send + 'static,
     Parent: Clone + Send + 'static,
+    Key: crate::path::PathKey,
 {
     fn build_collectors(&self, ctx: &mut JoinContext) -> Vec<Box<dyn JoinCollector<ChildOut>>> {
-        let relation = self.rel.relation();
-        for (table, on) in relation.join_steps() {
-            ctx.ensure_join(Join {
-                table,
-                on,
-                kind: JoinKind::Left,
-            });
-        }
+        let previous_path = ctx.current_path.clone();
+        ctx.enter_relation(self.rel.relation(), self.rel.path().is_some());
 
         let prefix = ctx.next_prefix();
         ctx.add_columns::<<Nested as ApplyLoad<Parent>>::Out2>(&prefix);
 
         let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Parent>>::Out2>>::build_collectors(&self.nested, ctx);
 
+        ctx.current_path = previous_path;
         let collector = BelongsToCollector {
-            rel: self.rel.clone(),
+            rel: self.rel,
             prefix,
             nested,
         };
@@ -462,20 +502,15 @@ where
     Through: Clone + Send + 'static,
 {
     fn build_collectors(&self, ctx: &mut JoinContext) -> Vec<Box<dyn JoinCollector<ParentOut>>> {
-        let relation = self.rel.relation();
-        for (table, on) in relation.join_steps() {
-            ctx.ensure_join(Join {
-                table,
-                on,
-                kind: JoinKind::Left,
-            });
-        }
+        let previous_path = ctx.current_path.clone();
+        ctx.enter_relation(self.rel.relation(), self.rel.path().is_some());
 
         let prefix = ctx.next_prefix();
         ctx.add_columns::<<Nested as ApplyLoad<Child>>::Out2>(&prefix);
 
         let nested = <Nested as BuildJoinPlan<<Nested as ApplyLoad<Child>>::Out2>>::build_collectors(&self.nested, ctx);
 
+        ctx.current_path = previous_path;
         let collector = ManyToManyCollector {
             rel: self.rel.clone(),
             prefix,

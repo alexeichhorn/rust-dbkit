@@ -284,6 +284,10 @@ pub enum TrimDirection {
 #[derive(Debug, Clone)]
 pub enum ExprNode {
     Column(ColumnRef),
+    RelatedColumn {
+        column: ColumnRef,
+        path: Vec<crate::rel::Relation>,
+    },
     Value(Value),
     Row {
         values: Vec<ExprNode>,

@@ -410,6 +410,14 @@ async fn explicit_inner_joins_and_existing_table_column_filters_still_work() -> 
         .await?;
     assert_eq!(legacy.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 3, 4]);
     assert_eq!(mixed.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 3]);
+
+    let custom: Vec<Record> = Record::query()
+        .left_join_on(Member::TABLE, Member::id.eq_col(Record::owner_id).and(Member::score.gt(25_i32)))
+        .filter(Member::note.is_null())
+        .filter(Record::owner.code.eq("c"))
+        .all(&tx)
+        .await?;
+    assert_eq!(custom.iter().map(|row| row.id).collect::<Vec<_>>(), [4]);
     tx.rollback().await?;
     Ok(())
 }

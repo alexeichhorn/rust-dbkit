@@ -202,6 +202,14 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
     where
         R: RelationInfo<Parent = Out>,
     {
+        if let Some(path) = rel.path() {
+            self.joins.push(Join {
+                table: path.relation.parent,
+                on: crate::path::join_on(&path.steps()),
+                kind: JoinKind::Inner,
+            });
+            return self;
+        }
         let relation = rel.relation();
         for (table, on) in relation.join_steps() {
             self.joins.push(Join {
@@ -217,6 +225,14 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
     where
         R: RelationInfo<Parent = Out>,
     {
+        if let Some(path) = rel.path() {
+            self.joins.push(Join {
+                table: path.relation.parent,
+                on: crate::path::join_on(&path.steps()),
+                kind: JoinKind::Left,
+            });
+            return self;
+        }
         let relation = rel.relation();
         for (table, on) in relation.join_steps() {
             self.joins.push(Join {
@@ -352,7 +368,24 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         include_pagination: bool,
         include_locking: bool,
     ) -> CompiledSql {
-        let mut builder = SqlBuilder::new();
+        let mut plan = crate::path::JoinPlan::new(self.table, &self.joins, extra_joins);
+        for item in self.columns.iter().flatten().chain(extra_columns) {
+            plan.discover(&item.expr);
+        }
+        for expr in self.filters.iter().chain(&self.having) {
+            plan.discover(&expr.node);
+        }
+        for expr in &self.group_by {
+            plan.discover(expr);
+        }
+        if include_order {
+            for order in &self.order_by {
+                if let OrderExpr::Expr(expr) = &order.expr {
+                    plan.discover(expr);
+                }
+            }
+        }
+        let mut builder = SqlBuilder::for_query(self.table, plan.aliases(), plan.declared_tables());
         builder.push_sql("SELECT ");
         if self.distinct {
             builder.push_sql("DISTINCT ");
@@ -401,32 +434,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
             builder.push_sql(" ");
             builder.push_sql(alias);
         }
-        for join in &self.joins {
-            builder.push_sql(match join.kind {
-                JoinKind::Inner => " JOIN ",
-                JoinKind::Left => " LEFT JOIN ",
-            });
-            builder.push_sql(&join.table.qualified_name());
-            if let Some(alias) = join.table.alias {
-                builder.push_sql(" ");
-                builder.push_sql(alias);
-            }
-            builder.push_sql(" ON ");
-            join.on.node.to_sql(&mut builder);
-        }
-        for join in extra_joins {
-            builder.push_sql(match join.kind {
-                JoinKind::Inner => " JOIN ",
-                JoinKind::Left => " LEFT JOIN ",
-            });
-            builder.push_sql(&join.table.qualified_name());
-            if let Some(alias) = join.table.alias {
-                builder.push_sql(" ");
-                builder.push_sql(alias);
-            }
-            builder.push_sql(" ON ");
-            join.on.node.to_sql(&mut builder);
-        }
+        plan.write(&mut builder);
         if !self.filters.is_empty() {
             builder.push_sql(" WHERE ");
             for (idx, expr) in self.filters.iter().enumerate() {

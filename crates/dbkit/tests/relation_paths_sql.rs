@@ -165,6 +165,25 @@ fn explicit_join_kind_is_preserved_without_an_extra_implicit_join() {
 }
 
 #[test]
+fn custom_table_join_keeps_its_columns_when_a_relation_path_uses_the_same_table() {
+    // A custom ON condition is not interchangeable with the declared relation.
+    let compiled = Record::query()
+        .left_join_on(Member::TABLE, Member::id.eq_col(Record::owner_id).and(Member::score.gt(25_i32)))
+        .filter(Member::note.is_null())
+        .filter(Record::owner.code.eq("c"))
+        .compile();
+    assert!(
+        compiled
+            .sql
+            .contains("LEFT JOIN path_members ON ((path_members.id = path_records.owner_id)"),
+        "{}",
+        compiled.sql
+    );
+    assert!(compiled.sql.contains("WHERE (path_members.note IS NULL)"), "{}", compiled.sql);
+    assert_eq!(compiled.sql.matches("JOIN path_members ").count(), 2);
+}
+
+#[test]
 fn nested_paths_share_their_prefix_and_join_in_dependency_order() {
     let compiled = Record::query()
         .filter(Record::owner.organization.label.eq("north"))

@@ -10,7 +10,7 @@ pub enum RelationKind {
     ManyToMany,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Relation {
     pub kind: RelationKind,
     pub parent: Table,
@@ -69,6 +69,9 @@ impl Relation {
 pub trait RelationInfo {
     type Parent;
     fn relation(&self) -> Relation;
+    fn path(&self) -> Option<&'static crate::path::RelationPath> {
+        None
+    }
 }
 
 pub trait RelationTarget {
@@ -132,54 +135,63 @@ impl<Parent, Child> RelationTarget for HasMany<Parent, Child> {
     type Target = Child;
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct BelongsTo<Child, Parent> {
-    child: Table,
-    parent: Table,
-    child_key: ColumnRef,
-    parent_key: ColumnRef,
-    _marker: PhantomData<(Child, Parent)>,
+#[derive(Debug)]
+pub struct BelongsTo<Child, Parent, Key = ()>(Relation, PhantomData<(Child, Parent, Key)>);
+
+impl<Child, Parent, Key> Copy for BelongsTo<Child, Parent, Key> {}
+impl<Child, Parent, Key> Clone for BelongsTo<Child, Parent, Key> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
-impl<Child, Parent> BelongsTo<Child, Parent> {
+impl<Child, Parent, Key> BelongsTo<Child, Parent, Key> {
     pub const fn new(child: Table, parent: Table, child_key: ColumnRef, parent_key: ColumnRef) -> Self {
-        Self {
-            child,
-            parent,
-            child_key,
-            parent_key,
-            _marker: PhantomData,
-        }
+        Self(
+            Relation {
+                kind: RelationKind::BelongsTo,
+                parent,
+                child,
+                parent_key,
+                child_key,
+                join_table: None,
+                join_parent_key: None,
+                join_child_key: None,
+            },
+            PhantomData,
+        )
     }
-
+    pub const fn descriptor(&self) -> Relation {
+        self.0
+    }
     pub fn selectin(self) -> crate::load::SelectIn<Self> {
         crate::load::SelectIn::new(self)
     }
-
     pub fn joined(self) -> crate::load::Joined<Self> {
         crate::load::Joined::new(self)
     }
 }
 
-impl<Child, Parent> RelationInfo for BelongsTo<Child, Parent> {
+impl<Child, Parent, Key: crate::path::PathKey> RelationInfo for BelongsTo<Child, Parent, Key> {
     type Parent = Child;
-
     fn relation(&self) -> Relation {
-        Relation {
-            kind: RelationKind::BelongsTo,
-            parent: self.parent,
-            child: self.child,
-            parent_key: self.parent_key,
-            child_key: self.child_key,
-            join_table: None,
-            join_parent_key: None,
-            join_child_key: None,
-        }
+        self.0
+    }
+    fn path(&self) -> Option<&'static crate::path::RelationPath> {
+        Key::PATH
     }
 }
-
-impl<Child, Parent> RelationTarget for BelongsTo<Child, Parent> {
+impl<Child, Parent, Key> RelationTarget for BelongsTo<Child, Parent, Key> {
     type Target = Parent;
+}
+impl<Child, Parent, Key: crate::path::PathKey> std::ops::Deref for BelongsTo<Child, Parent, Key>
+where
+    Parent: crate::path::RelationFields<Key>,
+{
+    type Target = Parent::Fields;
+    fn deref(&self) -> &Self::Target {
+        Parent::FIELDS
+    }
 }
 
 pub trait ManyToManyThrough {
