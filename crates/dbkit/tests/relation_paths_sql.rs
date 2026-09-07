@@ -358,6 +358,43 @@ fn correlated_exists_preserves_outer_columns_with_automatic_and_declared_relatio
 }
 
 #[test]
+fn correlated_exists_uses_the_outer_relation_join_alias() {
+    for outer in [Record::query().join(Record::owner), Record::query().left_join(Record::owner)] {
+        let compiled = outer
+            .where_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id)))
+            .compile();
+        let owner = only_alias(&compiled.sql, "path_members");
+        assert!(
+            compiled.sql.contains(&format!("(path_assignments.first_id = {owner}.id)")),
+            "{}",
+            compiled.sql
+        );
+    }
+}
+
+#[test]
+fn correlated_nested_exists_uses_the_enclosing_relation_join_alias() {
+    let compiled = Record::query()
+        .join(Record::owner)
+        .where_exists(
+            Organization::query().where_exists(
+                Assignment::query()
+                    .filter(Assignment::first_id.eq_col(Member::id))
+                    .filter(Member::organization_id.eq_col(Organization::id)),
+            ),
+        )
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    assert_eq!(compiled.sql.matches("EXISTS (").count(), 2);
+    for expected in [
+        format!("(path_assignments.first_id = {owner}.id)"),
+        format!("({owner}.organization_id = path_organizations.id)"),
+    ] {
+        assert!(compiled.sql.contains(&expected), "missing {expected}: {}", compiled.sql);
+    }
+}
+
+#[test]
 fn correlated_not_exists_keeps_outer_filters_and_bind_order() {
     let compiled = Member::query()
         .filter(Member::label.eq("Atlas"))
@@ -593,6 +630,26 @@ impl Executor for CaptureExecutor {
     fn execute<'e>(&'e self, _: &'e str, _: PgArguments) -> BoxFuture<'e, Result<u64, Error>> {
         panic!("read-only query must not call execute")
     }
+}
+
+#[tokio::test]
+async fn correlated_exists_uses_the_outer_joined_loading_alias() -> Result<(), Error> {
+    let ex = CaptureExecutor::default();
+    let _: Vec<Record<Option<Member>>> = Record::query()
+        .with(Record::owner.joined())
+        .where_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id)))
+        .all(&ex)
+        .await?;
+    let sqls = ex.0.lock().unwrap();
+    assert_eq!(sqls.len(), 1);
+    let owner = only_alias(&sqls[0], "path_members");
+    assert!(sqls[0].contains(&format!("{owner}.label AS ")));
+    assert!(
+        sqls[0].contains(&format!("(path_assignments.first_id = {owner}.id)")),
+        "{}",
+        sqls[0]
+    );
+    Ok(())
 }
 
 #[tokio::test]

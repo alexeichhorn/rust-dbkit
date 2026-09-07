@@ -266,6 +266,63 @@ async fn correlated_sibling_paths_keep_their_local_comparison_and_outer_identity
 }
 
 #[tokio::test]
+async fn correlated_exists_matches_the_outer_relation_join() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let records: Vec<Record> = Record::query()
+        .join(Record::owner)
+        .where_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id)))
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // Owner 4 has no matching assignment; NULL and dangling owners cannot join.
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_not_exists_preserves_missing_outer_relation_joins() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let records: Vec<Record> = Record::query()
+        .left_join(Record::owner)
+        .where_not_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id)))
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // A NULL owner, a dangling owner, and an owner without assignments all survive.
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [5, 6, 7]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn correlated_exists_matches_the_outer_joined_loading_relation() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let records: Vec<Record<Option<Member>>> = Record::query()
+        .with(Record::owner.joined())
+        .where_exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id)))
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    assert_eq!(
+        records.iter().map(|row| row.owner.as_ref().unwrap().id).collect::<Vec<_>>(),
+        [1, 2, 1, 3]
+    );
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn filtering_is_independent_of_loading_strategy() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
