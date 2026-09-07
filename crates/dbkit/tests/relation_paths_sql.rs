@@ -115,6 +115,20 @@ fn order_only_paths_add_joins_before_pagination() {
 }
 
 #[test]
+fn automatic_left_join_for_update_scopes_lock_to_base_table() {
+    // Ordering preserves the outer join; a filter could let PostgreSQL simplify it to an inner join.
+    let compiled = Record::query().order_by(Order::asc(Record::owner.id)).for_update().compile();
+
+    only_alias(&compiled.sql, "path_members");
+    assert!(compiled.sql.contains("LEFT JOIN path_members"));
+    assert!(
+        compiled.sql.ends_with("FOR UPDATE OF path_records"),
+        "automatic left joins must scope the lock to the base table: {}",
+        compiled.sql
+    );
+}
+
+#[test]
 fn projection_only_paths_add_joins_and_keep_output_aliases() {
     let compiled = Record::query()
         .select_only()

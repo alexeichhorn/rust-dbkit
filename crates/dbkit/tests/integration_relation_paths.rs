@@ -397,6 +397,25 @@ async fn related_ordering_runs_before_limit_and_keeps_missing_rows() -> Result<(
 }
 
 #[tokio::test]
+async fn automatic_left_join_for_update_returns_all_base_rows() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    // No owner filter: PostgreSQL must preserve the outer join and its missing-owner rows.
+    let rows: Vec<Record> = Record::query()
+        .order_by(Order::asc(Record::owner.id))
+        .order_by(Order::asc(Record::id))
+        .for_update()
+        .all(&tx)
+        .await?;
+
+    assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 3, 2, 4, 7, 5, 6]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn count_exists_one_and_paginate_use_the_same_relation_filter() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;
