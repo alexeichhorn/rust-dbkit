@@ -326,6 +326,36 @@ pub(crate) struct JoinPlan {
     reserved: Vec<String>,
 }
 
+fn relation_join_path(join: &crate::Join) -> Option<&[Relation]> {
+    let ExprNode::Binary {
+        left,
+        op: BinaryOp::Eq,
+        right,
+    } = &join.on.node
+    else {
+        return None;
+    };
+    let ExprNode::RelatedColumn { column: target, path } = &**left else {
+        return None;
+    };
+    let ExprNode::RelatedColumn {
+        column: source,
+        path: source_path,
+    } = &**right
+    else {
+        return None;
+    };
+    let (relation, previous) = path.split_last()?;
+    let (target_key, source_key) = match relation.kind {
+        crate::RelationKind::BelongsTo => (relation.parent_key, relation.child_key),
+        crate::RelationKind::HasMany => (relation.child_key, relation.parent_key),
+        crate::RelationKind::ManyToMany => return None,
+    };
+    // Only the complete predicate emitted by join_on can be replaced by a planned relation join.
+    (join.table == relation.join_table() && *target == target_key && *source == source_key && source_path == previous)
+        .then_some(path.as_slice())
+}
+
 impl JoinPlan {
     pub(crate) fn new(base: Table, declared: &[crate::Join], extra: &[crate::Join], outer_qualifiers: &[String]) -> Self {
         let mut plan = Self {
@@ -337,16 +367,9 @@ impl JoinPlan {
         };
         for (joins, explicit) in [(declared, true), (extra, false)] {
             for join in joins {
-                if let ExprNode::Binary {
-                    left, op: BinaryOp::Eq, ..
-                } = &join.on.node
-                {
-                    if let ExprNode::RelatedColumn { path, column } = &**left {
-                        if column.table == join.table {
-                            plan.require(path, explicit.then_some(join.kind));
-                            continue;
-                        }
-                    }
+                if let Some(path) = relation_join_path(join) {
+                    plan.require(path, explicit.then_some(join.kind));
+                    continue;
                 }
                 join.on.node.visit_paths(&mut |path| plan.require(path, None));
                 plan.joins.push(PlannedJoin::Declared(join.clone()));
