@@ -406,6 +406,16 @@ impl JoinPlan {
             .collect()
     }
 
+    pub(crate) fn has_left_join(&self) -> bool {
+        self.joins.iter().any(|join| {
+            let kind = match join {
+                PlannedJoin::Declared(join) => join.kind,
+                PlannedJoin::Related { kind, .. } => *kind,
+            };
+            matches!(kind, crate::JoinKind::Left)
+        })
+    }
+
     pub(crate) fn write(&self, builder: &mut crate::compile::SqlBuilder) {
         use crate::compile::ToSql;
         for join in &self.joins {

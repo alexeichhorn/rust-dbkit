@@ -519,12 +519,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         if include_locking {
             if let Some(wait) = self.row_lock_wait {
                 builder.push_sql(" FOR UPDATE");
-                if self
-                    .joins
-                    .iter()
-                    .chain(extra_joins.iter())
-                    .any(|join| matches!(join.kind, JoinKind::Left))
-                {
+                if plan.has_left_join() {
                     builder.push_sql(" OF ");
                     builder.push_sql(self.table.qualifier());
                 }
