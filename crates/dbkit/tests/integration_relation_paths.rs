@@ -967,6 +967,71 @@ async fn custom_join_can_use_a_relation_discovered_in_a_filter_in_either_builder
 }
 
 #[tokio::test]
+async fn custom_join_exists_can_correlate_to_an_automatically_joined_owner() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let records: Vec<Record> = Record::query()
+        .join_on(
+            Organization::TABLE,
+            Organization::id.eq(1_i64).and(func::exists(
+                Assignment::query()
+                    .filter(Assignment::first_id.eq_col(Member::id))
+                    .filter(Assignment::second_code.eq("b")),
+            )),
+        )
+        .filter(Record::owner.enabled.eq(true))
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // Owners 1 and 3 are enabled and have matching assignments. Restricting the
+    // joined organization to one row also checks that EXISTS does not duplicate records.
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 3, 4]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn custom_left_join_not_exists_preserves_missing_owner_rows() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let rows: Vec<(i64, Option<i64>, Option<i64>)> = Record::query()
+        .left_join_on(
+            Organization::TABLE,
+            Organization::id
+                .eq(1_i64)
+                .and(func::exists(Assignment::query().filter(Assignment::first_id.eq_col(Member::id))).not()),
+        )
+        .select_only()
+        .column(Record::id)
+        .column(Record::owner.id)
+        .column(Organization::id)
+        .order_by(Order::asc(Record::id))
+        .into_model()
+        .all(&tx)
+        .await?;
+    // The custom join matches when the owner is absent or has no assignments.
+    // Owners with assignments still survive, with a NULL joined organization.
+    assert_eq!(
+        rows,
+        [
+            (1, Some(1), None),
+            (2, Some(2), None),
+            (3, Some(1), None),
+            (4, Some(3), None),
+            (5, None, Some(1)),
+            (6, None, Some(1)),
+            (7, Some(4), Some(1)),
+        ]
+    );
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn custom_left_join_can_use_a_projection_relation_and_preserve_missing_targets() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;

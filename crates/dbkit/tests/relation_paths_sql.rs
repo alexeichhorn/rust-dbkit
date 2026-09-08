@@ -293,6 +293,72 @@ fn projection_relation_join_precedes_a_custom_left_join_that_uses_its_alias() {
 }
 
 #[test]
+fn relation_join_precedes_a_correlated_exists_in_a_custom_join_condition() {
+    let on = Organization::id.eq(1_i64).and(func::exists(
+        Assignment::query()
+            .filter(Assignment::first_id.eq_col(Member::id))
+            .filter(Assignment::second_code.eq("b")),
+    ));
+    for query in [
+        Record::query()
+            .join_on(Organization::TABLE, on.clone())
+            .filter(Record::owner.enabled.eq(true)),
+        Record::query()
+            .filter(Record::owner.enabled.eq(true))
+            .join_on(Organization::TABLE, on),
+    ] {
+        let compiled = query.compile();
+        let owner = only_alias(&compiled.sql, "path_members");
+        let owner_join = compiled.sql.find(&format!("LEFT JOIN path_members {owner} ON ")).unwrap();
+        let custom_join = compiled.sql.find("JOIN path_organizations ON ").unwrap();
+        assert!(owner_join < custom_join, "{}", compiled.sql);
+        assert!(compiled.sql.contains(&format!("(path_assignments.first_id = {owner}.id)")));
+        assert_eq!(compiled.binds, vec![Value::I64(1), Value::String("b".into()), Value::Bool(true)]);
+    }
+}
+
+#[test]
+fn relation_join_precedes_a_correlation_through_nested_join_subqueries() {
+    let compiled = Record::query()
+        .left_join_on(
+            Organization::TABLE,
+            func::exists(Assignment::query().where_exists(Node::query().filter(Node::id.eq_col(Member::id)))),
+        )
+        .select_only()
+        .column(Record::id)
+        .column(Record::owner.score)
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    let owner_join = compiled.sql.find(&format!("LEFT JOIN path_members {owner} ON ")).unwrap();
+    let custom_join = compiled.sql.find("LEFT JOIN path_organizations ON ").unwrap();
+    assert!(owner_join < custom_join, "{}", compiled.sql);
+    assert!(compiled.sql.contains(&format!("(path_nodes.id = {owner}.id)")));
+    assert_eq!(compiled.sql.matches("EXISTS (").count(), 2);
+}
+
+#[test]
+fn uncorrelated_join_subquery_keeps_its_relation_paths_local() {
+    let compiled = Record::query()
+        .join_on(
+            Organization::TABLE,
+            func::exists(Member::query().filter(Member::organization.label.eq("north"))),
+        )
+        .select_only()
+        .column(Record::id)
+        .column(Record::owner.score)
+        .compile();
+    let owner = only_alias(&compiled.sql, "path_members");
+    let owner_join = compiled.sql.find(&format!("LEFT JOIN path_members {owner} ON ")).unwrap();
+    let custom_join = compiled.sql.find("JOIN path_organizations ON ").unwrap();
+    // Member belongs to the subquery here; its organization path must stay there.
+    assert!(custom_join < owner_join, "{}", compiled.sql);
+    assert!(compiled
+        .sql
+        .contains("EXISTS (SELECT path_members.* FROM path_members LEFT JOIN path_organizations "));
+    assert_eq!(compiled.sql.matches("LEFT JOIN path_organizations ").count(), 1);
+}
+
+#[test]
 fn nested_join_dependencies_move_together_without_reordering_custom_joins() {
     let compiled = Record::query()
         .join_on(Node::TABLE, Node::id.eq_col(Record::id))
