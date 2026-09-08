@@ -108,19 +108,15 @@ impl SqlBuilder {
         if let Some((_, qualifier)) = self.outer_scope.bindings.iter().rev().find(|(bound, _)| *bound == table) {
             return qualifier;
         }
-        self.relation_qualifier(table)
+        self.relation_alias(table).unwrap_or(table.qualifier())
     }
 
-    fn relation_qualifier(&self, table: crate::Table) -> &str {
+    fn relation_alias(&self, table: crate::Table) -> Option<&str> {
         let mut matches = self
             .relation_aliases
             .iter()
             .filter(|(path, _)| path.last().is_some_and(|rel| rel.join_table() == table));
-        if let Some((_, alias)) = matches.next().filter(|_| matches.next().is_none()) {
-            alias
-        } else {
-            table.qualifier()
-        }
+        matches.next().filter(|_| matches.next().is_none()).map(|(_, alias)| alias.as_str())
     }
 
     pub fn push_related_column(&mut self, col: ColumnRef, path: &[crate::Relation]) {
@@ -151,9 +147,11 @@ impl SqlBuilder {
         }
         for (path, alias) in &self.relation_aliases {
             let table = path.last().expect("relation joins have a nonempty path").join_table();
-            // A child sees this query's bindings before those inherited from farther scopes.
+            // Only unique relation targets shadow farther bindings in a child scope.
             if !scope.bindings[local_start..].iter().any(|(bound, _)| *bound == table) {
-                scope.bindings.push((table, self.relation_qualifier(table).to_owned()));
+                if let Some(qualifier) = self.relation_alias(table) {
+                    scope.bindings.push((table, qualifier.to_owned()));
+                }
             }
             scope.qualifiers.push(alias.clone());
         }
