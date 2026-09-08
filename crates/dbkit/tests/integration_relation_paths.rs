@@ -417,6 +417,60 @@ async fn nested_not_exists_keeps_a_missing_nearer_relation_instead_of_using_an_o
 }
 
 #[tokio::test]
+async fn ambiguous_middle_relations_correlate_to_the_outer_owner() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let records: Vec<Record> = Record::query()
+        .join(Record::owner)
+        .where_exists(
+            Assignment::query()
+                .join(Assignment::first)
+                .join(Assignment::second)
+                .filter(Assignment::id.eq(1_i64))
+                .where_exists(
+                    Organization::query()
+                        .filter(Organization::id.eq_col(Member::organization_id))
+                        .filter(Organization::label.eq("north")),
+                ),
+        )
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // Assignment 1's siblings belong to different organizations. Choosing its first
+    // member would return every joined record; choosing its second would return none.
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 3]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn ambiguous_middle_relations_preserve_nulls_in_the_outer_binding() -> Result<(), Error> {
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup(&tx).await?;
+
+    let records: Vec<Record> = Record::query()
+        .left_join(Record::owner)
+        .where_exists(
+            Assignment::query()
+                .left_join(Assignment::first)
+                .left_join(Assignment::second)
+                .filter(Assignment::id.eq(4_i64))
+                .where_not_exists(Organization::query().filter(Organization::id.eq_col(Member::organization_id))),
+        )
+        .order_by(Order::asc(Record::id))
+        .all(&tx)
+        .await?;
+    // A missing sibling row does not make the other sibling a unique binding.
+    // Only records with no owner or no owner organization satisfy NOT EXISTS.
+    assert_eq!(records.iter().map(|row| row.id).collect::<Vec<_>>(), [5, 6, 7]);
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn correlated_exists_matches_the_outer_relation_join() -> Result<(), Error> {
     let db = Database::connect(&db_url()).await?;
     let tx = db.begin().await?;

@@ -636,6 +636,51 @@ fn nested_subquery_uses_the_nearer_relation_instead_of_an_outer_relation() {
 }
 
 #[test]
+fn ambiguous_middle_relations_preserve_the_outer_relation_binding() {
+    for middle in [
+        Assignment::query().join(Assignment::first).join(Assignment::second),
+        Assignment::query().join(Assignment::second).join(Assignment::first),
+        Assignment::query().filter(Assignment::first.score.gt(Assignment::second.score)),
+    ] {
+        let compiled = Record::query()
+            .join(Record::owner)
+            .where_exists(middle.where_exists(Organization::query().filter(Organization::id.eq_col(Member::organization_id))))
+            .compile();
+        let members = aliases(&compiled.sql, "path_members");
+        assert_eq!(members.len(), 3);
+        // Neither sibling identifies a unique Member binding. Keep the outer owner,
+        // regardless of sibling declaration order or automatic join discovery.
+        assert!(
+            compiled
+                .sql
+                .contains(&format!("(path_organizations.id = {}.organization_id)", members[0])),
+            "{}",
+            compiled.sql
+        );
+    }
+}
+
+#[test]
+fn ambiguous_nested_relation_targets_preserve_the_outer_nested_binding() {
+    let compiled = Record::query()
+        .filter(Record::owner.organization.label.eq("north"))
+        .where_exists(
+            Assignment::query()
+                .filter(Assignment::first.organization.id.eq(Assignment::second.organization.id))
+                .where_exists(Node::query().filter(Node::id.eq_col(Organization::id))),
+        )
+        .compile();
+    let organizations = aliases(&compiled.sql, "path_organizations");
+    assert_eq!(organizations.len(), 3);
+    assert!(
+        compiled.sql.contains(&format!("(path_nodes.id = {}.id)", organizations[0])),
+        "{}",
+        compiled.sql
+    );
+    assert_eq!(compiled.binds, vec![Value::String("north".into())]);
+}
+
+#[test]
 fn correlated_nested_exists_uses_the_enclosing_relation_join_alias() {
     let compiled = Record::query()
         .join(Record::owner)
