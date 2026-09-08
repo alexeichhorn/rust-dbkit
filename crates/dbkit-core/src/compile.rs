@@ -22,6 +22,7 @@ pub struct SqlBuilder {
     relation_aliases: Vec<(Vec<crate::Relation>, String)>,
     declared_tables: Vec<crate::Table>,
     outer_scope: QueryScope,
+    referenced_qualifiers: Vec<String>,
 }
 
 impl SqlBuilder {
@@ -97,9 +98,10 @@ impl SqlBuilder {
         self.sql.push_str(&qualifier);
         self.sql.push('.');
         self.sql.push_str(col.name);
+        self.referenced_qualifiers.push(qualifier);
     }
 
-    pub(crate) fn column_qualifier(&self, table: crate::Table) -> &str {
+    fn column_qualifier(&self, table: crate::Table) -> &str {
         if Some(table) == self.base_table || self.declared_tables.contains(&table) {
             return table.qualifier();
         }
@@ -126,6 +128,7 @@ impl SqlBuilder {
                 .filter(|base| base.name == col.table.name && base.schema == col.table.schema)
                 .unwrap_or(col.table);
             self.sql.push_str(&ColumnRef { table, ..col }.qualified_name());
+            self.referenced_qualifiers.push(table.qualifier().to_owned());
             return;
         }
         let (_, alias) = self
@@ -136,6 +139,28 @@ impl SqlBuilder {
         self.sql.push_str(alias);
         self.sql.push('.');
         self.sql.push_str(col.name);
+        self.referenced_qualifiers.push(alias.clone());
+    }
+
+    pub(crate) fn compile_expression(&self, expr: &ExprNode) -> Self {
+        let mut builder = Self {
+            base_table: self.base_table,
+            relation_aliases: self.relation_aliases.clone(),
+            declared_tables: self.declared_tables.clone(),
+            outer_scope: self.outer_scope.clone(),
+            ..Self::default()
+        };
+        expr.to_sql(&mut builder);
+        builder
+    }
+
+    pub(crate) fn references_qualifier(&self, qualifier: &str) -> bool {
+        self.referenced_qualifiers.iter().any(|reference| reference == qualifier)
+    }
+
+    pub(crate) fn push_expression(&mut self, mut expression: Self) {
+        self.referenced_qualifiers.append(&mut expression.referenced_qualifiers);
+        self.push_compiled_sql(&expression.finish());
     }
 
     fn push_subquery(&mut self, subquery: &crate::query::Select<()>) {
@@ -155,7 +180,24 @@ impl SqlBuilder {
             }
             scope.qualifiers.push(alias.clone());
         }
-        self.push_compiled_sql(&subquery.compile_for_exists(scope));
+        let subquery = subquery.compile_for_exists(scope);
+        // Only correlations escape a subquery. Its own tables and aliases may
+        // shadow enclosing names and cannot create dependencies in the parent.
+        self.referenced_qualifiers.extend(
+            subquery
+                .referenced_qualifiers
+                .iter()
+                .filter(|qualifier| {
+                    !subquery
+                        .base_table
+                        .iter()
+                        .chain(&subquery.declared_tables)
+                        .any(|table| table.qualifier() == *qualifier)
+                        && !subquery.relation_aliases.iter().any(|(_, alias)| alias == *qualifier)
+                })
+                .cloned(),
+        );
+        self.push_compiled_sql(&subquery.finish());
     }
 
     pub fn push_compiled_sql(&mut self, compiled: &CompiledSql) {

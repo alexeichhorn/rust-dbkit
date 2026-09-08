@@ -369,12 +369,13 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         }
     }
 
-    pub(crate) fn compile_for_exists(&self, scope: QueryScope) -> CompiledSql {
+    pub(crate) fn compile_for_exists(&self, scope: QueryScope) -> SqlBuilder {
         self.compile_inner_with((&[], &[]), true, true, true, scope)
     }
 
     pub fn compile_with_extra(&self, extra_columns: &[SelectItem], extra_joins: &[Join]) -> CompiledSql {
         self.compile_inner_with((extra_columns, extra_joins), true, true, true, QueryScope::default())
+            .finish()
     }
 
     fn compile_inner(&self, include_order: bool, include_pagination: bool, include_locking: bool) -> CompiledSql {
@@ -385,6 +386,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
             include_locking,
             QueryScope::default(),
         )
+        .finish()
     }
 
     fn compile_inner_with(
@@ -394,7 +396,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         include_pagination: bool,
         include_locking: bool,
         scope: QueryScope,
-    ) -> CompiledSql {
+    ) -> SqlBuilder {
         let (extra_columns, extra_joins) = extra;
         let mut plan = crate::path::JoinPlan::new(self.table, &self.joins, extra_joins, &scope.qualifiers);
         for item in self.columns.iter().flatten().chain(extra_columns) {
@@ -530,7 +532,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
                 }
             }
         }
-        builder.finish()
+        builder
     }
 
     pub fn debug_sql(&self) -> String {
