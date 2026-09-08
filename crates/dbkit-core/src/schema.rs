@@ -46,11 +46,12 @@ impl Table {
 pub struct ColumnRef {
     pub table: Table,
     pub name: &'static str,
+    pub path: Option<&'static crate::path::RelationPath>,
 }
 
 impl ColumnRef {
     pub const fn new(table: Table, name: &'static str) -> Self {
-        Self { table, name }
+        Self { table, name, path: None }
     }
 
     pub fn qualified_name(&self) -> String {
@@ -58,10 +59,11 @@ impl ColumnRef {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct Column<M, T> {
     pub table: Table,
     pub name: &'static str,
+    path: Option<&'static crate::path::RelationPath>,
     _marker: PhantomData<(M, T)>,
 }
 
@@ -70,11 +72,29 @@ impl<M, T> Column<M, T> {
         Self {
             table,
             name,
+            path: None,
             _marker: PhantomData,
         }
     }
 
     pub const fn as_ref(&self) -> ColumnRef {
-        ColumnRef::new(self.table, self.name)
+        ColumnRef {
+            table: self.table,
+            name: self.name,
+            path: self.path,
+        }
+    }
+}
+
+impl<M, T> Copy for Column<M, T> {}
+impl<M, T> Clone for Column<M, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<M, T> Column<M, T> {
+    pub(crate) const fn with_path(mut self, path: Option<&'static crate::path::RelationPath>) -> Self {
+        self.path = path;
+        self
     }
 }

@@ -4,6 +4,8 @@ pub mod func;
 pub mod interval;
 pub mod load;
 pub mod mutation;
+#[doc(hidden)]
+pub mod path;
 pub mod query;
 pub mod rel;
 pub mod schema;

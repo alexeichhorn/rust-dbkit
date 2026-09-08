@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::compile::{CompiledSql, SqlBuilder, ToSql};
+use crate::compile::{CompiledSql, QueryScope, SqlBuilder, ToSql};
 use crate::expr::{into_predicate, BooleanExprType, Expr, ExprNode, IntoExpr};
 use crate::func;
 use crate::load::{ApplyLoad, LoadChain, NoLoad};
@@ -202,6 +202,14 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
     where
         R: RelationInfo<Parent = Out>,
     {
+        if let Some(path) = rel.path() {
+            self.joins.push(Join {
+                table: path.relation.parent,
+                on: crate::path::join_on(&path.steps()),
+                kind: JoinKind::Inner,
+            });
+            return self;
+        }
         let relation = rel.relation();
         for (table, on) in relation.join_steps() {
             self.joins.push(Join {
@@ -217,6 +225,14 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
     where
         R: RelationInfo<Parent = Out>,
     {
+        if let Some(path) = rel.path() {
+            self.joins.push(Join {
+                table: path.relation.parent,
+                on: crate::path::join_on(&path.steps()),
+                kind: JoinKind::Left,
+            });
+            return self;
+        }
         let relation = rel.relation();
         for (table, on) in relation.join_steps() {
             self.joins.push(Join {
@@ -332,27 +348,74 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         self.compile_inner(false, false, false)
     }
 
-    pub(crate) fn compile_for_exists(&self) -> CompiledSql {
-        self.compile_inner(true, true, true)
+    pub(crate) fn into_subquery(self) -> Select<()> {
+        Select {
+            table: self.table,
+            columns: self.columns,
+            joins: self.joins,
+            filters: self.filters,
+            group_by: self.group_by,
+            having: self.having,
+            order_by: self.order_by,
+            limit: self.limit,
+            offset: self.offset,
+            distinct: self.distinct,
+            row_lock_wait: self.row_lock_wait,
+            loads: NoLoad,
+            _marker: PhantomData,
+            _lock_marker: PhantomData,
+            _distinct_marker: PhantomData,
+            _group_marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn compile_for_exists(&self, scope: QueryScope) -> SqlBuilder {
+        self.compile_inner_with((&[], &[]), true, true, true, scope)
     }
 
     pub fn compile_with_extra(&self, extra_columns: &[SelectItem], extra_joins: &[Join]) -> CompiledSql {
-        self.compile_inner_with(extra_columns, extra_joins, true, true, true)
+        self.compile_inner_with((extra_columns, extra_joins), true, true, true, QueryScope::default())
+            .finish()
     }
 
     fn compile_inner(&self, include_order: bool, include_pagination: bool, include_locking: bool) -> CompiledSql {
-        self.compile_inner_with(&[], &[], include_order, include_pagination, include_locking)
+        self.compile_inner_with(
+            (&[], &[]),
+            include_order,
+            include_pagination,
+            include_locking,
+            QueryScope::default(),
+        )
+        .finish()
     }
 
     fn compile_inner_with(
         &self,
-        extra_columns: &[SelectItem],
-        extra_joins: &[Join],
+        extra: (&[SelectItem], &[Join]),
         include_order: bool,
         include_pagination: bool,
         include_locking: bool,
-    ) -> CompiledSql {
-        let mut builder = SqlBuilder::new();
+        scope: QueryScope,
+    ) -> SqlBuilder {
+        let (extra_columns, extra_joins) = extra;
+        let mut plan = crate::path::JoinPlan::new(self.table, &self.joins, extra_joins, &scope.qualifiers);
+        for item in self.columns.iter().flatten().chain(extra_columns) {
+            plan.discover(&item.expr);
+        }
+        for expr in self.filters.iter().chain(&self.having) {
+            plan.discover(&expr.node);
+        }
+        for expr in &self.group_by {
+            plan.discover(expr);
+        }
+        if include_order {
+            for order in &self.order_by {
+                if let OrderExpr::Expr(expr) = &order.expr {
+                    plan.discover(expr);
+                }
+            }
+        }
+        let mut builder = SqlBuilder::for_query(self.table, plan.aliases(), plan.declared_tables(), scope);
         builder.push_sql("SELECT ");
         if self.distinct {
             builder.push_sql("DISTINCT ");
@@ -401,32 +464,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
             builder.push_sql(" ");
             builder.push_sql(alias);
         }
-        for join in &self.joins {
-            builder.push_sql(match join.kind {
-                JoinKind::Inner => " JOIN ",
-                JoinKind::Left => " LEFT JOIN ",
-            });
-            builder.push_sql(&join.table.qualified_name());
-            if let Some(alias) = join.table.alias {
-                builder.push_sql(" ");
-                builder.push_sql(alias);
-            }
-            builder.push_sql(" ON ");
-            join.on.node.to_sql(&mut builder);
-        }
-        for join in extra_joins {
-            builder.push_sql(match join.kind {
-                JoinKind::Inner => " JOIN ",
-                JoinKind::Left => " LEFT JOIN ",
-            });
-            builder.push_sql(&join.table.qualified_name());
-            if let Some(alias) = join.table.alias {
-                builder.push_sql(" ");
-                builder.push_sql(alias);
-            }
-            builder.push_sql(" ON ");
-            join.on.node.to_sql(&mut builder);
-        }
+        plan.write(&mut builder);
         if !self.filters.is_empty() {
             builder.push_sql(" WHERE ");
             for (idx, expr) in self.filters.iter().enumerate() {
@@ -483,12 +521,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
         if include_locking {
             if let Some(wait) = self.row_lock_wait {
                 builder.push_sql(" FOR UPDATE");
-                if self
-                    .joins
-                    .iter()
-                    .chain(extra_joins.iter())
-                    .any(|join| matches!(join.kind, JoinKind::Left))
-                {
+                if plan.has_left_join() {
                     builder.push_sql(" OF ");
                     builder.push_sql(self.table.qualifier());
                 }
@@ -499,7 +532,7 @@ impl<Out, Loads, Lock, DistinctState, GroupState> Select<Out, Loads, Lock, Disti
                 }
             }
         }
-        builder.finish()
+        builder
     }
 
     pub fn debug_sql(&self) -> String {
