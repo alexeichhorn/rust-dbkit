@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::parse::Parser;
 use syn::{parse_macro_input, Attribute, Field, Fields, Ident, ItemStruct, Meta, Type};
 
@@ -107,6 +108,13 @@ fn expand_model(args: ModelArgs, input: ItemStruct) -> syn::Result<TokenStream> 
             .ident
             .clone()
             .ok_or_else(|| syn::Error::new_spanned(&field, "dbkit: unnamed field"))?;
+
+        if field_ident.unraw().to_string().starts_with("__dbkit_") {
+            return Err(syn::Error::new_spanned(
+                field_ident,
+                "dbkit: field names starting with `__dbkit_` are reserved for dbkit internals",
+            ));
+        }
 
         let is_relation =
             has_attr(&field.attrs, "has_many") || has_attr(&field.attrs, "belongs_to") || has_attr(&field.attrs, "many_to_many");

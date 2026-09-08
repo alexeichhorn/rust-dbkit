@@ -74,6 +74,8 @@ fn main() -> ui_test::color_eyre::Result<()> {
         "fail_relation_path_operators.rs".into(),
         "pass_relation_paths_graphs.rs".into(),
         "pass_relation_paths_field_names.rs".into(),
+        "fail_reserved_model_fields.rs".into(),
+        "pass_model_field_prefixes.rs".into(),
         "fail_relation_paths_value_types.rs".into(),
         "fail_relation_paths_nullability.rs".into(),
         "fail_relation_paths_assignment.rs".into(),
