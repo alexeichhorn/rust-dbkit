@@ -10,3 +10,4 @@ publish = false
 dbkit = { path = "../.." }
 chrono = "0.4"
 uuid = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }

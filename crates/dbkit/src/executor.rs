@@ -1,6 +1,8 @@
 use std::future::Future;
 use std::pin::Pin;
 
+pub use futures_util::stream::BoxStream;
+use futures_util::TryStreamExt;
 use sqlx::postgres::{PgArguments, PgRow};
 use sqlx::Arguments;
 
@@ -20,6 +22,53 @@ pub trait Executor {
     fn fetch_rows<'e>(&'e self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<Vec<PgRow>, Error>>;
 
     fn execute<'e>(&'e self, sql: &'e str, args: PgArguments) -> BoxFuture<'e, Result<u64, Error>>;
+}
+
+/// Streaming support for executors that can keep a connection borrowed during iteration.
+pub trait StreamExecutor: Executor {
+    fn fetch_stream<'e, T>(&'e self, sql: &'e str, args: PgArguments) -> BoxStream<'e, Result<T, Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e;
+}
+
+impl StreamExecutor for crate::Database {
+    fn fetch_stream<'e, T>(&'e self, sql: &'e str, args: PgArguments) -> BoxStream<'e, Result<T, Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
+    {
+        self.pool().fetch_stream(sql, args)
+    }
+}
+
+impl StreamExecutor for sqlx::Pool<sqlx::Postgres> {
+    fn fetch_stream<'e, T>(&'e self, sql: &'e str, args: PgArguments) -> BoxStream<'e, Result<T, Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
+    {
+        Box::pin(
+            sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
+                .fetch(self)
+                .map_err(Error::from),
+        )
+    }
+}
+
+impl StreamExecutor for crate::database::DbTransaction<'_> {
+    fn fetch_stream<'e, T>(&'e self, sql: &'e str, args: PgArguments) -> BoxStream<'e, Result<T, Error>>
+    where
+        T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
+    {
+        Box::pin(async_stream::try_stream! {
+            let mut guard = self.inner.lock().await;
+            let tx = guard
+                .as_mut()
+                .ok_or_else(|| Error::Decode("transaction already completed".to_string()))?;
+            let mut rows = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args).fetch(tx.as_mut());
+            while let Some(row) = rows.try_next().await? {
+                yield row;
+            }
+        })
+    }
 }
 
 impl Executor for crate::Database {
