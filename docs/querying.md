@@ -25,6 +25,46 @@ let rows = LookupRow::query()
     .await?;
 ```
 
+## Streaming
+
+`.stream(&db)` yields rows one at a time instead of collecting a `Vec`:
+
+```rust,ignore
+use dbkit::prelude::*;
+use futures_util::TryStreamExt;
+
+let mut users = User::query()
+    .filter(User::email.ilike("%@example.com"))
+    .order_by(dbkit::Order::asc(User::id))
+    .stream(&db);
+
+while let Some(user) = users.try_next().await? {
+    println!("{}", user.email);
+}
+```
+
+The query runs once, on the first poll. Each item is a `Result`, and the stream
+ends after the last row or the first error. Query-building methods work as with
+`.all()`, but `.with(...)` eager loading isn't supported.
+
+The stream holds a connection until it's exhausted or dropped, so drop it after
+an early `break`. For slow or resumable jobs, fetch batches keyed on the
+last-seen ID instead.
+
+Streams also work inside a transaction. Don't run other queries on it while the
+stream is active, and drop the stream before committing:
+
+```rust,ignore
+let tx = db.begin().await?;
+{
+    let mut users = User::query().stream(&tx);
+    while let Some(user) = users.try_next().await? {
+        println!("{}", user.email);
+    }
+}
+tx.commit().await?;
+```
+
 ## Row Locking
 
 ```rust,ignore
