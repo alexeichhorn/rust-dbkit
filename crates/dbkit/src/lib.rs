@@ -21,10 +21,10 @@ pub mod runtime;
 
 pub use database::{Database, DbTransaction};
 pub use error::Error;
-pub use executor::Executor;
+pub use executor::{Executor, StreamExecutor};
 pub use model::{GetRelation, JoinedModel, LoadRelation, ModelDelete, ModelValue, SetRelation};
-pub use query_ext::{DeleteExt, InsertExt, Page, SelectExt, UpdateExt};
+pub use query_ext::{DeleteExt, InsertExt, Page, SelectExt, SelectStreamExt, UpdateExt};
 
 pub mod prelude {
-    pub use crate::{DeleteExt, InsertExt, LoadRelation, ModelDelete, SelectExt, UpdateExt};
+    pub use crate::{DeleteExt, InsertExt, LoadRelation, ModelDelete, SelectExt, SelectStreamExt, UpdateExt};
 }

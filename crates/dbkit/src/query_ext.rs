@@ -1,7 +1,39 @@
-use crate::executor::{build_arguments, BoxFuture};
+use futures_util::TryStreamExt;
+
+use crate::executor::{build_arguments, BoxFuture, BoxStream};
 use crate::joined::{JoinOps, JoinedFlag, Ops};
+use crate::load::NoLoad;
 use crate::runtime::RunLoads;
-use crate::{Delete, Error, Executor, Insert, Select, Update};
+use crate::{Delete, Error, Executor, Insert, Select, StreamExecutor, Update};
+
+/// Incremental query execution for models and projections without eager-loaded relations.
+pub trait SelectStreamExt<Out> {
+    /// Runs the query on first poll and yields rows until exhaustion or the first error.
+    ///
+    /// An active stream holds a connection. Drop it before reusing the same transaction
+    /// or committing. Other pool queries need another available connection.
+    fn stream<'e, E>(self, ex: &'e E) -> BoxStream<'e, Result<Out, Error>>
+    where
+        E: StreamExecutor + Send + Sync + 'e,
+        Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e;
+}
+
+impl<Out, Lock, DistinctState, GroupState> SelectStreamExt<Out> for Select<Out, NoLoad, Lock, DistinctState, GroupState> {
+    fn stream<'e, E>(self, ex: &'e E) -> BoxStream<'e, Result<Out, Error>>
+    where
+        E: StreamExecutor + Send + Sync + 'e,
+        Out: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin + 'e,
+    {
+        let compiled = self.compile();
+        Box::pin(async_stream::try_stream! {
+            let args = build_arguments(&compiled.binds)?;
+            let mut rows = ex.fetch_stream::<Out>(&compiled.sql, args);
+            while let Some(row) = rows.try_next().await? {
+                yield row;
+            }
+        })
+    }
+}
 
 pub trait SelectExt<Out, Loads> {
     fn all<'e, E>(self, ex: &'e E) -> BoxFuture<'e, Result<Vec<Out>, Error>>
