@@ -379,23 +379,35 @@ async fn stream_decodes_on_demand_and_stops_after_first_decode_error() -> Result
 #[tokio::test]
 async fn stream_yields_rows_before_a_later_database_error() -> Result<(), Error> {
     let db = database().await?;
-    // Wide rows force PostgreSQL to flush output before the third row divides by zero.
-    // Collecting the whole result before yielding would lose the two successful rows.
+    // The row after the first read-ahead window divides by zero. PostgreSQL may withhold rows
+    // that share a fetch with the failing one, but collecting the whole result before yielding
+    // would lose every successful row.
+    let failing_row = MAX_ROWS_READ_AHEAD + 1;
     db.execute(
-        "CREATE TEMP VIEW stream_failures AS
-            SELECT n::BIGINT AS id, repeat('x', 65536) AS payload, 1 / (3 - n) AS value
-            FROM generate_series(1, 3) AS n",
+        &format!(
+            "CREATE TEMP VIEW stream_failures AS
+                SELECT n::BIGINT AS id, 'x' AS payload, 1 / ({failing_row} - n) AS value
+                FROM generate_series(1, {failing_row}) AS n"
+        ),
         PgArguments::default(),
     )
     .await?;
     let mut rows = StreamFailure::query().stream(&db);
-    let first = rows.try_next().await?.expect("row before server failure");
-    assert_eq!(first.id, 1);
-    assert_eq!(first.payload.len(), 65536);
-    assert_eq!(rows.try_next().await?.expect("second row before server failure").id, 2);
+    let mut next_id = 1;
+    let error = loop {
+        match rows.try_next().await {
+            Ok(Some(row)) => {
+                assert_eq!(row.id, next_id);
+                next_id += 1;
+            }
+            Ok(None) => panic!("stream ended without the server failure"),
+            Err(error) => break error,
+        }
+    };
+    assert!(next_id > 1, "rows before the server failure must be yielded");
     assert!(matches!(
-        rows.try_next().await,
-        Err(Error::Sqlx(sqlx::Error::Database(ref error))) if error.code().as_deref() == Some("22012")
+        error,
+        Error::Sqlx(sqlx::Error::Database(ref error)) if error.code().as_deref() == Some("22012")
     ));
     assert!(rows.try_next().await?.is_none());
     drop(rows);

@@ -1,9 +1,10 @@
 use std::future::Future;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use futures_util::stream::BoxStream;
-use futures_util::TryStreamExt;
-use sqlx::postgres::{PgArguments, PgRow};
+use futures_util::{Stream, TryStreamExt};
+use sqlx::postgres::{PgArguments, PgConnection, PgRow};
 use sqlx::Arguments;
 
 use crate::Error;
@@ -45,11 +46,17 @@ impl StreamExecutor for sqlx::Pool<sqlx::Postgres> {
     where
         T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'e,
     {
-        Box::pin(
-            sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args)
-                .fetch(self)
-                .map_err(Error::from),
-        )
+        Box::pin(async_stream::try_stream! {
+            // Cursors need a transaction. Dropping the stream rolls it back, which closes the cursor.
+            let mut tx = self.begin().await?;
+            {
+                let mut rows = pin!(cursor_rows::<T>(&mut tx, sql, args));
+                while let Some(row) = rows.try_next().await? {
+                    yield row;
+                }
+            }
+            tx.commit().await?;
+        })
     }
 }
 
@@ -63,11 +70,46 @@ impl StreamExecutor for crate::database::DbTransaction<'_> {
             let tx = guard
                 .as_mut()
                 .ok_or_else(|| Error::Decode("transaction already completed".to_string()))?;
-            let mut rows = sqlx::query_as_with::<sqlx::Postgres, T, _>(sql, args).fetch(tx.as_mut());
+            let mut rows = pin!(cursor_rows::<T>(tx.as_mut(), sql, args));
             while let Some(row) = rows.try_next().await? {
                 yield row;
             }
         })
+    }
+}
+
+/// Rows fetched per round-trip. Bounds the work PostgreSQL does beyond what the consumer reads.
+const CURSOR_BATCH_SIZE: usize = 1000;
+
+static NEXT_CURSOR_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Reads `sql` through a cursor on `conn`, which must be inside a transaction.
+///
+/// A stream dropped early leaves its cursor open until the transaction ends, so every cursor gets
+/// a unique name. Its statements aren't cached because the names never repeat.
+fn cursor_rows<'c, T>(conn: &'c mut PgConnection, sql: &'c str, args: PgArguments) -> impl Stream<Item = Result<T, Error>> + Send + 'c
+where
+    T: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + 'c,
+{
+    async_stream::try_stream! {
+        let cursor = format!("dbkit_cursor_{}", NEXT_CURSOR_ID.fetch_add(1, Ordering::Relaxed));
+        sqlx::query_with(&format!("DECLARE {cursor} NO SCROLL CURSOR FOR {sql}"), args)
+            .persistent(false)
+            .execute(&mut *conn)
+            .await?;
+        let fetch = format!("FETCH {CURSOR_BATCH_SIZE} FROM {cursor}");
+        loop {
+            let mut fetched = 0;
+            let mut rows = sqlx::query_as::<sqlx::Postgres, T>(&fetch).persistent(false).fetch(&mut *conn);
+            while let Some(row) = rows.try_next().await? {
+                fetched += 1;
+                yield row;
+            }
+            if fetched < CURSOR_BATCH_SIZE {
+                break;
+            }
+        }
+        sqlx::query(&format!("CLOSE {cursor}")).persistent(false).execute(&mut *conn).await?;
     }
 }
 
