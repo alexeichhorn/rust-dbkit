@@ -10,6 +10,9 @@ use crate::{Delete, Error, Executor, Insert, Select, StreamExecutor, Update};
 pub trait SelectStreamExt<Out> {
     /// Runs the query on first poll and yields rows until exhaustion or the first error.
     ///
+    /// Rows are read through a cursor in batches, so dropping the stream early skips the rest
+    /// of the query. On a pool, the stream runs in its own transaction.
+    ///
     /// An active stream holds a connection. Drop it before reusing the same transaction
     /// or committing. Other pool queries need another available connection.
     fn stream<'e, E>(self, ex: &'e E) -> BoxStream<'e, Result<Out, Error>>
