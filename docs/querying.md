@@ -47,9 +47,16 @@ The query runs once, on the first poll. Each item is a `Result`, and the stream
 ends after the last row or the first error. Query-building methods work as with
 `.all()`, but `.with(...)` eager loading isn't supported.
 
+Rows arrive through a cursor in batches of 1,000, so the stream reads at most
+one batch ahead. Dropping the stream early skips fetching the rest of the
+result. If the query fails mid-way, rows in the failing batch are not yielded.
+On a pool, the stream runs inside its own transaction, committed once the
+stream is exhausted.
+
 The stream holds a connection until it's exhausted or dropped, so drop it after
-an early `break`. For slow or resumable jobs, fetch batches keyed on the
-last-seen ID instead.
+an early `break`. If you only need the first rows, `.limit(n)` is still better:
+PostgreSQL can plan for it and the connection is freed right away. For slow or
+resumable jobs, fetch batches keyed on the last-seen ID instead.
 
 Streams also work inside a transaction. Don't run other queries on it while the
 stream is active, and drop the stream before committing:

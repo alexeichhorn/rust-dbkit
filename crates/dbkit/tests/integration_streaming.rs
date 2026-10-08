@@ -93,12 +93,53 @@ async fn database() -> Result<Database, Error> {
 }
 
 async fn assert_pool_usable(db: &Database) -> Result<(), Error> {
-    let (value,): (i32,) = timeout(Duration::from_secs(6), sqlx::query_as("SELECT 42").fetch_one(db.pool()))
-        .await
-        .expect("stream must release its connection")?;
-    assert_eq!(value, 42);
+    // `now()` is the transaction start, so it only equals the statement start outside a transaction.
+    // The simple query protocol keeps both timestamps on one message.
+    let row = timeout(
+        Duration::from_secs(6),
+        sqlx::raw_sql("SELECT now() = statement_timestamp(), (SELECT count(*) FROM pg_cursors)").fetch_one(db.pool()),
+    )
+    .await
+    .expect("stream must release its connection")?;
+    let (outside_transaction, open_cursors): (bool, i64) = (row.try_get(0)?, row.try_get(1)?);
+    assert!(outside_transaction, "stream must not leave its connection inside a transaction");
+    assert_eq!(open_cursors, 0, "stream must not leave cursors open on its connection");
     Ok(())
 }
+
+/// Creates the `stream_probe` view, which counts every row PostgreSQL evaluates in `stream_calls`.
+async fn create_counting_probe<E: Executor + Send + Sync>(ex: &E, rows: i64) -> Result<(), Error> {
+    ex.execute("CREATE TEMP SEQUENCE stream_calls", PgArguments::default()).await?;
+    ex.execute(
+        &format!("CREATE TEMP VIEW stream_probe AS SELECT nextval('stream_calls') AS id FROM generate_series(1, {rows})"),
+        PgArguments::default(),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn evaluated_probe_rows<E: Executor + Send + Sync>(ex: &E) -> Result<i64, Error> {
+    let (rows,): (i64,) = ex
+        .fetch_optional(
+            "SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM stream_calls",
+            PgArguments::default(),
+        )
+        .await?
+        .expect("sequence row");
+    Ok(rows)
+}
+
+async fn prepared_statement_count(db: &Database) -> Result<i64, Error> {
+    let (count,): (i64,) = sqlx::query_as("SELECT count(*) FROM pg_prepared_statements")
+        .fetch_one(db.pool())
+        .await?;
+    Ok(count)
+}
+
+/// Far more rows than a stream may read ahead, so evaluating all of them is unmistakable.
+const LARGE_RESULT_ROWS: i64 = 100_000;
+/// Rows a stream may evaluate beyond what the consumer has taken.
+const MAX_ROWS_READ_AHEAD: i64 = 1_000;
 
 #[tokio::test]
 async fn stream_preserves_filters_order_limit_offset_and_unloaded_relations() -> Result<(), Error> {
@@ -163,6 +204,22 @@ async fn large_stream_visits_every_row_once_without_collecting() -> Result<(), E
     }
     assert_eq!(expected_id, 10004);
     assert_pool_usable(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn stream_yields_every_row_around_fetch_batch_boundaries() -> Result<(), Error> {
+    let db = database().await?;
+    for rows in [999, 1_000, 1_001, 2_000, 2_001] {
+        db.execute(
+            &format!("CREATE OR REPLACE TEMP VIEW stream_probe AS SELECT n::BIGINT AS id FROM generate_series(1, {rows}) n"),
+            PgArguments::default(),
+        )
+        .await?;
+        let ids: Vec<i64> = StreamProbe::query().stream(&db).map_ok(|row| row.id).try_collect().await?;
+        assert_eq!(ids, (1..=rows).collect::<Vec<_>>(), "{rows} rows");
+        assert_pool_usable(&db).await?;
+    }
     Ok(())
 }
 
@@ -278,21 +335,18 @@ async fn stream_supports_relation_path_joins_without_eager_loading() -> Result<(
 #[tokio::test]
 async fn unpolled_stream_does_not_execute_and_streaming_does_not_count_or_requery() -> Result<(), Error> {
     let db = database().await?;
-    db.execute("CREATE TEMP SEQUENCE stream_calls", PgArguments::default()).await?;
-    db.execute(
-        "CREATE TEMP VIEW stream_probe AS SELECT nextval('stream_calls') AS id FROM generate_series(1, 4)",
-        PgArguments::default(),
-    )
-    .await?;
+    create_counting_probe(&db, 4).await?;
 
     drop(StreamProbe::query().stream(&db));
-    let (called,): (bool,) = sqlx::query_as("SELECT is_called FROM stream_calls").fetch_one(db.pool()).await?;
-    assert!(!called, "creating and dropping an unpolled stream must not execute SQL");
+    assert_eq!(
+        evaluated_probe_rows(&db).await?,
+        0,
+        "creating and dropping an unpolled stream must not execute SQL"
+    );
 
     let rows: Vec<StreamProbe> = StreamProbe::query().stream(&db).try_collect().await?;
     assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
-    let (last_value,): (i64,) = sqlx::query_as("SELECT last_value FROM stream_calls").fetch_one(db.pool()).await?;
-    assert_eq!(last_value, 4, "no hidden count query or replay");
+    assert_eq!(evaluated_probe_rows(&db).await?, 4, "no hidden count query or replay");
     Ok(())
 }
 
@@ -325,23 +379,35 @@ async fn stream_decodes_on_demand_and_stops_after_first_decode_error() -> Result
 #[tokio::test]
 async fn stream_yields_rows_before_a_later_database_error() -> Result<(), Error> {
     let db = database().await?;
-    // Wide rows force PostgreSQL to flush output before the third row divides by zero.
-    // Collecting the whole result before yielding would lose the two successful rows.
+    // The row after the first read-ahead window divides by zero. PostgreSQL may withhold rows
+    // that share a fetch with the failing one, but collecting the whole result before yielding
+    // would lose every successful row.
+    let failing_row = MAX_ROWS_READ_AHEAD + 1;
     db.execute(
-        "CREATE TEMP VIEW stream_failures AS
-            SELECT n::BIGINT AS id, repeat('x', 65536) AS payload, 1 / (3 - n) AS value
-            FROM generate_series(1, 3) AS n",
+        &format!(
+            "CREATE TEMP VIEW stream_failures AS
+                SELECT n::BIGINT AS id, 'x' AS payload, 1 / ({failing_row} - n) AS value
+                FROM generate_series(1, {failing_row}) AS n"
+        ),
         PgArguments::default(),
     )
     .await?;
     let mut rows = StreamFailure::query().stream(&db);
-    let first = rows.try_next().await?.expect("row before server failure");
-    assert_eq!(first.id, 1);
-    assert_eq!(first.payload.len(), 65536);
-    assert_eq!(rows.try_next().await?.expect("second row before server failure").id, 2);
+    let mut next_id = 1;
+    let error = loop {
+        match rows.try_next().await {
+            Ok(Some(row)) => {
+                assert_eq!(row.id, next_id);
+                next_id += 1;
+            }
+            Ok(None) => panic!("stream ended without the server failure"),
+            Err(error) => break error,
+        }
+    };
+    assert!(next_id > 1, "rows before the server failure must be yielded");
     assert!(matches!(
-        rows.try_next().await,
-        Err(Error::Sqlx(sqlx::Error::Database(ref error))) if error.code().as_deref() == Some("22012")
+        error,
+        Error::Sqlx(sqlx::Error::Database(ref error)) if error.code().as_deref() == Some("22012")
     ));
     assert!(rows.try_next().await?.is_none());
     drop(rows);
@@ -417,6 +483,76 @@ async fn dropping_partially_consumed_stream_releases_its_connection() -> Result<
     assert!(db.pool().try_acquire().is_none(), "active stream must retain its connection");
     drop(rows);
     assert_pool_usable(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn dropping_pool_stream_early_stops_the_query() -> Result<(), Error> {
+    let db = database().await?;
+    create_counting_probe(&db, LARGE_RESULT_ROWS).await?;
+    let mut rows = StreamProbe::query().stream(&db);
+    assert_eq!(rows.try_next().await?.expect("first row").id, 1);
+    drop(rows);
+    assert_pool_usable(&db).await?;
+    let evaluated = evaluated_probe_rows(&db).await?;
+    assert!(
+        evaluated <= MAX_ROWS_READ_AHEAD,
+        "dropped stream evaluated {evaluated} of {LARGE_RESULT_ROWS} rows"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn dropping_transaction_stream_early_stops_the_query_and_keeps_transaction_usable() -> Result<(), Error> {
+    let db = database().await?;
+    let tx = db.begin().await?;
+    create_counting_probe(&tx, LARGE_RESULT_ROWS).await?;
+    let mut rows = StreamProbe::query().stream(&tx);
+    assert_eq!(rows.try_next().await?.expect("first row").id, 1);
+    drop(rows);
+    let evaluated = timeout(Duration::from_secs(6), evaluated_probe_rows(&tx))
+        .await
+        .expect("dropped stream must release transaction mutex")?;
+    assert!(
+        evaluated <= MAX_ROWS_READ_AHEAD,
+        "dropped stream evaluated {evaluated} of {LARGE_RESULT_ROWS} rows"
+    );
+    tx.execute("INSERT INTO stream_items VALUES (5, 1, 'after drop', NULL)", PgArguments::default())
+        .await?;
+    tx.commit().await?;
+    assert_eq!(StreamItem::query().count(&db).await?, 5);
+    assert_pool_usable(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn repeated_streams_neither_collide_nor_accumulate_prepared_statements() -> Result<(), Error> {
+    let db = database().await?;
+    let statements_before = prepared_statement_count(&db).await?;
+
+    for _ in 0..20 {
+        let mut rows = StreamItem::query().order_by(Order::asc(StreamItem::id)).stream(&db);
+        assert_eq!(rows.try_next().await?.expect("first row").id, 1);
+        drop(rows);
+        let rows: Vec<StreamItem> = StreamItem::query().stream(&db).try_collect().await?;
+        assert_eq!(rows.len(), 4);
+    }
+    assert_pool_usable(&db).await?;
+
+    // Streams dropped early inside one transaction must not block later streams in it.
+    let tx = db.begin().await?;
+    for _ in 0..20 {
+        let mut rows = StreamItem::query().order_by(Order::asc(StreamItem::id)).stream(&tx);
+        assert_eq!(rows.try_next().await?.expect("first row").id, 1);
+        drop(rows);
+        let rows: Vec<StreamItem> = StreamItem::query().stream(&tx).try_collect().await?;
+        assert_eq!(rows.len(), 4);
+    }
+    tx.commit().await?;
+    assert_pool_usable(&db).await?;
+
+    let added = prepared_statement_count(&db).await? - statements_before;
+    assert!(added <= 5, "40 streams added {added} prepared statements");
     Ok(())
 }
 
