@@ -3,7 +3,7 @@
 use dbkit::prelude::*;
 use dbkit::sqlx::postgres::PgArguments;
 use dbkit::sqlx::{self, Row};
-use dbkit::{func, model, Database, Executor, Order, PgBit, PgHalfVector, PgSparseVector};
+use dbkit::{func, model, Database, Executor, Expr, Order, PgBit, PgHalfVector, PgSparseVector};
 
 #[model(table = "extended_embeddings")]
 pub struct Embedding {
@@ -300,6 +300,44 @@ async fn bit_distances_match_postgres_values_rankings_and_nulls() -> Result<(), 
         assert_eq!(Embedding::query().filter(distance.eq(None)).all(&tx).await?.len(), 4);
     }
     tx.rollback().await
+}
+
+#[tokio::test]
+async fn hamming_distance_decodes_as_its_expression_type() -> Result<(), dbkit::Error> {
+    let query: PgBit<9> = "110000000".parse().unwrap();
+    let distance = func::hamming_distance(Embedding::bits, query);
+    assert_eq!(project_second_row_distance(distance).await?, 1.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn jaccard_distance_decodes_as_its_expression_type() -> Result<(), dbkit::Error> {
+    let query: PgBit<9> = "110000000".parse().unwrap();
+    let distance = func::jaccard_distance(Embedding::bits, query);
+    assert_eq!(project_second_row_distance(distance).await?, 0.5);
+    Ok(())
+}
+
+// Infer the decoder from Expr<T> so the projection cannot hide a result-type mismatch.
+async fn project_second_row_distance<T>(distance: Expr<T>) -> Result<T, dbkit::Error>
+where
+    T: for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres> + Send + Unpin + 'static,
+{
+    let db = Database::connect(&db_url()).await?;
+    let tx = db.begin().await?;
+    setup_schema(&tx).await?;
+    seed_distances(&tx).await?;
+
+    let (value,) = Embedding::query()
+        .select_only()
+        .column_as(distance, "distance")
+        .filter(Embedding::id.eq(2_i64))
+        .into_model::<(T,)>()
+        .one(&tx)
+        .await?
+        .expect("seeded second row");
+    tx.rollback().await?;
+    Ok(value)
 }
 
 #[tokio::test]
