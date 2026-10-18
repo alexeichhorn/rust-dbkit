@@ -23,10 +23,10 @@ fn main() {
     let half = PgHalfVector::<3>::from_f32([1.0, 0.0, 0.0]).unwrap();
     let sparse = PgSparseVector::<1000>::new([(0, 1.0)]).unwrap();
     let bits: PgBit<9> = "100000001".parse().unwrap();
-    let _: Expr<f32> = func::cosine_distance(Embedding::half, half.clone());
-    let _: Expr<Option<f32>> = func::l2_distance(Embedding::optional_sparse, sparse.clone());
-    let _: Expr<f32> = func::hamming_distance(Embedding::bits, bits.clone());
-    let _: Expr<Option<f32>> = func::jaccard_distance(bits.clone(), Embedding::optional_bits);
+    let _: Expr<f64> = func::cosine_distance(Embedding::half, half.clone());
+    let _: Expr<Option<f64>> = func::l2_distance(Embedding::optional_sparse, sparse.clone());
+    let _: Expr<f64> = func::hamming_distance(Embedding::bits, bits.clone());
+    let _: Expr<Option<f64>> = func::jaccard_distance(bits.clone(), Embedding::optional_bits);
 
     let _insert = Embedding::insert(EmbeddingInsert {
         id: 1,

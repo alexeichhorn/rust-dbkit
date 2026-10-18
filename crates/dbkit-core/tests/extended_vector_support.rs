@@ -137,10 +137,10 @@ macro_rules! numeric_vector_queries {
 
             macro_rules! check_output {
                 ($function:ident) => {
-                    let _: Expr<f32> = func::$function(column, query.clone());
-                    let _: Expr<Option<f32>> = func::$function(nullable, query.clone());
-                    let _: Expr<Option<f32>> = func::$function(query.clone(), nullable);
-                    let _: Expr<Option<f32>> = func::$function(nullable, nullable);
+                    let _: Expr<f64> = func::$function(column, query.clone());
+                    let _: Expr<Option<f64>> = func::$function(nullable, query.clone());
+                    let _: Expr<Option<f64>> = func::$function(query.clone(), nullable);
+                    let _: Expr<Option<f64>> = func::$function(nullable, nullable);
                 };
             }
             check_output!(l2_distance);
@@ -187,14 +187,14 @@ fn bit_queries_preserve_dimensions_operators_and_nullability() {
     assert!(compiled.sql.contains("embeddings.optional_bits IS NULL"));
     assert_eq!(compiled.binds, vec![Value::from(query.clone())]);
 
-    let _: Expr<f32> = func::hamming_distance(column, query.clone());
-    let _: Expr<f32> = func::jaccard_distance(column, query.clone());
-    let _: Expr<Option<f32>> = func::hamming_distance(nullable, query.clone());
-    let _: Expr<Option<f32>> = func::hamming_distance(query.clone(), nullable);
-    let _: Expr<Option<f32>> = func::hamming_distance(nullable, nullable);
-    let _: Expr<Option<f32>> = func::jaccard_distance(nullable, query.clone());
-    let _: Expr<Option<f32>> = func::jaccard_distance(query, nullable);
-    let _: Expr<Option<f32>> = func::jaccard_distance(nullable, nullable);
+    let _: Expr<f64> = func::hamming_distance(column, query.clone());
+    let _: Expr<f64> = func::jaccard_distance(column, query.clone());
+    let _: Expr<Option<f64>> = func::hamming_distance(nullable, query.clone());
+    let _: Expr<Option<f64>> = func::hamming_distance(query.clone(), nullable);
+    let _: Expr<Option<f64>> = func::hamming_distance(nullable, nullable);
+    let _: Expr<Option<f64>> = func::jaccard_distance(nullable, query.clone());
+    let _: Expr<Option<f64>> = func::jaccard_distance(query, nullable);
+    let _: Expr<Option<f64>> = func::jaccard_distance(nullable, nullable);
 }
 
 #[test]

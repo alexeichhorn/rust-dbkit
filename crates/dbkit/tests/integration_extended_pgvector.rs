@@ -218,7 +218,7 @@ macro_rules! numeric_distances {
             }
 
             let closest = Embedding::query()
-                .filter(func::inner_product_distance(Embedding::$column, query.clone()).lt(-0.4_f32))
+                .filter(func::inner_product_distance(Embedding::$column, query.clone()).lt(-0.4_f64))
                 .order_by(Order::asc(func::l2_distance(Embedding::$column, query.clone())))
                 .limit(2)
                 .all(&tx)
@@ -286,8 +286,8 @@ async fn bit_distances_match_postgres_values_rankings_and_nulls() -> Result<(), 
     }
 
     let closest = Embedding::query()
-        .filter(func::hamming_distance(Embedding::bits, query.clone()).lt(2.0_f32))
-        .filter(func::jaccard_distance(Embedding::bits, query.clone()).lt(0.75_f32))
+        .filter(func::hamming_distance(Embedding::bits, query.clone()).lt(2.0_f64))
+        .filter(func::jaccard_distance(Embedding::bits, query.clone()).lt(0.75_f64))
         .order_by(Order::asc(func::hamming_distance(Embedding::bits, query.clone())))
         .limit(2)
         .all(&tx)

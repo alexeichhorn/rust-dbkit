@@ -1005,32 +1005,32 @@ pub trait VectorOutput<Rhs, const N: usize> {
 }
 
 macro_rules! impl_vector_output {
-    ($type:ident, $marker:ident) => {
+    ($type:ident, $marker:ident, $output:ty) => {
         impl<const N: usize> $marker<N> for $type<N> {}
         impl<const N: usize> $marker<N> for Option<$type<N>> {}
 
         impl<const N: usize> VectorOutput<$type<N>, N> for $type<N> {
-            type Output = f32;
+            type Output = $output;
         }
 
         impl<const N: usize> VectorOutput<Option<$type<N>>, N> for $type<N> {
-            type Output = Option<f32>;
+            type Output = Option<$output>;
         }
 
         impl<const N: usize> VectorOutput<$type<N>, N> for Option<$type<N>> {
-            type Output = Option<f32>;
+            type Output = Option<$output>;
         }
 
         impl<const N: usize> VectorOutput<Option<$type<N>>, N> for Option<$type<N>> {
-            type Output = Option<f32>;
+            type Output = Option<$output>;
         }
     };
 }
 
-impl_vector_output!(PgVector, VectorExpr);
-impl_vector_output!(PgHalfVector, VectorExpr);
-impl_vector_output!(PgSparseVector, VectorExpr);
-impl_vector_output!(PgBit, BitExpr);
+impl_vector_output!(PgVector, VectorExpr, f32);
+impl_vector_output!(PgHalfVector, VectorExpr, f64);
+impl_vector_output!(PgSparseVector, VectorExpr, f64);
+impl_vector_output!(PgBit, BitExpr, f64);
 
 fn vector_binary_fn<const N: usize, L, R>(
     name: &'static str,
