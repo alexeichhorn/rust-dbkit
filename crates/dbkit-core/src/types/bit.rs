@@ -6,9 +6,19 @@ pub struct PgBit<const N: usize> {
 
 impl<const N: usize> PgBit<N> {
     pub fn new(values: [bool; N]) -> Result<Self, PgBitError> {
+        Self::from_slice(&values)
+    }
+
+    fn from_slice(values: &[bool]) -> Result<Self, PgBitError> {
         Self::validate_dimensions()?;
+        if values.len() != N {
+            return Err(PgBitError::DimensionMismatch {
+                expected: N,
+                actual: values.len(),
+            });
+        }
         let mut bytes = vec![0; N.div_ceil(8)];
-        for (index, value) in values.into_iter().enumerate() {
+        for (index, &value) in values.iter().enumerate() {
             if value {
                 bytes[index / 8] |= 1 << (7 - index % 8);
             }
@@ -50,6 +60,14 @@ impl<const N: usize> PgBit<N> {
         Ok(Self {
             bytes: bytes[4..].to_vec(),
         })
+    }
+}
+
+impl<const N: usize> TryFrom<Vec<bool>> for PgBit<N> {
+    type Error = PgBitError;
+
+    fn try_from(values: Vec<bool>) -> Result<Self, Self::Error> {
+        Self::from_slice(&values)
     }
 }
 
