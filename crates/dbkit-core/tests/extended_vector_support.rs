@@ -83,6 +83,26 @@ fn bits_reject_invalid_digits_and_wrong_dimensions() {
     assert!(PgBit::<0>::new([]).is_err());
 }
 
+#[test]
+fn constructors_enforce_postgres_storage_limits() {
+    assert!(matches!(
+        PgHalfVector::<16_001>::from_f32([0.0; 16_001]),
+        Err(PgHalfVectorError::InvalidDimension(16_001))
+    ));
+    assert!(matches!(
+        PgSparseVector::<1_000_000_001>::new([]),
+        Err(PgSparseVectorError::InvalidDimension(1_000_000_001))
+    ));
+    assert!(matches!(
+        PgSparseVector::<16_001>::new((0..16_001).map(|index| (index, 1.0))),
+        Err(PgSparseVectorError::TooManyEntries(16_001))
+    ));
+    assert!(matches!(
+        "".parse::<PgBit<2_147_483_641>>(),
+        Err(PgBitError::InvalidDimension(2_147_483_641))
+    ));
+}
+
 macro_rules! numeric_vector_queries {
     ($test:ident, $ty:ty, $query:expr, $cast:literal) => {
         #[test]
@@ -92,13 +112,13 @@ macro_rules! numeric_vector_queries {
             let nullable: Column<(), Option<$ty>> = Column::new(table, "optional_embedding");
             let query = $query;
             let compiled = Select::<()>::new(table)
-                .filter(column.clone().eq(query.clone()))
-                .filter(nullable.clone().eq(None::<$ty>))
-                .order_by(Order::asc(func::l2_distance(column.clone(), query.clone())))
-                .order_by(Order::asc(func::cosine_distance(column.clone(), query.clone())))
-                .order_by(Order::asc(func::l1_distance(column.clone(), query.clone())))
-                .order_by(Order::asc(func::inner_product_distance(column.clone(), query.clone())))
-                .order_by(Order::desc(func::inner_product(column.clone(), query.clone())))
+                .filter(column.eq(query.clone()))
+                .filter(nullable.eq(None::<$ty>))
+                .order_by(Order::asc(func::l2_distance(column, query.clone())))
+                .order_by(Order::asc(func::cosine_distance(column, query.clone())))
+                .order_by(Order::asc(func::l1_distance(column, query.clone())))
+                .order_by(Order::asc(func::inner_product_distance(column, query.clone())))
+                .order_by(Order::desc(func::inner_product(column, query.clone())))
                 .compile();
 
             let cast = $cast;
@@ -117,10 +137,10 @@ macro_rules! numeric_vector_queries {
 
             macro_rules! check_output {
                 ($function:ident) => {
-                    let _: Expr<f32> = func::$function(column.clone(), query.clone());
-                    let _: Expr<Option<f32>> = func::$function(nullable.clone(), query.clone());
-                    let _: Expr<Option<f32>> = func::$function(query.clone(), nullable.clone());
-                    let _: Expr<Option<f32>> = func::$function(nullable.clone(), nullable.clone());
+                    let _: Expr<f32> = func::$function(column, query.clone());
+                    let _: Expr<Option<f32>> = func::$function(nullable, query.clone());
+                    let _: Expr<Option<f32>> = func::$function(query.clone(), nullable);
+                    let _: Expr<Option<f32>> = func::$function(nullable, nullable);
                 };
             }
             check_output!(l2_distance);
@@ -152,10 +172,10 @@ fn bit_queries_preserve_dimensions_operators_and_nullability() {
     let nullable: Column<(), Option<PgBit<9>>> = Column::new(table, "optional_bits");
     let query: PgBit<9> = "010000001".parse().unwrap();
     let compiled = Select::<()>::new(table)
-        .filter(column.clone().eq(query.clone()))
-        .filter(nullable.clone().eq(None::<PgBit<9>>))
-        .order_by(Order::asc(func::hamming_distance(column.clone(), query.clone())))
-        .order_by(Order::asc(func::jaccard_distance(column.clone(), query.clone())))
+        .filter(column.eq(query.clone()))
+        .filter(nullable.eq(None::<PgBit<9>>))
+        .order_by(Order::asc(func::hamming_distance(column, query.clone())))
+        .order_by(Order::asc(func::jaccard_distance(column, query.clone())))
         .compile();
     for op in ["=", "<~>", "<%>"] {
         assert!(
@@ -167,14 +187,14 @@ fn bit_queries_preserve_dimensions_operators_and_nullability() {
     assert!(compiled.sql.contains("embeddings.optional_bits IS NULL"));
     assert_eq!(compiled.binds, vec![Value::from(query.clone())]);
 
-    let _: Expr<f32> = func::hamming_distance(column.clone(), query.clone());
-    let _: Expr<f32> = func::jaccard_distance(column.clone(), query.clone());
-    let _: Expr<Option<f32>> = func::hamming_distance(nullable.clone(), query.clone());
-    let _: Expr<Option<f32>> = func::hamming_distance(query.clone(), nullable.clone());
-    let _: Expr<Option<f32>> = func::hamming_distance(nullable.clone(), nullable.clone());
-    let _: Expr<Option<f32>> = func::jaccard_distance(nullable.clone(), query.clone());
-    let _: Expr<Option<f32>> = func::jaccard_distance(query, nullable.clone());
-    let _: Expr<Option<f32>> = func::jaccard_distance(nullable.clone(), nullable);
+    let _: Expr<f32> = func::hamming_distance(column, query.clone());
+    let _: Expr<f32> = func::jaccard_distance(column, query.clone());
+    let _: Expr<Option<f32>> = func::hamming_distance(nullable, query.clone());
+    let _: Expr<Option<f32>> = func::hamming_distance(query.clone(), nullable);
+    let _: Expr<Option<f32>> = func::hamming_distance(nullable, nullable);
+    let _: Expr<Option<f32>> = func::jaccard_distance(nullable, query.clone());
+    let _: Expr<Option<f32>> = func::jaccard_distance(query, nullable);
+    let _: Expr<Option<f32>> = func::jaccard_distance(nullable, nullable);
 }
 
 #[test]

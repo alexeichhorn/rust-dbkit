@@ -1,3 +1,11 @@
+mod bit;
+mod half_vector;
+mod sparse_vector;
+
+pub use bit::{PgBit, PgBitError};
+pub use half_vector::{PgHalfVector, PgHalfVectorError};
+pub use sparse_vector::{PgSparseVector, PgSparseVectorError};
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NotLoaded;
 

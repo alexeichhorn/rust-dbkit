@@ -3,7 +3,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub};
 
 use crate::func::{StringBinaryExpr, StringUnaryExpr};
 use crate::schema::{Column, ColumnRef};
-use crate::types::{PgInterval, PgVector};
+use crate::types::{PgBit, PgHalfVector, PgInterval, PgSparseVector, PgVector};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -25,6 +25,9 @@ pub enum Value {
     Time(chrono::NaiveTime),
     Interval(PgInterval),
     Vector(Vec<f32>),
+    HalfVector(String),
+    SparseVector(String),
+    Bit(String),
     Enum { type_name: &'static str, value: String },
 }
 
@@ -263,6 +266,8 @@ pub enum VectorBinaryOp {
     CosineDistance,
     InnerProductDistance,
     L1Distance,
+    HammingDistance,
+    JaccardDistance,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1161,6 +1166,34 @@ impl<const N: usize> ExprOperand for PgVector<N> {
         self.into_expr()
     }
 }
+
+macro_rules! impl_vector_value {
+    ($type:ident, $variant:ident) => {
+        impl<const N: usize> From<$type<N>> for Value {
+            fn from(value: $type<N>) -> Self {
+                Self::$variant(value.to_string())
+            }
+        }
+
+        impl<const N: usize> IntoExpr<$type<N>> for $type<N> {
+            fn into_expr(self) -> Expr<$type<N>> {
+                Expr::new(ExprNode::Value(Value::from(self)))
+            }
+        }
+
+        impl<const N: usize> ExprOperand for $type<N> {
+            type Value = $type<N>;
+
+            fn into_operand_expr(self) -> Expr<Self::Value> {
+                self.into_expr()
+            }
+        }
+    };
+}
+
+impl_vector_value!(PgHalfVector, HalfVector);
+impl_vector_value!(PgSparseVector, SparseVector);
+impl_vector_value!(PgBit, Bit);
 
 macro_rules! impl_nullable_binary_output {
     ($trait:ident, $lhs:ty, $rhs:ty, $output:ty) => {

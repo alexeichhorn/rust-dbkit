@@ -57,20 +57,29 @@ impl SqlBuilder {
             self.sql.push_str("NULL");
             return;
         }
-        let cast_as_vector = matches!(&value, Value::Vector(_));
-        let cast_as_interval = matches!(&value, Value::Interval(_));
-        let cast_as_enum = match &value {
+        let cast_type = match &value {
+            Value::Vector(_) => Some("vector"),
+            Value::HalfVector(_) => Some("halfvec"),
+            Value::SparseVector(_) => Some("sparsevec"),
+            Value::Bit(_) => Some("bit"),
+            Value::Interval(_) => Some("interval"),
             Value::Enum { type_name, .. } => Some(*type_name),
             _ => None,
         };
+        let bit_dimensions = match &value {
+            Value::Bit(bits) => Some(bits.len()),
+            _ => None,
+        };
         self.push_placeholder(value);
-        if cast_as_vector {
-            self.sql.push_str("::vector");
-        } else if cast_as_interval {
-            self.sql.push_str("::interval");
-        } else if let Some(type_name) = cast_as_enum {
+        if let Some(type_name) = cast_type {
             self.sql.push_str("::");
             self.sql.push_str(type_name);
+        }
+        if let Some(dimensions) = bit_dimensions {
+            // A bare ::bit cast truncates to one bit.
+            self.sql.push('(');
+            self.sql.push_str(&dimensions.to_string());
+            self.sql.push(')');
         }
     }
 
@@ -345,6 +354,8 @@ impl ToSql for ExprNode {
                     VectorBinaryOp::CosineDistance => " <=> ",
                     VectorBinaryOp::InnerProductDistance => " <#> ",
                     VectorBinaryOp::L1Distance => " <+> ",
+                    VectorBinaryOp::HammingDistance => " <~> ",
+                    VectorBinaryOp::JaccardDistance => " <%> ",
                 });
                 right.to_sql(builder);
                 builder.push_sql(")");

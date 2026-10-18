@@ -2,7 +2,7 @@ use bitflags::bitflags;
 
 use crate::expr::{AggregateExpr, Expr, ExprNode, ExprOperand, IntoExpr, NumericExprType, TrimDirection, Value, VectorBinaryOp};
 use crate::query::Select;
-use crate::PgVector;
+use crate::{PgBit, PgHalfVector, PgSparseVector, PgVector};
 
 pub trait StringUnaryExpr {
     type Output;
@@ -996,29 +996,41 @@ pub fn exists<Out, Loads, Lock, DistinctState, GroupState>(subquery: Select<Out,
 /// Marker trait for values that can participate in vector distance/similarity expressions.
 pub trait VectorExpr<const N: usize> {}
 
-impl<const N: usize> VectorExpr<N> for PgVector<N> {}
-impl<const N: usize> VectorExpr<N> for Option<PgVector<N>> {}
+/// Marker trait for binary vectors supporting Hamming and Jaccard distance.
+pub trait BitExpr<const N: usize> {}
 
 #[doc(hidden)]
 pub trait VectorOutput<Rhs, const N: usize> {
     type Output;
 }
 
-impl<const N: usize> VectorOutput<PgVector<N>, N> for PgVector<N> {
-    type Output = f32;
+macro_rules! impl_vector_output {
+    ($type:ident, $marker:ident) => {
+        impl<const N: usize> $marker<N> for $type<N> {}
+        impl<const N: usize> $marker<N> for Option<$type<N>> {}
+
+        impl<const N: usize> VectorOutput<$type<N>, N> for $type<N> {
+            type Output = f32;
+        }
+
+        impl<const N: usize> VectorOutput<Option<$type<N>>, N> for $type<N> {
+            type Output = Option<f32>;
+        }
+
+        impl<const N: usize> VectorOutput<$type<N>, N> for Option<$type<N>> {
+            type Output = Option<f32>;
+        }
+
+        impl<const N: usize> VectorOutput<Option<$type<N>>, N> for Option<$type<N>> {
+            type Output = Option<f32>;
+        }
+    };
 }
 
-impl<const N: usize> VectorOutput<Option<PgVector<N>>, N> for PgVector<N> {
-    type Output = Option<f32>;
-}
-
-impl<const N: usize> VectorOutput<PgVector<N>, N> for Option<PgVector<N>> {
-    type Output = Option<f32>;
-}
-
-impl<const N: usize> VectorOutput<Option<PgVector<N>>, N> for Option<PgVector<N>> {
-    type Output = Option<f32>;
-}
+impl_vector_output!(PgVector, VectorExpr);
+impl_vector_output!(PgHalfVector, VectorExpr);
+impl_vector_output!(PgSparseVector, VectorExpr);
+impl_vector_output!(PgBit, BitExpr);
 
 fn vector_binary_fn<const N: usize, L, R>(
     name: &'static str,
@@ -1043,8 +1055,7 @@ fn vector_binary_operator<const N: usize, L, R>(
     right: impl IntoExpr<R>,
 ) -> Expr<<L as VectorOutput<R, N>>::Output>
 where
-    L: VectorExpr<N> + VectorOutput<R, N>,
-    R: VectorExpr<N>,
+    L: VectorOutput<R, N>,
 {
     let left = left.into_expr();
     let right = right.into_expr();
@@ -1136,4 +1147,22 @@ where
     R: VectorExpr<N>,
 {
     vector_binary_operator::<N, L, R>(VectorBinaryOp::InnerProductDistance, left, right)
+}
+
+/// Counts differing bits using pgvector's `<~>` operator. Lower is more similar.
+pub fn hamming_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
+where
+    L: BitExpr<N> + VectorOutput<R, N>,
+    R: BitExpr<N>,
+{
+    vector_binary_operator::<N, L, R>(VectorBinaryOp::HammingDistance, left, right)
+}
+
+/// Compares sets of enabled bits using pgvector's `<%>` operator. Lower is more similar.
+pub fn jaccard_distance<const N: usize, L, R>(left: impl IntoExpr<L>, right: impl IntoExpr<R>) -> Expr<<L as VectorOutput<R, N>>::Output>
+where
+    L: BitExpr<N> + VectorOutput<R, N>,
+    R: BitExpr<N>,
+{
+    vector_binary_operator::<N, L, R>(VectorBinaryOp::JaccardDistance, left, right)
 }
