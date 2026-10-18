@@ -318,6 +318,22 @@ async fn jaccard_distance_decodes_as_its_expression_type() -> Result<(), dbkit::
     Ok(())
 }
 
+#[tokio::test]
+async fn half_distance_decodes_as_its_expression_type() -> Result<(), dbkit::Error> {
+    let query = PgHalfVector::<3>::from_f32([1.0, 0.0, 0.0]).unwrap();
+    let distance = func::l1_distance(Embedding::half, query);
+    assert_eq!(project_second_row_distance(distance).await?, 1.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sparse_distance_decodes_as_its_expression_type() -> Result<(), dbkit::Error> {
+    let query = PgSparseVector::<1000>::new([(0, 1.0)]).unwrap();
+    let distance = func::l1_distance(Embedding::sparse, query);
+    assert_eq!(project_second_row_distance(distance).await?, 1.0);
+    Ok(())
+}
+
 // Infer the decoder from Expr<T> so the projection cannot hide a result-type mismatch.
 async fn project_second_row_distance<T>(distance: Expr<T>) -> Result<T, dbkit::Error>
 where
