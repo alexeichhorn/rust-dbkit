@@ -18,6 +18,9 @@ Built-in typed query/insert/update bindings currently support:
 - `Vec<u8>` (`BYTEA`)
 - `Vec<String>` (`TEXT[]`)
 - `dbkit::PgVector<const N: usize>` (`vector`)
+- `dbkit::PgHalfVector<const N: usize>` (`halfvec`)
+- `dbkit::PgSparseVector<const N: usize>` (`sparsevec`)
+- `dbkit::PgBit<const N: usize>` (`bit`)
 - custom Postgres enums via `#[derive(dbkit::DbEnum)]`
 - `Option<T>` for nullable columns, where `T` is one of the above
 
