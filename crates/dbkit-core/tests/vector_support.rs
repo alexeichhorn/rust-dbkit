@@ -1,4 +1,4 @@
-use dbkit_core::{func, Column, Expr, Order, Select, Table, Value};
+use dbkit_core::{func, Column, Expr, Order, PgVector, PgVectorError, Select, Table, Value};
 
 #[test]
 fn value_from_pgvector() {
@@ -93,14 +93,27 @@ fn select_compiles_inner_product_distance_operator_for_ann_order_by() {
 
 #[test]
 fn pgvector_try_from_vec_validates_exact_dimension() {
-    let ok = dbkit_core::PgVector::<3>::try_from(vec![1.0, 2.0, 3.0]);
-    assert!(ok.is_ok());
+    let vector = PgVector::<3>::try_from(vec![0.1, -2.0, 65520.0]).unwrap();
+    assert_eq!(vector.as_slice(), &[0.1, -2.0, 65520.0]);
 
-    let too_short = dbkit_core::PgVector::<3>::try_from(vec![1.0, 2.0]);
-    assert!(too_short.is_err());
+    for values in [vec![], vec![1.0, 2.0], vec![f32::NAN, 2.0, 3.0, 4.0]] {
+        let actual = values.len();
+        assert_eq!(
+            PgVector::<3>::try_from(values),
+            Err(PgVectorError::DimensionMismatch { expected: 3, actual })
+        );
+    }
+}
 
-    let too_long = dbkit_core::PgVector::<3>::try_from(vec![1.0, 2.0, 3.0, 4.0]);
-    assert!(too_long.is_err());
+#[test]
+fn pgvector_try_from_vec_preserves_finite_validation_and_empty_vectors() {
+    for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert_eq!(
+            PgVector::<3>::try_from(vec![1.0, value, 2.0]),
+            Err(PgVectorError::NonFinite { index: 1 })
+        );
+    }
+    assert!(PgVector::<0>::try_from(vec![]).unwrap().as_slice().is_empty());
 }
 
 #[test]

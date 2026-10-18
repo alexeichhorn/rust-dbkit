@@ -54,16 +54,36 @@ impl<const N: usize> PgHalfVector<N> {
     }
 }
 
-impl<const N: usize> std::str::FromStr for PgHalfVector<N> {
-    type Err = PgHalfVectorError;
+impl<const N: usize> TryFrom<Vec<f32>> for PgHalfVector<N> {
+    type Error = PgHalfVectorError;
 
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let values = super::PgVector::<N>::parse_text(input).map_err(|_| PgHalfVectorError::InvalidTextFormat(input.into()))?;
+    fn try_from(values: Vec<f32>) -> Result<Self, Self::Error> {
         let values = values.try_into().map_err(|values: Vec<f32>| PgHalfVectorError::DimensionMismatch {
             expected: N,
             actual: values.len(),
         })?;
         Self::from_f32(values)
+    }
+}
+
+impl<const N: usize> TryFrom<Vec<f16>> for PgHalfVector<N> {
+    type Error = PgHalfVectorError;
+
+    fn try_from(values: Vec<f16>) -> Result<Self, Self::Error> {
+        let values = values.try_into().map_err(|values: Vec<f16>| PgHalfVectorError::DimensionMismatch {
+            expected: N,
+            actual: values.len(),
+        })?;
+        Self::new(values)
+    }
+}
+
+impl<const N: usize> std::str::FromStr for PgHalfVector<N> {
+    type Err = PgHalfVectorError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let values = super::PgVector::<N>::parse_text(input).map_err(|_| PgHalfVectorError::InvalidTextFormat(input.into()))?;
+        Self::try_from(values)
     }
 }
 
