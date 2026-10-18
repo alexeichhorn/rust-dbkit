@@ -2,6 +2,93 @@ use dbkit_core::{
     func, Column, Expr, Order, PgBit, PgBitError, PgHalfVector, PgHalfVectorError, PgSparseVector, PgSparseVectorError, Select, Table,
     Value,
 };
+use half::f16;
+
+#[test]
+fn half_vector_try_from_f32_vec_rounds_and_preserves_small_values() {
+    let half = PgHalfVector::<4>::try_from(vec![0.1_f32, 1.0 + 1.0 / 2048.0, 65504.0, 2.0_f32.powi(-24)]).unwrap();
+    let values: Vec<f32> = half.as_slice().iter().map(|value| value.to_f32()).collect();
+    assert_eq!(values, [0.099_975_586, 1.0, 65504.0, 2.0_f32.powi(-24)]);
+}
+
+#[test]
+fn half_vector_try_from_f32_vec_rejects_wrong_lengths_non_finite_values_and_overflow() {
+    for values in [vec![], vec![1.0_f32], vec![f32::NAN, 1.0, 2.0]] {
+        let actual = values.len();
+        assert_eq!(
+            PgHalfVector::<2>::try_from(values),
+            Err(PgHalfVectorError::DimensionMismatch { expected: 2, actual })
+        );
+    }
+    for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 65520.0, -65520.0] {
+        assert_eq!(
+            PgHalfVector::<2>::try_from(vec![1.0_f32, value]),
+            Err(PgHalfVectorError::NonFinite { index: 1 })
+        );
+    }
+    assert_eq!(
+        PgHalfVector::<0>::try_from(Vec::<f32>::new()),
+        Err(PgHalfVectorError::InvalidDimension(0))
+    );
+    assert_eq!(
+        PgHalfVector::<16_001>::try_from(vec![0.0_f32; 16_001]),
+        Err(PgHalfVectorError::InvalidDimension(16_001))
+    );
+}
+
+#[test]
+fn half_vector_try_from_native_vec_preserves_bits() {
+    let bits = [0x8000, 0x0001, 0x3c01, 0x7bff];
+    let values = bits.into_iter().map(f16::from_bits).collect::<Vec<_>>();
+    let half = PgHalfVector::<4>::try_from(values).unwrap();
+    assert_eq!(half.as_array().map(f16::to_bits), bits);
+}
+
+#[test]
+fn half_vector_try_from_native_vec_validates_lengths_dimensions_and_finite_values() {
+    for values in [vec![], vec![f16::ONE], vec![f16::NAN, f16::ONE, f16::ZERO]] {
+        let actual = values.len();
+        assert_eq!(
+            PgHalfVector::<2>::try_from(values),
+            Err(PgHalfVectorError::DimensionMismatch { expected: 2, actual })
+        );
+    }
+    for value in [f16::NAN, f16::INFINITY, f16::NEG_INFINITY] {
+        assert_eq!(
+            PgHalfVector::<2>::try_from(vec![f16::ONE, value]),
+            Err(PgHalfVectorError::NonFinite { index: 1 })
+        );
+    }
+    assert_eq!(
+        PgHalfVector::<0>::try_from(Vec::<f16>::new()),
+        Err(PgHalfVectorError::InvalidDimension(0))
+    );
+    assert_eq!(
+        PgHalfVector::<16_001>::try_from(vec![f16::ZERO; 16_001]),
+        Err(PgHalfVectorError::InvalidDimension(16_001))
+    );
+}
+
+#[test]
+fn bits_try_from_vec_preserves_order_leading_zeros_and_padding() {
+    let bits = PgBit::<9>::try_from(vec![false, true, false, false, false, false, false, false, true]).unwrap();
+    assert_eq!(bits.as_bytes(), &[0b0100_0000, 0b1000_0000]);
+    assert_eq!(bits.to_string(), "010000001");
+    assert_eq!(PgBit::<1>::try_from(vec![true]).unwrap().as_bytes(), &[0b1000_0000]);
+    assert_eq!(PgBit::<8>::try_from(vec![false; 8]).unwrap().as_bytes(), &[0]);
+}
+
+#[test]
+fn bits_try_from_vec_rejects_wrong_lengths_and_zero_dimensions() {
+    for values in [vec![], vec![true; 8], vec![true; 10]] {
+        let actual = values.len();
+        assert_eq!(
+            PgBit::<9>::try_from(values),
+            Err(PgBitError::DimensionMismatch { expected: 9, actual })
+        );
+    }
+    assert_eq!(PgBit::<0>::try_from(Vec::<bool>::new()), Err(PgBitError::InvalidDimension(0)));
+}
 
 #[test]
 fn half_vector_rounds_before_use_and_preserves_native_half_values() {
@@ -30,13 +117,13 @@ fn half_vector_rejects_non_finite_values_overflow_and_wrong_dimensions() {
 
 #[test]
 fn sparse_vector_normalizes_entries_and_translates_postgres_indices() {
-    let sparse = PgSparseVector::<1000>::new([(999, -0.25), (42, 0.75), (7, 0.0), (0, 0.5)]).unwrap();
+    let sparse = PgSparseVector::<1000>::new(vec![(999, -0.25), (42, 0.75), (7, 0.0), (8, -0.0), (0, 0.5)]).unwrap();
     assert_eq!(sparse.entries(), &[(0, 0.5), (42, 0.75), (999, -0.25)]);
     assert_eq!(sparse.to_string(), "{1:0.5,43:0.75,1000:-0.25}/1000");
     assert_eq!(sparse.to_string().parse::<PgSparseVector<1000>>().unwrap(), sparse);
     assert_eq!("{1000:-0.25,1:0.5,43:0.75}/1000".parse::<PgSparseVector<1000>>().unwrap(), sparse);
 
-    let zero = PgSparseVector::<1000>::new([]).unwrap();
+    let zero = PgSparseVector::<1000>::new(vec![]).unwrap();
     assert!(zero.entries().is_empty());
     assert_eq!(zero.to_string(), "{}/1000");
     assert_eq!("{}/1000".parse::<PgSparseVector<1000>>().unwrap(), zero);
@@ -44,11 +131,23 @@ fn sparse_vector_normalizes_entries_and_translates_postgres_indices() {
 
 #[test]
 fn sparse_vector_rejects_ambiguous_or_invalid_entries() {
-    for entries in [vec![(3, 1.0)], vec![(0, 1.0), (0, 2.0)], vec![(0, 0.0), (0, 1.0)]] {
-        let _: PgSparseVectorError = PgSparseVector::<3>::new(entries).unwrap_err();
+    for value in [0.0, 1.0] {
+        assert_eq!(
+            PgSparseVector::<3>::new(vec![(3, value)]),
+            Err(PgSparseVectorError::IndexOutOfBounds { index: 3, dimensions: 3 })
+        );
+    }
+    for entries in [vec![(0, 1.0), (0, 2.0)], vec![(0, 0.0), (0, 1.0)], vec![(0, 0.0), (0, -0.0)]] {
+        assert_eq!(
+            PgSparseVector::<3>::new(entries),
+            Err(PgSparseVectorError::DuplicateIndex { index: 0 })
+        );
     }
     for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        assert!(PgSparseVector::<3>::new([(0, value)]).is_err());
+        assert_eq!(
+            PgSparseVector::<3>::new(vec![(2, value)]),
+            Err(PgSparseVectorError::NonFinite { index: 2 })
+        );
     }
     for text in [
         "{0:1}/3",
@@ -62,7 +161,19 @@ fn sparse_vector_rejects_ambiguous_or_invalid_entries() {
     ] {
         assert!(text.parse::<PgSparseVector<3>>().is_err(), "accepted {text}");
     }
-    assert!(PgSparseVector::<0>::new([]).is_err());
+    assert_eq!(PgSparseVector::<0>::new(vec![]), Err(PgSparseVectorError::InvalidDimension(0)));
+}
+
+#[test]
+fn sparse_vector_collection_limit_counts_only_nonzero_entries() {
+    let mut entries: Vec<_> = (0..16_000).map(|index| (index, 1.0)).collect();
+    entries.push((16_000, 0.0));
+    assert_eq!(PgSparseVector::<16_001>::new(entries.clone()).unwrap().entries().len(), 16_000);
+    entries[16_000].1 = 1.0;
+    assert_eq!(
+        PgSparseVector::<16_001>::new(entries),
+        Err(PgSparseVectorError::TooManyEntries(16_001))
+    );
 }
 
 #[test]
