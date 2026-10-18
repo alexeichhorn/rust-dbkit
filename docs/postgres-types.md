@@ -18,10 +18,14 @@ Built-in typed query/insert/update bindings currently support:
 - `Vec<u8>` (`BYTEA`)
 - `Vec<String>` (`TEXT[]`)
 - `dbkit::PgVector<const N: usize>` (`vector`)
+- `dbkit::PgHalfVector<const N: usize>` (`halfvec`)
+- `dbkit::PgSparseVector<const N: usize>` (`sparsevec`)
+- `dbkit::PgBit<const N: usize>` (`bit`)
 - custom Postgres enums via `#[derive(dbkit::DbEnum)]`
 - `Option<T>` for nullable columns, where `T` is one of the above
 
 Notes:
+
 - `eq(None)` / `ne(None)` compile to `IS NULL` / `IS NOT NULL`.
 - Interval expressions are available via `dbkit::interval::{days, hours, minutes, seconds}`.
 - Comparison operators can take literal values or typed expressions on the right-hand side.
@@ -112,16 +116,20 @@ let high_similarity = EmbeddingRow::query()
     .await?;
 ```
 
-Available vector distance/similarity functions:
+Distance and similarity functions for `PgVector`, `PgHalfVector`, and `PgSparseVector`:
+
 - `dbkit::func::l2_distance`
 - `dbkit::func::cosine_distance`
 - `dbkit::func::inner_product`
 - `dbkit::func::l1_distance`
 - `dbkit::func::inner_product_distance`
 
+For `PgBit`, use `dbkit::func::hamming_distance` or `dbkit::func::jaccard_distance`.
+
 Notes:
-- Dimension is part of the Rust type (`PgVector<3>`, `PgVector<1536>`, etc.).
-- Optional embeddings are supported via `Option<PgVector<N>>`.
+
+- Both operands must have the same vector type and dimension. The database column must match.
+- All four types support `Option<T>` for nullable fields and preserve nullability in distance expressions.
 - `cosine_distance` is a distance metric (lower means more similar), so use `.lt(...)` thresholds.
 - Operator-based helpers (`l2_distance`, `cosine_distance`, `l1_distance`, `inner_product_distance`)
   are ANN-index compatible for `ORDER BY ... LIMIT` with pgvector indexes.
@@ -129,7 +137,8 @@ Notes:
   may not use pgvector ANN indexes for `ORDER BY ... LIMIT`.
 - `inner_product_distance` uses negative inner-product distance, so `inner_product > 0.9`
   corresponds to `inner_product_distance < -0.9`.
-- For CI, use a Postgres image with pgvector installed (for example `pgvector/pgvector:pg16`).
+- `halfvec`, `sparsevec`, and binary distance operators require pgvector 0.7 or later.
+- For CI, use a Postgres image with pgvector installed, such as `pgvector/pgvector:pg16`.
 
 ## Postgres Enums With `DbEnum`
 

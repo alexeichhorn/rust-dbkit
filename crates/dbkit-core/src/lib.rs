@@ -24,4 +24,7 @@ pub use query::{
 };
 pub use rel::{BelongsToSpec, ManyToManyThrough, Relation, RelationInfo, RelationKind, RelationTarget};
 pub use schema::{Column, ColumnRef, Table};
-pub use types::{ActiveValue, BelongsTo, HasMany, ManyToMany, NotLoaded, PgInterval, PgVector, PgVectorError};
+pub use types::{
+    ActiveValue, BelongsTo, HasMany, ManyToMany, NotLoaded, PgBit, PgBitError, PgHalfVector, PgHalfVectorError, PgInterval, PgSparseVector,
+    PgSparseVectorError, PgVector, PgVectorError,
+};
